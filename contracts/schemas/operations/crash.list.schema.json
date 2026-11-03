@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/crash.list.schema.json",
+  "title": "crash.list",
+  "description": "The cabinet's crash dumps, metadata only: the small dumps in %SystemRoot%\\Minidump (newest first, at most 50) with the stop code and parameters read from each file's header (its first 4 KB, nothing more), and whether %SystemRoot%\\MEMORY.DMP is there. No dump is copied or sent; uploading one is a separate, Admin-only decision (09-open-decisions.md). The faulting module is not read: a small dump's header does not hold it. A read in the broker; nothing is changed.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "folderFound",
+        "minidumps",
+        "memoryDump",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "folderFound": {
+          "description": "Whether %SystemRoot%\\Minidump exists. Windows creates it at the first small dump.",
+          "type": "boolean"
+        },
+        "minidumps": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "writtenAt",
+              "sizeBytes",
+              "stopCode",
+              "parameters",
+              "problem"
+            ],
+            "properties": {
+              "name": {
+                "description": "The file's name only, for example 110226-9875-01.dmp.",
+                "type": "string",
+                "pattern": "^[A-Za-z0-9._-]{1,64}\\.dmp$"
+              },
+              "writtenAt": {
+                "$ref": "../common.schema.json#/$defs/timestamp"
+              },
+              "sizeBytes": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1099511627776
+              },
+              "stopCode": {
+                "description": "The bug check code from the header, 0 to 0xFFFFFFFF; null when the header could not be read.",
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 4294967295
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "parameters": {
+                "description": "The four bug check parameters as 16-digit hex; null when the header could not be read.",
+                "oneOf": [
+                  {
+                    "type": "array",
+                    "minItems": 4,
+                    "maxItems": 4,
+                    "items": {
+                      "type": "string",
+                      "pattern": "^0x[0-9A-F]{16}$"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "problem": {
+                "description": "Why the header was not read: not_a_dump (not a kernel dump header), too_short, unreadable (Windows refused or the file was in use); null when it was read.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "not_a_dump",
+                      "too_short",
+                      "unreadable"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "memoryDump": {
+          "description": "%SystemRoot%\\MEMORY.DMP, the full or kernel dump; null when there is none.",
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "writtenAt",
+                "sizeBytes"
+              ],
+              "properties": {
+                "writtenAt": {
+                  "$ref": "../common.schema.json#/$defs/timestamp"
+                },
+                "sizeBytes": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1099511627776
+                }
+              }
+            }
+          ]
+        },
+        "truncated": {
+          "description": "True when the folder held more than 50 small dumps; the newest are listed.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

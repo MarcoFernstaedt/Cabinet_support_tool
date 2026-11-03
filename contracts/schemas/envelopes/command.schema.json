@@ -114,6 +114,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "crash.list"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/crash.list.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "eventlog.get"
           }
         },

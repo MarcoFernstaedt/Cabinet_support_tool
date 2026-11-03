@@ -231,6 +231,7 @@
         "eventlog.channels",
         "eventlog.query",
         "boot.history",
+        "crash.list",
         "eventlog.get",
         "devices.list",
         "usb.ports",

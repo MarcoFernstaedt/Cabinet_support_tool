@@ -89,6 +89,7 @@ public static class CommandFile
             [Catalog.EventlogQuery] = new { log = "System", levels = new[] { "critical", "error", "warning" }, pageSize = 20 },
             [Catalog.EventlogGet] = new { log = "System", recordId = 1 },
             [Catalog.BootHistory] = new { days = 30 },
+            [Catalog.CrashList] = new { },
             [Catalog.DevicesList] = new { problemsOnly = false },
             [Catalog.FilesList] = new { path = "C:\\ProgramData", pageSize = 50 },
             [Catalog.NetworkTest] = new { target = "gateway", method = "ping" },

@@ -3,6 +3,7 @@
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
 import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
 import { durationText, endText, type BootRecord } from "../lib/boot-history";
+import { sizeText, stopCodeText, type Minidump } from "../lib/crash-dumps";
 import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
@@ -109,7 +110,32 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
         <TimelineTable items={data.timeline} label="Timeline of changes, crashes and errors" />
       </>)}
       <BootHistoryPanel cabinetId={cabinetId} days={Number(days)} />
+      <CrashDumpsPanel cabinetId={cabinetId} />
     </section>
+  );
+}
+
+/** Lists the cabinet's crash dumps (crash.list): names, times and stop codes from each small dump's header. No dump is copied. */
+function CrashDumpsPanel({ cabinetId }: { cabinetId: string }) {
+  const op = useOperation<{ folderFound: boolean; minidumps: Minidump[]; memoryDump: { writtenAt: string; sizeBytes: number } | null; truncated: boolean }>(cabinetId, "crash.list");
+  const out = op.result?.output;
+  return (
+    <div aria-live="polite">
+      <h3>Crash dumps</h3>
+      <p className="muted small">What Windows saved when it stopped: each small dump's time and stop code, read from its first few kilobytes on the cabinet. Nothing is copied off the cabinet.</p>
+      <button className="btn" onClick={() => void op.start({})} disabled={op.state === "running"}>{op.state === "running" ? "Reading…" : "List the crash dumps"}</button>
+      {op.problem && <p className="error" role="alert">{op.problem}</p>}
+      {op.result && op.result.status !== "succeeded" && <p className="error" role="alert">{op.result.error?.message}</p>}
+      {out && (out.minidumps.length === 0
+        ? <Empty>{out.folderFound ? "The crash dump folder is empty." : "Windows has never saved a small crash dump on this cabinet."}</Empty>
+        : <table className="table compact"><caption className="sr-only">Small crash dumps, newest first</caption>
+            <thead><tr><th scope="col">File</th><th scope="col">Written</th><th scope="col">Stop code</th><th scope="col">Size</th></tr></thead>
+            <tbody>{out.minidumps.map(d => (
+              <tr key={d.name}><th scope="row"><code>{d.name}</code></th><td>{fullTime(d.writtenAt)}</td><td>{stopCodeText(d)}</td><td>{sizeText(d.sizeBytes)}</td></tr>))}</tbody>
+          </table>)}
+      {out?.memoryDump && <p className="small">A full memory dump (MEMORY.DMP) is also on the cabinet: {sizeText(out.memoryDump.sizeBytes)}, written {fullTime(out.memoryDump.writtenAt)}.</p>}
+      {out?.truncated && <p className="muted small">The folder holds more than 50 small dumps; the newest are shown.</p>}
+    </div>
   );
 }
 

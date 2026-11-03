@@ -87,6 +87,36 @@ public sealed record BootHistoryOutput
     public required bool Truncated { get; init; }
 }
 
+// ---- crash.list ------------------------------------------------------------------------------------------------------
+
+/// <summary>Why a small dump's header was not read.</summary>
+public enum DumpProblem { NotADump, TooShort, Unreadable }
+
+public sealed record MinidumpInfo
+{
+    public required string Name { get; init; }
+    public required DateTimeOffset WrittenAt { get; init; }
+    public required long SizeBytes { get; init; }
+    public required long? StopCode { get; init; }
+    public required IReadOnlyList<string>? Parameters { get; init; }
+    public required DumpProblem? Problem { get; init; }
+}
+
+public sealed record MemoryDumpInfo
+{
+    public required DateTimeOffset WrittenAt { get; init; }
+    public required long SizeBytes { get; init; }
+}
+
+public sealed record CrashListOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required bool FolderFound { get; init; }
+    public required IReadOnlyList<MinidumpInfo> Minidumps { get; init; }
+    public required MemoryDumpInfo? MemoryDump { get; init; }
+    public required bool Truncated { get; init; }
+}
+
 public sealed record EventlogQueryOutput
 {
     public required string Log { get; init; }

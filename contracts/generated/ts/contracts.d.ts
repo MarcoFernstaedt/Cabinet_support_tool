@@ -977,6 +977,7 @@ export interface CommandRequest {
     | "eventlog.channels"
     | "eventlog.query"
     | "boot.history"
+    | "crash.list"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -1629,6 +1630,7 @@ export interface RunbookPropose {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1693,6 +1695,7 @@ export interface RunbookPropose {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1762,6 +1765,7 @@ export interface RunbookPropose {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1826,6 +1830,7 @@ export interface RunbookPropose {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2269,6 +2274,7 @@ export interface DiagnosticModule {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2337,6 +2343,7 @@ export interface DiagnosticModule {
           | "eventlog.channels"
           | "eventlog.query"
           | "boot.history"
+          | "crash.list"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2538,6 +2545,7 @@ export interface DiagnosticModule {
       | "eventlog.channels"
       | "eventlog.query"
       | "boot.history"
+      | "crash.list"
       | "eventlog.get"
       | "devices.list"
       | "usb.ports"
@@ -2695,6 +2703,7 @@ export interface Command {
     | "eventlog.channels"
     | "eventlog.query"
     | "boot.history"
+    | "crash.list"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -3541,6 +3550,59 @@ export interface BootHistoryOutput {
   }[];
   /**
    * True when the log had more starts than fit, or the read stopped at its time limit.
+   */
+  truncated: boolean;
+}
+
+export interface CrashListParams {}
+
+export interface CrashListOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * Whether %SystemRoot%\Minidump exists. Windows creates it at the first small dump.
+   */
+  folderFound: boolean;
+  /**
+   * @maxItems 50
+   */
+  minidumps: {
+    /**
+     * The file's name only, for example 110226-9875-01.dmp.
+     */
+    name: string;
+    /**
+     * UTC time, ISO 8601, always ending in Z.
+     */
+    writtenAt: string;
+    sizeBytes: number;
+    /**
+     * The bug check code from the header, 0 to 0xFFFFFFFF; null when the header could not be read.
+     */
+    stopCode: number | null;
+    /**
+     * The four bug check parameters as 16-digit hex; null when the header could not be read.
+     */
+    parameters: [string, string, string, string, ...string[]] | null;
+    /**
+     * Why the header was not read: not_a_dump (not a kernel dump header), too_short, unreadable (Windows refused or the file was in use); null when it was read.
+     */
+    problem: ("not_a_dump" | "too_short" | "unreadable") | null;
+  }[];
+  /**
+   * %SystemRoot%\MEMORY.DMP, the full or kernel dump; null when there is none.
+   */
+  memoryDump: null | {
+    /**
+     * UTC time, ISO 8601, always ending in Z.
+     */
+    writtenAt: string;
+    sizeBytes: number;
+  };
+  /**
+   * True when the folder held more than 50 small dumps; the newest are listed.
    */
   truncated: boolean;
 }
@@ -5336,7 +5398,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "crash.list" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -5349,6 +5411,7 @@ export interface OperationTypes {
   "eventlog.channels": { params: EventlogChannelsParams; output: EventlogChannelsOutput };
   "eventlog.query": { params: EventlogQueryParams; output: EventlogQueryOutput };
   "boot.history": { params: BootHistoryParams; output: BootHistoryOutput };
+  "crash.list": { params: CrashListParams; output: CrashListOutput };
   "eventlog.get": { params: EventlogGetParams; output: EventlogGetOutput };
   "devices.list": { params: DevicesListParams; output: DevicesListOutput };
   "drivers.list": { params: DriversListParams; output: DriversListOutput };
