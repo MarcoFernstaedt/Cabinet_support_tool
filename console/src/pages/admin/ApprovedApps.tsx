@@ -56,13 +56,17 @@ export function ApprovedApps() {
                 {site.data?.cabinets.map(k => <option key={k.id} value={k.id}>{k.name}</option>)}
               </select></label>)}
         </div>
+        {/* Every level below the fleet starts from the client list: when it fails, say so here with a way to try again, rather than an empty choice. */}
+        {level !== "fleet" && clients.problem && (
+          <div className="row gap wrap"><p className="error" role="alert">The client list did not load: {clients.problem}</p>
+            <button className="btn small" onClick={clients.reload}>Try again</button></div>)}
         {/* The cabinet choice depends on this load, so its failure stays next to it with a way to try again. */}
         {level === "cabinet" && siteId && site.problem && (
           <div className="row gap wrap"><p className="error" role="alert">{site.problem}</p>
             <button className="btn small" onClick={site.reload}>Try again</button></div>)}
         {level === "cabinet" && site.data && site.data.cabinets.length === 0 && <p className="muted">This site has no cabinets.</p>}
       </section>
-      {endpoint ? <ListEditor key={endpoint} endpoint={endpoint} level={level} scopeId={scopeId} /> : level === "cabinet" && siteId && (site.problem || site.data?.cabinets.length === 0) ? null : <p className="muted">Choose {level === "client" ? "a client" : level === "site" ? "a client and a site" : "a client, a site and a cabinet"} to see its list.</p>}
+      {endpoint ? <ListEditor key={endpoint} endpoint={endpoint} level={level} scopeId={scopeId} /> : (level !== "fleet" && clients.problem) || (level === "cabinet" && siteId && (site.problem || site.data?.cabinets.length === 0)) ? null : <p className="muted">Choose {level === "client" ? "a client" : level === "site" ? "a client and a site" : "a client, a site and a cabinet"} to see its list.</p>}
     </div>
   );
 }

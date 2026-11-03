@@ -66,9 +66,19 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
 
     await page.goto(`${origin}/admin`);
+    // The page's first load, the client list, fails once: the page says so with a way to try again, not an empty choice (#130 review).
+    let clientLoads = 0;
+    await page.route("**/api/admin/clients", route => clientLoads++ === 0
+      ? route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "internal" }) }) : route.continue());
     await page.getByRole("link", { name: /Approved programs/ }).click();
     await page.getByRole("heading", { name: "Approved programs", level: 1 }).waitFor();
     await page.getByLabel("Set the list for").selectOption("client");
+    await page.getByRole("alert").getByText(/client list did not load/).waitFor();
+    assert.equal(await page.getByText(/Choose a client to see its list/).count(), 0, "a failed load is not blamed on the Admin's choice");
+    await page.getByRole("button", { name: "Try again" }).click();
+    await page.getByLabel("Client", { exact: true }).locator("option", { hasText: "Acme Health" }).waitFor({ state: "attached" });
+    await page.unroute("**/api/admin/clients");
+    assert.equal(await page.getByText(/client list did not load/).count(), 0, "the alert goes once the list loads");
     await page.getByLabel("Client", { exact: true }).selectOption({ label: "Acme Health" });
     await page.getByText(/Nothing set here, so the level above applies/).waitFor();
 
@@ -124,7 +134,12 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     await retry.click();
     await page.getByLabel("Cabinet", { exact: true }).selectOption({ label: "FRONT DESK" });
     await page.unroute(`**/api/fleet/sites/${siteId}`);
-    await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor();
+    // This wait timed out once in a full run (cause not yet known): if it does again, the failure says what the page showed instead.
+    await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor().catch(async (e: Error) => {
+      const shown = { alerts: await page.getByRole("alert").allInnerTexts(), cabinet: await page.getByLabel("Cabinet", { exact: true }).inputValue().catch(() => null),
+        headings: await page.getByRole("heading").allInnerTexts() };
+      throw new Error(`${e.message.split("\n")[0]} The page showed: ${JSON.stringify(shown)}`);
+    });
     await page.getByRole("alert").getByText(/stored list is damaged and approves nothing/).waitFor();
     await page.getByRole("button", { name: "Use the level above" }).click();
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(code());

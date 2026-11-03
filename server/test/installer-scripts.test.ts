@@ -12,6 +12,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { findPwsh } from "./find-pwsh.js";
 
 const root = join(import.meta.dirname, "..", "..", "..");
 const installDir = join(root, "agent", "install");
@@ -85,7 +86,8 @@ test("the installer checks this machine before it copies anything", () => {
 });
 
 // pwsh runs on the Linux test machines; when it is there, the parts of the scripts that do not need Windows are run for real.
-const pwsh = ["/usr/bin/pwsh", "/usr/local/bin/pwsh", "/opt/microsoft/powershell/7/pwsh"].find((p) => existsSync(p));
+// Found on PWSH, then PATH, then the usual install folders (find-pwsh.ts), always as a full path.
+const pwsh = findPwsh();
 
 /** Runs one function from a script, taken out of the script by the PowerShell parser, with the arguments given. */
 function runFunction(script: string, name: string, args: string[]): { status: number | null; out: string } {

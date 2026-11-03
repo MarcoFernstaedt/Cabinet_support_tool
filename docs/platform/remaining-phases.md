@@ -202,7 +202,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~4 | The two #130 follow-ups (`pwsh` paths, the Approved programs page's first load), the console-setup confirm timeout, the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known) (the three #140 review follow-ups are done in the follow-up PR: the `startup.list` command and `shares.list` path now cut at the contract's 256; automatic closures say "Closed automatically by the platform"; the D13 separator) |
+| Open fixes | ~3 | The console-setup confirm timeout, the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
 
 ## Fixes from the hardware test (2026-10-30)
 
@@ -232,9 +232,10 @@ order they are being fixed.
   keeps one of each and `power.set` turns both on or off; the contract now says so. `package verify` on files that are not
   installers: "checked" does not reproduce on current main, which prints `refused`. But a non-MSI file was refused as
   `signature_invalid` (a signature failure); it is now `verification_failed`, the code a non-driver file already got.
-- [ ] **Two test-and-page follow-ups from the #130 review.** `server/test/installer-scripts.test.ts` finds pwsh only at three fixed
-  paths, so a pwsh installed elsewhere (for example under the home folder) skips two tests. The Approved programs page's client
-  list load (the page's first load) shows nothing when it fails. (The signing test's wrapped-text assertion was fixed in #130.)
+- [x] **Two test-and-page follow-ups from the #130 review.** `server/test/installer-scripts.test.ts` found pwsh only at three fixed
+  paths, so a pwsh installed elsewhere (for example under the home folder) skipped two tests; it now looks at `PWSH`, then the
+  full-path folders on `PATH`, then those three (`server/test/find-pwsh.ts`, always a full path). The Approved programs page's
+  client list load (the page's first load) showed nothing when it failed; it now says so with "Try again". (The signing test's wrapped-text assertion was fixed in #130.)
 - [ ] **Two follow-ups from the #130 review.** `troubleshooting.test.ts` failed 8 times in one full run at `--test-concurrency=2`
   (sign-in in `ConsoleHarness.account`) and passed alone and in the next run: a contention flake to root-cause. The same
   shape hit `demo.test.ts` twice at 7679e3c (a drift alert that did not resolve in time; a count of 0 for 1), 15/15 alone. The
