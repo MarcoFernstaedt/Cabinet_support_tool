@@ -17,7 +17,8 @@ import { effectiveRunbook, runbookSummaries } from "../services/runbooks.js";
 import { issueResolutions } from "../services/resolutions.js";
 import { listNotes } from "../services/case-notes.js";
 import { beginDiagnosis, NO_ANSWER, RUN_LIMIT_MS, waitFor, type Outcome } from "./network.js";
-import { cabinetFindings, clean, type BundleFinding, type CabinetEvidence, type Read } from "./cabinet-findings.js";
+import { cabinetFindings, cabinetModules, clean, type BundleFinding, type CabinetEvidence, type CabinetFindings, type Read } from "./cabinet-findings.js";
+import { cabinetOutcomes, recordCheck } from "../services/diagnosis-incidents.js";
 import type { Finding as NetworkFinding } from "./network-findings.js";
 
 const POLL_MS = 300;
@@ -71,14 +72,22 @@ export async function startCabinetDiagnosis(pool: Pool, user: { userId: string; 
   // The network diagnosis runs alongside, as its own stored diagnosis, and is folded in when it is done.
   let network: { id: string; done: Promise<void> } | null = null;
   try { network = await beginDiagnosis(pool, user, cabinetId, k, null, log); } catch (e) { log(`the network part of a cabinet diagnosis could not start: ${(e as Error).message}`); }
-  void run(pool, cabinetId, id, issued, network).catch(async e => {
+  void run(pool, cabinetId, id, issued, network).then(async result => {
+    // Each cabinet module with a problem opens (or adds to) its incident, and a clean one closes it (D16); the network part records its own.
+    let outcomes: ReturnType<typeof cabinetOutcomes> = [];
+    try { outcomes = cabinetOutcomes(result.areas, new Map(cabinetModules().map(m => [m.area as string, { id: m.id, version: m.version }]))); }
+    catch (e) { log(`the cabinet diagnosis could not be recorded on its incidents: ${(e as Error).message}`); }
+    for (const { module, outcome } of outcomes)
+      await recordCheck(pool, { cabinetId, diagnosisId: id, module, label: "The cabinet diagnosis", outcome })
+        .catch(e => log(`the cabinet diagnosis could not be recorded on the ${module.id} incident: ${(e as Error).message}`));
+  }, async e => {
     log(`cabinet diagnosis failed: ${(e as Error).message}`);
     await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
   });
   return id;
 }
 
-async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], network: { id: string; done: Promise<void> } | null): Promise<void> {
+async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], network: { id: string; done: Promise<void> } | null): Promise<CabinetFindings> {
   const deadline = Date.now() + RUN_LIMIT_MS;
   const results = await waitFor(pool, issued.map(i => i.commandId), deadline);
   const read = <T,>(key: string): Read<T> | undefined => {
@@ -108,6 +117,7 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   const readings = { takenAt: new Date().toISOString(), headline: result.headline, areas: result.areas, networkDiagnosisId: network?.id ?? null,
     skipped: issued.filter(i => { const r = read<unknown>(i.key); return r && !r.ok; }).map(i => ({ read: i.key, operation: i.operation, why: clean((read<unknown>(i.key) as { failure: string }).failure, 200) })) };
   await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(result.findings), safeJson(readings)]);
+  return result;
 }
 
 // ---- Reading a diagnosis ----------------------------------------------------------------------------------------------------------------

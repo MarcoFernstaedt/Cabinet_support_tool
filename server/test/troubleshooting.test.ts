@@ -104,6 +104,14 @@ test("a drive that is failing and a clock that is wrong are found on the cabinet
   const drive = d.findings.find((f: { key: string }) => f.key === "drive-health");
   assert.equal(drive?.severity, "problem");
   assert.equal(d.findings[0].key, "drive-health", "a failing drive outranks everything else on it");
+  // The failing drive opened the cabinet's storage incident, linked to this run, by the platform (D16). It is recorded just after the run is stored.
+  let storage: { symptom: string; opened_by_kind: string } | undefined;
+  for (const end = Date.now() + 15_000; !storage && Date.now() < end; await new Promise(r => setTimeout(r, 200)))
+    storage = (await db.app.query<{ symptom: string; opened_by_kind: string }>(
+      `SELECT i.symptom, i.opened_by_kind FROM incidents i JOIN incident_links l ON l.incident_id = i.id AND l.kind = 'diagnosis' AND l.ref_id = $2
+        WHERE i.cabinet_id = $1 AND i.module_id = 'cabinet-storage' AND i.state = 'open'`, [pharmacy, s.body.diagnosisId])).rows[0];
+  assert.ok(storage, "no open storage incident linked to the diagnosis");
+  assert.equal(storage.opened_by_kind, "system");
   const icu = (await cab("ICU")).id;
   const s2 = await call("POST", `/api/cabinets/${icu}/diagnose`, {}, t1);
   const d2 = await finished(`/api/cabinet-diagnoses/${s2.body.diagnosisId}`, t1);
