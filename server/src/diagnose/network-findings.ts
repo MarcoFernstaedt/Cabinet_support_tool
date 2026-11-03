@@ -4,6 +4,7 @@
 // functions: no database, no network, no regular expressions.
 import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput } from "@mashura/cabinet-contracts/types";
 import { observations, type TraceRun } from "./network-observations.js";
+import type { DatabaseRun } from "./sql-findings.js";
 
 export type Severity = "problem" | "warning" | "info" | "ok";
 export type Certainty = "confirmed" | "probable" | "possible" | "not_checked";
@@ -39,6 +40,8 @@ export interface NetworkEvidence {
   tests: TestRun[];
   /** The routes to the sync cabinet and the platform server, hop by hop (absent from diagnoses made before traces existed). */
   traces?: TraceRun[];
+  /** The SQL connectivity ladder's checks of the sync cabinet (absent when the site's sync ports do not include 1433, or before it existed). */
+  databases?: DatabaseRun[];
   /** When the read was made, for lease times; defaults to now. */
   now?: number;
 }

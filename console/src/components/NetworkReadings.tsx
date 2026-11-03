@@ -1,10 +1,11 @@
 // Everything a network diagnosis read from a cabinet, shown whether or not anything is wrong: each adapter's DHCP lease, packet size and
-// card counters, the routes and the ARP table, the connectivity tests (with loss and jitter for pings) and the path traces. A cabinet
+// card counters, the routes and the ARP table, the connectivity tests (with loss and jitter for pings), the path traces and the SQL Server check. A cabinet
 // that matches its baseline can still show a lease about to end, errors on the card, or a path that goes somewhere unexpected.
 import type { ReactNode } from "react";
 import { Badge, KeyValues } from "./ui";
 import { fullTime } from "../lib/time";
 import { Pager, usePaged } from "./Pager";
+import { sqlCheckRows, type DatabaseReading } from "../lib/sql-check";
 
 export interface AdapterReading {
   interfaceIndex: number; name: string; description: string | null; type: string; connected: boolean; linkSpeedBps: number | null; macAddress: string | null;
@@ -21,7 +22,9 @@ export interface PingStats { sent: number; received: number; lossPercent: number
 export interface TestReading { key: string; label: string; params: Record<string, unknown>; failure?: string;
   output?: { success: boolean; resolvedTarget: string | null; latencyMs: number | null; resolvedAddresses: string[]; error: string | null; statistics?: PingStats | null } }
 export interface TraceReading { key: string; label: string; failure?: string; output?: { reached: boolean; resolvedTarget: string | null; error: string | null; hops: { hop: number; address: string | null; rttMs: (number | null)[] }[] } }
-export interface Readings { takenAt: string; adapters: AdapterReading[]; routes: RouteReading[]; neighbors: NeighborReading[]; tests: TestReading[]; traces: TraceReading[] }
+export interface Readings { takenAt: string; adapters: AdapterReading[]; routes: RouteReading[]; neighbors: NeighborReading[]; tests: TestReading[]; traces: TraceReading[];
+  /** The SQL Server check (D15); absent from diagnoses made before it existed. */
+  databases?: DatabaseReading[] }
 
 const mb = (n: number) => n >= 1e9 ? `${(n / 1e9).toFixed(1)} GB` : `${(n / 1e6).toFixed(1)} MB`;
 const count = (n: number) => n.toLocaleString("en-US");
@@ -127,6 +130,8 @@ export function ReadingsView({ readings }: { readings: Readings }) {
             {t.output.error && <span className="muted"> {t.output.error}</span>}</>}</li>))}</ul>
       {readings.traces.length > 0 && <><h3>Paths</h3>{readings.traces.map(t => (
         <div key={t.key}><h4>{t.label}</h4>{t.output ? <TraceTable t={t.output} /> : <p className="muted small">Not traced: {t.failure ?? "no answer"}</p>}</div>))}</>}
+      {readings.databases && readings.databases.length > 0 && <><h3>SQL Server</h3>{readings.databases.map(d => (
+        <div key={d.key}><h4>{d.label}</h4>{d.output ? <KeyValues rows={sqlCheckRows(d.output)} /> : <p className="muted small">Not checked: {d.failure ?? "no answer"}</p>}</div>))}</>}
       <h3>Routes</h3><RoutesTable routes={readings.routes} />
       <h3>ARP table</h3><NeighborsTable neighbors={readings.neighbors} />
     </div>
