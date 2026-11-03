@@ -21,7 +21,6 @@ public static class BootHistory
     public static readonly TimeSpan AfterStart = TimeSpan.FromMinutes(10);
     /// <summary>A record written at a start can carry a time a little before Kernel-General 12's.</summary>
     public static readonly TimeSpan StartSkew = TimeSpan.FromMinutes(1);
-    private static DateTimeOffset Max(DateTimeOffset a, DateTimeOffset b) => a > b ? a : b;
 
     private static bool Is(EventSummary e, string source, int id) => e.EventId == id && string.Equals(e.Source, source, StringComparison.OrdinalIgnoreCase);
     private static bool IsStart(EventSummary e) => Is(e, "Microsoft-Windows-Kernel-General", 12);
@@ -34,21 +33,20 @@ public static class BootHistory
     {
         var all = entries.OrderBy(e => e.Time).ThenBy(e => e.RecordId).ToList();
         var starts = all.Where(IsStart).ToList();
+        // Each record written at a start is given to its one owner first, so two starts minutes apart (a crash loop) never share or lose one.
+        var atStarts = starts.Select(_ => new List<EventSummary>()).ToList();
+        foreach (EventSummary e in all.Where(e => IsUnexpected(e) || IsBlueScreen(e)))
+            if (OwnerOf(e.Time, starts) is int owner) atStarts[owner].Add(e);
         var boots = new List<BootRecord>(starts.Count);
         for (int i = 0; i < starts.Count; i++)
         {
             EventSummary start = starts[i];
             EventSummary? before = i > 0 ? starts[i - 1] : null;
-            // A shutdown or a restart request belongs to the run before: between the previous start and this one. Kernel-Power 41, 6008 and a
-            // blue screen's 1001 are written as Windows starts again: from just before this start to a few minutes after it, never reaching
-            // into the next start (so one start never takes the previous start's records, or the next one's).
+            // A shutdown or a restart request belongs to the run before: between the previous start and this one. A record written as
+            // Windows starts again (Kernel-Power 41, 6008, a blue screen's 1001) belongs to exactly one start: see OwnerOf.
             DateTimeOffset from = before?.Time ?? DateTimeOffset.MinValue;
-            EventSummary? next = i + 1 < starts.Count ? starts[i + 1] : null;
-            DateTimeOffset startLo = start.Time - StartSkew, startHi = start.Time + AfterStart;
-            if (next is not null && next.Time <= startHi) startHi = next.Time - TimeSpan.FromTicks(1);
-            if (before is not null && startLo <= before.Time + AfterStart) startLo = Max(startLo, before.Time + AfterStart + TimeSpan.FromTicks(1));
             var ranBefore = all.Where(e => e.Time > from && e.Time <= start.Time && !ReferenceEquals(e, start)).ToList();
-            var atStart = all.Where(e => e.Time >= startLo && e.Time <= startHi).ToList();
+            var atStart = atStarts[i];
 
             EventSummary? unexpected = atStart.FirstOrDefault(IsUnexpected);
             EventSummary? shutdown = ranBefore.LastOrDefault(IsShutdown);
@@ -69,6 +67,21 @@ public static class BootHistory
         boots.Reverse();
         bool truncated = readTruncated || boots.Count > MaxBoots;
         return new BootHistoryOutput { TakenAt = now, Days = days, Boots = boots.Take(MaxBoots).ToList(), Truncated = truncated };
+    }
+
+    /// <summary>
+    /// Which start a record written as Windows starts again belongs to: the latest start at or before the record's time plus StartSkew (so a
+    /// record stamped a little before its own start's Kernel-General 12 is still that start's), and only if the record is no more than
+    /// AfterStart after it. Otherwise no start owns it. `starts` are oldest first.
+    /// </summary>
+    public static int? OwnerOf(DateTimeOffset at, IReadOnlyList<EventSummary> starts)
+    {
+        for (int i = starts.Count - 1; i >= 0; i--)
+        {
+            if (starts[i].Time - StartSkew > at) continue;
+            return at - starts[i].Time <= AfterStart ? i : null;
+        }
+        return null;
     }
 
     /// <summary>The event's own fields first (Kernel-Power 41), then a blue screen within 10 minutes, else power lost or a hang (D19).</summary>

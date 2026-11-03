@@ -102,4 +102,48 @@ public sealed class BootHistoryTests
             Assert.Equal(UnexpectedCause.PowerLossOrHang, BootHistory.Build(entries, 30, T0 + TimeSpan.FromHours(2), false).Boots[0].Cause);
         }
     }
+
+    [Fact]
+    public void A_start_within_ten_minutes_of_the_last_one_still_gets_its_own_record_and_never_the_other_start_s()
+    {
+        // #151 review: starts five minutes apart, the crash-loop cabinet this page is for.
+        var five = TimeSpan.FromMinutes(5);
+        var after = BootHistory.Build([Start(T0), Start(T0 + five), Kp41(T0 + five + TimeSpan.FromSeconds(30))], 30, T0 + TimeSpan.FromHours(1), false);
+        Assert.Equal((PreviousEnd.Unexpected, PreviousEnd.Unknown), (after.Boots[0].Previous, after.Boots[1].Previous));
+
+        // Written thirty seconds before the later start's own record (inside the skew): still the later start's, not the earlier one's.
+        var before = BootHistory.Build([Start(T0), Start(T0 + five), Kp41(T0 + five - TimeSpan.FromSeconds(30))], 30, T0 + TimeSpan.FromHours(1), false);
+        Assert.Equal((PreviousEnd.Unexpected, PreviousEnd.Unknown), (before.Boots[0].Previous, before.Boots[1].Previous));
+        MatchesContract(before);
+    }
+
+    [Fact]
+    public void A_crash_loop_three_minutes_apart_reads_as_three_blue_screens_each_start_with_its_own()
+    {
+        var three = TimeSpan.FromMinutes(3);
+        var entries = new List<EventSummary>();
+        for (int i = 0; i < 4; i++)
+        {
+            DateTimeOffset at = T0 + i * three;
+            entries.Add(Start(at));
+            if (i > 0) { entries.Add(Kp41(at + TimeSpan.FromSeconds(20))); entries.Add(BlueScreen(at + TimeSpan.FromSeconds(50))); }
+        }
+        BootHistoryOutput o = BootHistory.Build(entries, 30, T0 + TimeSpan.FromHours(1), false);
+        MatchesContract(o);
+        Assert.Equal(4, o.Boots.Count);
+        Assert.All(o.Boots.Take(3), b => Assert.Equal((PreviousEnd.Unexpected, UnexpectedCause.BugCheck), (b.Previous, b.Cause!.Value)));
+        Assert.Equal(PreviousEnd.Unknown, o.Boots[3].Previous);
+
+        // The same loop where only the last restart was a blue screen: the earlier two are not given its BugCheck.
+        var mixed = entries.Where(e => !(e.EventId == 1001 && e.Time < T0 + 3 * three)).ToList();
+        BootHistoryOutput m = BootHistory.Build(mixed, 30, T0 + TimeSpan.FromHours(1), false);
+        Assert.Equal(new UnexpectedCause?[] { UnexpectedCause.BugCheck, UnexpectedCause.PowerLossOrHang, UnexpectedCause.PowerLossOrHang }, m.Boots.Take(3).Select(b => b.Cause));
+    }
+
+    [Fact]
+    public void A_record_more_than_ten_minutes_after_the_last_start_belongs_to_no_start()
+    {
+        var o = BootHistory.Build([Start(T0), Start(T0 + TimeSpan.FromHours(1)), Kp41(T0 + TimeSpan.FromHours(1) + TimeSpan.FromMinutes(20))], 30, T0 + TimeSpan.FromHours(2), false);
+        Assert.Equal(PreviousEnd.Unknown, o.Boots[0].Previous);
+    }
 }
