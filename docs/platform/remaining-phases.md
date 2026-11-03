@@ -60,8 +60,9 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Agent monitors for new dumps and short uptimes (repeated boots are caught on the server, not the agent).
 - Crash signatures (stop code plus faulting module) grouped across the fleet: needs `crash.list`.
 - Incident response mode.
-- **Engine foundation part 5b:** the incident record on the triage view and the crash incident page. (Creating incidents is built:
-  a network or cabinet diagnosis that finds a problem opens one per cabinet and module, and a clean run closes it; D16.)
+- **Engine foundation part 5b:** the incident record on the crash incident page. (Built: a network or cabinet diagnosis that finds a
+  problem opens an incident per cabinet and module and a clean run closes it, D16; Triage has an **Open incidents** view of every
+  incident not yet closed, each opening on its cabinet's History tab. The crash page waits for a crash module to open incidents.)
 - **The drivers and services half of the engine** (engine phase 2).
 
 ## Phase 3 — network, services, boot, updates, fleet operations (mostly built)
@@ -197,7 +198,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 
 | Where | PRs (estimate) | What they are |
 |---|---|---|
-| Phase 2 | ~13 | `crash.list`, `boot.history`, `storage.health`, dump and short-uptime monitors, crash signatures, storage risk classes, power-loss classification, resumable evidence, incident response mode, engine part 5b (triage view and crash incident page), the drivers and services engine half |
+| Phase 2 | ~13 | `crash.list`, `boot.history`, `storage.health`, dump and short-uptime monitors, crash signatures, storage risk classes, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
 | Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |

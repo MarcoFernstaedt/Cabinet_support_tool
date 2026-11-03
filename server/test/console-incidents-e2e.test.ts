@@ -14,7 +14,7 @@ import { launchChromium } from "./browser-launch.js";
 const dist = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
-test("a cabinet's History tab lists its incidents and opens one to its steps", { skip, timeout: 240_000 }, async () => {
+test("a cabinet's History tab lists its incidents and opens one to its steps, and Triage lists the open ones fleet-wide", { skip, timeout: 240_000 }, async () => {
   const browser = await launchChromium(); // first, so a browser that will not start leaves nothing running
   const c = await startConsole(dist);
   const problems: string[] = [];
@@ -51,6 +51,25 @@ test("a cabinet's History tab lists its incidents and opens one to its steps", {
 
     await page.goto(`${c.origin}/cabinets/${quiet}/history`);
     await page.getByText("No incidents have been recorded on this cabinet.").waitFor();
+
+    // Triage lists the fleet's open incidents; one opens on its own cabinet's History tab with its steps already shown.
+    const found = await openIncident(c.db.app, { cabinetId: quiet, symptom: "Drive C: is failing", module: { id: "cabinet-storage", version: 1 }, by: { kind: "system", name: "diagnosis" } });
+    await appendStep(c.db.app, found, { kind: "evidence", summary: "The cabinet diagnosis found 1 problem: Drive C: is failing" }, { kind: "system", name: "diagnosis" });
+    await page.goto(`${c.origin}/triage`);
+    await page.getByRole("button", { name: "Open incidents" }).click();
+    const table = page.getByRole("table", { name: /Open incidents/ });
+    const row = table.getByRole("row", { name: /Drive C: is failing/ });
+    await row.waitFor();
+    assert.match(await row.innerText(), /EXAM 2/);
+    assert.match(await row.innerText(), /Storage/);
+    assert.match(await row.innerText(), /Evidence/);
+    assert.equal(await table.getByRole("row", { name: /fingerprint scanner/ }).count(), 1, "the approved one is still open, so it is listed too");
+    assert.equal(await page.getByLabel("Period").count(), 0, "open incidents have no period");
+    await row.getByRole("link", { name: "Drive C: is failing" }).click();
+    await page.waitForURL(`**/cabinets/${quiet}/history?incident=${found}`);
+    const opened = page.getByRole("region", { name: "Incidents" }).getByRole("list", { name: "Steps, in order" }).getByRole("listitem");
+    await opened.nth(1).waitFor();
+    assert.match(await opened.nth(1).innerText(), /Evidence: The cabinet diagnosis found 1 problem/);
     assert.deepEqual(problems, []);
   } finally {
     await browser.close();

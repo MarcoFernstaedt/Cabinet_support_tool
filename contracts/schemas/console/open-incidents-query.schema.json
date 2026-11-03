@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/open-incidents-query.schema.json",
+  "title": "open-incidents-query",
+  "description": "The fleet's open incident records for triage, from the query string: an optional client, and how many of the most recently changed to list (1 to 200, 100 when left out).",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "clientId": { "$ref": "../common.schema.json#/$defs/uuid" },
+    "limit": { "type": "string", "pattern": "^([1-9]|[1-9][0-9]|1[0-9][0-9]|200)$" }
+  }
+}

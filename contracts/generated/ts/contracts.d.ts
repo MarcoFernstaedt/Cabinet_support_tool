@@ -1345,6 +1345,14 @@ export type NetworkDiagnosisStart =
     };
 
 /**
+ * The fleet's open incident records for triage, from the query string: an optional client, and how many of the most recently changed to list (1 to 200, 100 when left out).
+ */
+export interface OpenIncidentsQuery {
+  clientId?: string;
+  limit?: string;
+}
+
+/**
  * Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.
  */
 export interface PackageUpload {
