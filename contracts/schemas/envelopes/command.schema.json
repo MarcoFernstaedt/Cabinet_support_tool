@@ -96,6 +96,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "boot.history"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/boot.history.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "eventlog.get"
           }
         },

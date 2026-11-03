@@ -460,6 +460,33 @@ test("the sync database check on a demo cabinet answers through the same path as
   } finally { sim.stop(); }
 });
 
+test("boot history on demo cabinets answers through the same path as a real agent: a blue screen's start ends unexpected, others restarted for updates", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const cabinet = async (scenario: string) => (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = $1 ORDER BY name", [scenario])).rows[0]!.id;
+    const read = async (cab: string, params: Record<string, unknown>) => {
+      const issued = await call("POST", `/api/cabinets/${cab}/commands`, { operation: "boot.history", params }, t1);
+      assert.equal(issued.status, 202, JSON.stringify(issued.body));
+      let r: any;
+      // "succeeded" means the server's result path accepted the output against the operation's contract.
+      await until("boot.history to answer", async () => ["succeeded", "failed", "rejected"].includes((r = (await call("GET", `/api/commands/${issued.body.commandId}`, undefined, t1)).body).status), 20_000);
+      assert.equal(r.status, "succeeded", JSON.stringify(r));
+      return r.result.output;
+    };
+    const blue = await read(await cabinet("bsod"), { days: 30 });
+    assert.equal(blue.boots[0].previous, "unexpected");
+    assert.equal(blue.boots[0].cause, "bug_check");
+    const fine = await read(await cabinet("healthy"), {});
+    assert.equal(fine.days, 30, "30 days when none is asked");
+    assert.equal(fine.boots[0].previous, "requested");
+    assert.ok(fine.boots.every((b: { startedAt: string }, i: number, all: { startedAt: string }[]) => i === 0 || all[i - 1]!.startedAt > b.startedAt), "newest first");
+    // The contract refuses a period it does not allow before anything is sent.
+    for (const days of [0, 91, "30"]) assert.equal((await call("POST", `/api/cabinets/${await cabinet("healthy")}/commands`, { operation: "boot.history", params: { days } }, t1)).status, 400, String(days));
+  } finally { sim.stop(); }
+});
+
 test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
   const t1 = await signIn(await account("tier1"));
   // Cabinets that never answer keep their diagnoses running.

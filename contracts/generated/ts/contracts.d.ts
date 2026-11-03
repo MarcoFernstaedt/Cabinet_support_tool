@@ -976,6 +976,7 @@ export interface CommandRequest {
     | "system.info"
     | "eventlog.channels"
     | "eventlog.query"
+    | "boot.history"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -1627,6 +1628,7 @@ export interface RunbookPropose {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1690,6 +1692,7 @@ export interface RunbookPropose {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1758,6 +1761,7 @@ export interface RunbookPropose {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1821,6 +1825,7 @@ export interface RunbookPropose {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2263,6 +2268,7 @@ export interface DiagnosticModule {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2330,6 +2336,7 @@ export interface DiagnosticModule {
           | "system.info"
           | "eventlog.channels"
           | "eventlog.query"
+          | "boot.history"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2530,6 +2537,7 @@ export interface DiagnosticModule {
       | "system.info"
       | "eventlog.channels"
       | "eventlog.query"
+      | "boot.history"
       | "eventlog.get"
       | "devices.list"
       | "usb.ports"
@@ -2686,6 +2694,7 @@ export interface Command {
     | "system.info"
     | "eventlog.channels"
     | "eventlog.query"
+    | "boot.history"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -3485,6 +3494,54 @@ export interface EventlogQueryOutput {
     };
   }[];
   nextBeforeRecordId: number | null;
+  truncated: boolean;
+}
+
+export interface BootHistoryParams {
+  /**
+   * How far back, 1 to 90 days (30 when left out).
+   */
+  days?: number;
+}
+
+export interface BootHistoryOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  days: number;
+  /**
+   * @maxItems 200
+   */
+  boots: {
+    /**
+     * UTC time, ISO 8601, always ending in Z.
+     */
+    startedAt: string;
+    /**
+     * How the run before this start ended: clean (Windows shut down), requested (a restart or shutdown was asked for, User32 1074), unexpected (Kernel-Power 41 or EventLog 6008), unknown (nothing in the log says, or the log does not reach back that far).
+     */
+    previous: "clean" | "requested" | "unexpected" | "unknown";
+    /**
+     * When the run before ended, when the log says (the shutdown or the request); null for an unexpected or unknown end.
+     */
+    previousEndedAt: string | null;
+    /**
+     * How long the run before lasted, from its start to its recorded end; null when either is not in the log.
+     */
+    uptimeBeforeSeconds: number | null;
+    /**
+     * For a requested end: what asked for it, from the first line of User32 1074; otherwise null.
+     */
+    reason: string | null;
+    /**
+     * For an unexpected end: bug_check (a blue screen), forced_off (the power button was held) or power_loss_or_hang, as decision-log D19; otherwise null.
+     */
+    cause: ("bug_check" | "forced_off" | "power_loss_or_hang") | null;
+  }[];
+  /**
+   * True when the log had more starts than fit, or the read stopped at its time limit.
+   */
   truncated: boolean;
 }
 
@@ -5279,7 +5336,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -5291,6 +5348,7 @@ export interface OperationTypes {
   "system.info": { params: SystemInfoParams; output: SystemInfoOutput };
   "eventlog.channels": { params: EventlogChannelsParams; output: EventlogChannelsOutput };
   "eventlog.query": { params: EventlogQueryParams; output: EventlogQueryOutput };
+  "boot.history": { params: BootHistoryParams; output: BootHistoryOutput };
   "eventlog.get": { params: EventlogGetParams; output: EventlogGetOutput };
   "devices.list": { params: DevicesListParams; output: DevicesListOutput };
   "drivers.list": { params: DriversListParams; output: DriversListOutput };

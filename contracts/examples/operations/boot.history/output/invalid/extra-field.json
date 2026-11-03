@@ -1,0 +1,16 @@
+{
+  "takenAt": "2026-11-03T12:00:00Z",
+  "days": 7,
+  "truncated": false,
+  "boots": [
+    {
+      "startedAt": "2026-11-02T06:01:12Z",
+      "previous": "clean",
+      "previousEndedAt": "2026-11-02T06:00:40Z",
+      "uptimeBeforeSeconds": 86400,
+      "reason": null,
+      "cause": null,
+      "user": "CABINET\\\\nurse"
+    }
+  ]
+}

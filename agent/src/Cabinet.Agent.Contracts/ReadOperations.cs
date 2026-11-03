@@ -56,6 +56,37 @@ public sealed record EventSummary
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyDictionary<string, string>? Fields { get; init; }
 }
 
+// ---- boot.history ----------------------------------------------------------------------------------------------------
+
+public sealed record BootHistoryParams
+{
+    /// <summary>1 to 90 days; 30 when left out.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public int? Days { get; init; }
+}
+
+/// <summary>How the run before a start ended.</summary>
+public enum PreviousEnd { Clean, Requested, Unexpected, Unknown }
+/// <summary>Why an unexpected end happened (decision-log D19).</summary>
+public enum UnexpectedCause { BugCheck, ForcedOff, PowerLossOrHang }
+
+public sealed record BootRecord
+{
+    public required DateTimeOffset StartedAt { get; init; }
+    public required PreviousEnd Previous { get; init; }
+    public required DateTimeOffset? PreviousEndedAt { get; init; }
+    public required long? UptimeBeforeSeconds { get; init; }
+    public required string? Reason { get; init; }
+    public required UnexpectedCause? Cause { get; init; }
+}
+
+public sealed record BootHistoryOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required int Days { get; init; }
+    public required IReadOnlyList<BootRecord> Boots { get; init; }
+    public required bool Truncated { get; init; }
+}
+
 public sealed record EventlogQueryOutput
 {
     public required string Log { get; init; }
