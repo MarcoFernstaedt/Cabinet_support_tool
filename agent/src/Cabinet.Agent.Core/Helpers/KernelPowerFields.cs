@@ -29,10 +29,13 @@ public static class KernelPowerFields
         return picked.Count == 0 ? null : picked;
     }
 
-    /// <summary>Decimal of 1 to 20 digits, or 0x and 1 to 16 hex digits; ASCII only (the contract checks the same).</summary>
+    /// <summary>
+    /// Decimal of 1 to 20 digits, or a lower-case 0x and 1 to 16 hex digits; ASCII only. Exactly the eventlog.query contract's pattern, so the
+    /// agent never sends a value its own outbound check would refuse (an upper-case 0X would fail the whole query result; #150 review).
+    /// </summary>
     public static bool IsNumber(string v)
     {
-        if (v.StartsWith("0x", StringComparison.OrdinalIgnoreCase))
+        if (v.StartsWith("0x", StringComparison.Ordinal))
         {
             string hex = v[2..];
             return hex.Length is >= 1 and <= 16 && hex.All(c => c is (>= '0' and <= '9') or (>= 'a' and <= 'f') or (>= 'A' and <= 'F'));

@@ -28,6 +28,7 @@ public sealed class KernelPowerFieldsTests
     [InlineData("")]
     [InlineData("  ")]
     [InlineData("0x")]
+    [InlineData("0X28")]
     [InlineData("-1")]
     [InlineData("1e5")]
     [InlineData("209; DROP TABLE events")]

@@ -24,8 +24,9 @@ The crash view returns `shutdownCauses` (counts by cause) and each timeline entr
 returns, for Kernel-Power 41 only, the event's `BugcheckCode`, `BugcheckParameter1`, `PowerButtonTimestamp` and `SleepInProgress`
 (`KernelPowerFields`), and the watch puts them in the event's `detail.fields`. The contract allows only those four names and only plain
 decimal or 0x-hex numbers, so this is not a way to send other event data. Field values that are not plain numbers never decide a
-cause. The Windows read of the fields runs only on Windows and is proven there by CI or a real cabinet; the picking and the event are
-tested on Linux. A cabinet on an older agent sends no fields and keeps the step 2 and 3 classification.
+cause. The Windows read of the fields runs only on Windows. While GitHub Actions cannot run (account billing), it can only be proven on a
+real cabinet; the picking and the event are tested on Linux. The agent's check on values is exactly the contract's pattern (a
+lower-case 0x only), so it never sends a value its own outbound check would refuse. A cabinet on an older agent sends no fields and keeps the step 2 and 3 classification.
 
 **Why 10 minutes.** Long enough for a slow start after a blue screen, short enough that an unrelated blue screen hours later does not
 claim a power cut. Worked out, not measured on cabinets.
