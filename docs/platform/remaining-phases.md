@@ -1,6 +1,6 @@
 # Phases left, and what each contains
 
-**Reviewed against the code on 2026-11-02** (main at `37cc6c6`, plus PR #135). The previous version of this page was written on
+**Reviewed against the code on 2026-11-03** (main at `771267d`, after PRs #135 to #140); first full review 2026-11-02. The previous version of this page was written on
 2026-10-25 and listed as "left" about twenty things that have since been built; every line below was checked against the
 contracts, agent, server and console, and says **built**, **partly built** or **not built**, with where to look.
 
@@ -28,7 +28,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   certainty, evidence, a suggested fix, a runbook, known fixes and a fix button where a safe operation exists.
 - **Since the last version of this page:** replacing a cabinet with re-apply (8d), site policies at approval (8c), client
   scanner switch (8b), sync cabinets per cabinet (8a), the diagnostic engine foundation parts 1 to 5a, the audit-chain race
-  fix (#135, migration 0019).
+  fix (#135, migration 0019), the diagnosis time budget (#137), the e2e browser start (#138), the SQL connectivity operation
+  (#139) and the product-test fixes (#140).
 
 ## Phase 2 — blue screens, storage, drivers, incidents (mostly built)
 
@@ -172,6 +173,36 @@ stand:
    machine on the cabinets' own network.
 6. **The cabinets' network** — most of phase 3 only matters against real cabinets, so reachability has to be settled to
    prove it.
+
+## Fixes from the product test (2026-11-02)
+
+Agent 0.3.1 on a real Windows machine against main at `bfe475a`: 35 of 35 reads returned, the out-of-band firewall alert and the
+platform-authored write attribution worked. Its findings:
+
+- [x] **`reliability.list` failed outright on a long Windows message (high).** Text was cut at 300 for a 256 contract field; the
+  DNS cache data and certificate subject had the same mismatch. Fixed in #140 (one 256 cap, contract-checked tests).
+- [x] **The firewall state on the platform lagged up to 5 minutes after a change (medium).** Fixed in #140: a changed firewall asks
+  for an early heartbeat, at most once every 15 s.
+- [x] **One-off security alerts never closed (medium).** Owner's decision: they close after 14 days with no recurrence (D14). #140.
+- [ ] **No backup ran on the test host (low, environment).** `deploy/setup.sh` installs the nightly cron job; that host was set up
+  without it. Host task: install `/etc/cron.d/cabinet-backup` and run one backup. Not a code change.
+- [x] **The agent's "log is being flooded" notice was unrecognized (low).** Fixed in #140: migration 0020 maps `agent_status` to
+  the built-in "Agent problem" issue type.
+
+## How many PRs are left (estimate)
+
+**About 65 to 70 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+"not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
+changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
+
+| Where | PRs (estimate) | What they are |
+|---|---|---|
+| Phase 2 | ~14 | `crash.list`, `boot.history`, `storage.health`, dump and short-uptime monitors, crash signatures, storage risk classes, power-loss classification, resumable evidence, incident response mode, engine part 5b and creating incidents, the drivers and services engine half |
+| Phase 3 | ~20 | SQL check as diagnosis findings, process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
+| Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
+| Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
+| Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
+| Open fixes | ~4 | The two #130 follow-ups (`pwsh` paths, the Approved programs page's first load), the console-setup confirm timeout, the installer hash check on CI (D2), the three #140 review follow-ups (the `startup.list` command and `shares.list` path cut at 500 and 260 against the contract's 256, so one long value fails the whole read; the automatic closures on `/admin/security` print an empty "Closed by"; no separator above D13) |
 
 ## Fixes from the hardware test (2026-10-30)
 
