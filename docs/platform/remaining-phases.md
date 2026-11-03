@@ -202,7 +202,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~4 | The two #130 follow-ups (`pwsh` paths, the Approved programs page's first load), the console-setup confirm timeout, the installer hash check on CI (D2), the three #140 review follow-ups (the `startup.list` command and `shares.list` path cut at 500 and 260 against the contract's 256, so one long value fails the whole read; the automatic closures on `/admin/security` print an empty "Closed by"; no separator above D13) |
+| Open fixes | ~4 | The two #130 follow-ups (`pwsh` paths, the Approved programs page's first load), the console-setup confirm timeout, the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known) (the three #140 review follow-ups are done in the follow-up PR: the `startup.list` command and `shares.list` path now cut at the contract's 256; automatic closures say "Closed automatically by the platform"; the D13 separator) |
 
 ## Fixes from the hardware test (2026-10-30)
 

@@ -79,6 +79,19 @@ public static class InventoryRules
         };
     }
 
+    /// <summary>A program started at sign-in, its command within the contract cap (a long command line once failed the whole read).</summary>
+    public static StartupItem StartupItemFor(string? name, string? command, string? location) => new()
+    {
+        Name = Clean(name, 200) ?? "(unnamed)", Command = Clean(command, ShortTextMax) ?? "", Location = Clean(location, 200) ?? "",
+    };
+
+    /// <summary>A shared folder, its path within the contract cap (Windows allows paths far longer than 256 characters).</summary>
+    public static ShareInfo ShareInfoFor(string? name, string? path, string? description, long? type)
+    {
+        string named = Clean(name, 80) ?? "(unnamed)";
+        return new ShareInfo { Name = named, Path = Clean(path, ShortTextMax), Description = Clean(description, 200), Kind = ShareKindFor(type, named) };
+    }
+
     /// <summary>A certificate near or past its expiry, its subject within the contract cap.</summary>
     public static CertificateExpiry CertificateExpiryFor(string store, string? subject, DateTimeOffset notAfter, DateTimeOffset now)
     {

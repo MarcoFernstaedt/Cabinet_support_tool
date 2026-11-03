@@ -53,4 +53,26 @@ public sealed class InventoryContractCapsTests
         MatchesContract(Catalog.SystemSecurity, output);
         Assert.True(output.Certificates[1].Expired);
     }
+
+    [Fact]
+    public void A_long_startup_command_keeps_the_read_within_its_contract()
+    {
+        var output = new StartupListOutput
+        {
+            TakenAt = Now, Truncated = false, Tasks = [],
+            Startup = [InventoryRules.StartupItemFor("Updater", "\"C:\\Program Files\\Vendor\\updater.exe\" " + Long, "HKLM\\Run"), InventoryRules.StartupItemFor(null, null, null)],
+        };
+        MatchesContract(Catalog.StartupList, output);
+    }
+
+    [Fact]
+    public void A_long_share_path_keeps_the_read_within_its_contract()
+    {
+        var output = new SharesListOutput
+        {
+            TakenAt = Now,
+            Shares = [InventoryRules.ShareInfoFor("Scans", "D:\\" + string.Concat(Enumerable.Repeat("folder\\", 60)), "Scanned forms", 0), InventoryRules.ShareInfoFor("IPC$", null, null, 3)],
+        };
+        MatchesContract(Catalog.SharesList, output);
+    }
 }

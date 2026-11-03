@@ -7,6 +7,7 @@ import { useSecurityNews } from "../../lib/commands";
 import { Link } from "../../lib/router";
 import { useWriteStatus } from "../../lib/writes";
 import { fullTime } from "../../lib/time";
+import { closedByText } from "../../lib/security-alerts";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues } from "../../components/ui";
 import { useStepUp } from "../../components/StepUp";
@@ -126,7 +127,7 @@ export function SecurityAlerts() {
                 <label className="field inline"><span>What you found</span><input required maxLength={256} value={notes[a.id] ?? ""} onChange={e => setNotes(n => ({ ...n, [a.id]: e.target.value }))} /></label>
                 <button className="btn primary" type="submit">Close alert</button>
               </form>
-            ) : <p className="small">Closed by {a.resolvedBy} {fullTime(a.resolvedAt)}: {a.resolution}</p>}
+            ) : <p className="small">{closedByText(a.resolvedBy)} {fullTime(a.resolvedAt)}: {a.resolution}</p>}
           </li>))}
         </ul>))}
       <section className="panel" aria-labelledby="signins-heading">
