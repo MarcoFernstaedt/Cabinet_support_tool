@@ -246,6 +246,18 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await ada.getByRole("button", { name: "Resolved" }).click();
     await ada.getByText(/Closed by Ada Admin .*Sam mistyped after the reset/).waitFor();
 
+    // Drive risk thresholds (D18): an Admin moves the Critical wear line with a code; the change is stored and audited.
+    await ada.goto(`${origin}/admin/settings`);
+    const drives = ada.getByRole("region", { name: "Drive risk" });
+    const critical = drives.getByLabel(/^Critical at \(52–100 %\)/);
+    assert.equal(await critical.inputValue(), "95", "the default");
+    await critical.fill("97");
+    await ada.getByRole("button", { name: "Save settings" }).click();
+    await confirm(ada, /wearCriticalPct/);
+    await ada.getByText("Settings saved.").waitFor();
+    assert.equal(Number((await db.app.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = 'drives.wearCriticalPct'")).rows[0]?.value), 97);
+    assert.equal(await fromPage(tess, "GET", "/api/admin/settings"), 403, "Tier 2 cannot read them");
+
     // Tier 2 cannot see any of it, whatever they type into the address bar.
     await db.app.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [tessId]);
     assert.equal(await fromPage(tess, "GET", "/api/admin/security-alerts"), 403);

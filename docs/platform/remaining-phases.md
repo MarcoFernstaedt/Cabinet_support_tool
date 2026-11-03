@@ -46,10 +46,11 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Evidence packages: hashed per section and whole, audited (`evidence.ts`).
 - **Engine foundation parts 1 to 5a:** module contract, incident record (migration 0017), capability registry, today's
   cabinet checks and the network diagnosis as modules, incidents shown on the cabinet's History tab.
+- Storage risk classes (D18): Healthy, Attention, High risk, Critical and Unknown, with thresholds an Admin sets in
+  Settings and defaults from common drive-maker and field-study values. (Correlation with crashes and NVMe counters stay with
+  `storage.health` below.)
 
 **Partly built:**
-- Storage risk classes: drives have levels, but the spec's named classes (Healthy, Attention, High risk, Critical, Unknown)
-  from configurable rules are not built.
 - Power-loss classification: "restarted without shutting down cleanly" (Kernel-Power 41) is recognised; telling a bug check
   from power loss from forced off is not.
 - Evidence preservation: hashed bundles built; resumable uploads not.
@@ -192,13 +193,13 @@ platform-authored write attribution worked. Its findings:
 
 ## How many PRs are left (estimate)
 
-**About 62 to 67 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**About 61 to 66 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 
 | Where | PRs (estimate) | What they are |
 |---|---|---|
-| Phase 2 | ~13 | `crash.list`, `boot.history`, `storage.health`, dump and short-uptime monitors, crash signatures, storage risk classes, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
+| Phase 2 | ~12 | `crash.list`, `boot.history`, `storage.health`, dump and short-uptime monitors, crash signatures, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
 | Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |

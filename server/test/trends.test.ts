@@ -1,7 +1,7 @@
 // The trend arithmetic and the drive rules, with plain numbers: what is flagged, at what level, and what is not.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessDrive, daysUntil, daysUntilEmpty, slopePerDay, type DriveSample } from "../src/services/trends.js";
+import { assessDrive, daysUntil, daysUntilEmpty, DEFAULT_DRIVE_THRESHOLDS, riskClass, slopePerDay, thresholdProblem, type DriveSample } from "../src/services/trends.js";
 
 const DAY = 86_400_000, T0 = Date.UTC(2026, 0, 1);
 const sample = (day: number, o: Partial<DriveSample> = {}): DriveSample => ({ at: T0 + day * DAY, health: "healthy", predictFailure: false, temperature: 38, reallocated: 0, pending: 0, uncorrectable: 0, wear: 10, ...o });
@@ -79,4 +79,31 @@ test("missing values (a drive that reports little) are neither a problem nor a c
 test("samples may arrive in any order", () => {
   const s = series(40, d => ({ reallocated: d < 20 ? 0 : (d - 19) * 2 }));
   assert.equal(assessDrive([...s].reverse()).level, assessDrive(s).level);
+});
+
+test("the named risk classes: Healthy, Attention, High risk, Critical, and Unknown for a drive with no report", () => {
+  assert.equal(riskClass("ok"), "healthy");
+  assert.equal(riskClass("watch"), "attention");
+  assert.equal(riskClass("act"), "high_risk");
+  assert.equal(riskClass("urgent"), "critical");
+  for (const none of [null, undefined, "bogus" as never]) assert.equal(riskClass(none), "unknown", String(none));
+});
+
+test("an Admin's thresholds move the line: the same drive changes class with them, and the defaults are today's", () => {
+  const t = { ...DEFAULT_DRIVE_THRESHOLDS };
+  assert.equal(assessDrive(series(10, () => ({ wear: 85 }))).level, "watch");
+  assert.equal(assessDrive(series(10, () => ({ wear: 85 })), { ...t, wearAttentionPct: 86 }).level, "ok", "85% is fine when Attention starts at 86%");
+  assert.equal(assessDrive(series(10, () => ({ temperature: 66 }))).level, "watch");
+  assert.equal(assessDrive(series(10, () => ({ temperature: 66 })), { ...t, temperatureHighRiskC: 65 }).level, "act", "a cabinet that must run cooler");
+  // One new reallocated sector this week is High risk by default; an Admin can ask for more before it is.
+  const oneNew = series(30, d => ({ reallocated: d < 28 ? 4 : 5 }));
+  assert.equal(assessDrive(oneNew).level, "act");
+  assert.equal(assessDrive(oneNew, { ...t, reallocatedHighRiskPer7Days: 3 }).level, "watch");
+});
+
+test("a set of thresholds whose steps do not rise is refused", () => {
+  assert.equal(thresholdProblem(DEFAULT_DRIVE_THRESHOLDS), null);
+  const t = { ...DEFAULT_DRIVE_THRESHOLDS };
+  for (const bad of [{ wearHighRiskPct: 80 }, { wearCriticalPct: 90 }, { wearDaysCritical: 180 }, { temperatureAttentionC: 70 }, { reallocatedCriticalPer30Days: 0 }])
+    assert.notEqual(thresholdProblem({ ...t, ...bad }), null, JSON.stringify(bad));
 });

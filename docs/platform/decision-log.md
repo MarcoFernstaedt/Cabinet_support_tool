@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D18. Drive risk classes, with thresholds an Admin sets (2026-11-03)
+
+**Owner's decision.** Asked what "configurable rules" means for the spec's five drive classes (13-roadmap.md, line 5): an Admin sets
+the thresholds, and the defaults follow the metrics drive makers and field studies already use ("most are the same").
+
+**What is built.**
+- **The classes.** Healthy, Attention, High risk, Critical, and Unknown for a drive with no stored assessment. They are the existing
+  levels under their spec names (ok, watch, act, urgent), so stored history and alerts carry on unchanged. The API gives `riskClass`
+  beside `level`; the console shows the class, with the advice (plan a replacement; back up now) next to it on the Fleet page too.
+- **The thresholds** are a new `drives` group in Admin > Settings, saved like every other platform setting: a code bound to the exact
+  change, an audit entry with before and after, Admin only, every value range-checked by the contract and again by the server. The
+  server also refuses a set whose steps do not rise (for example Attention at or above High risk) and saves nothing. A stored set that
+  is out of range or does not rise is read as the defaults. Drives are judged again on their next report (about daily).
+- **What an Admin can set, and the defaults** (today's values, so nothing changes until someone changes them):
+  - rated life used (SSD wear, NVMe "percentage used"): Attention 80%, High risk 90%, Critical 95%;
+  - projected days until 100% of rated life: High risk 180, Critical 60;
+  - temperature: Attention 60 °C, High risk 70 °C; a rise of 10 °C over 30 days is Attention;
+  - new reallocated sectors: High risk at 1 in 7 days, Critical at 8 in 30 days.
+- **What stays fixed**, because every source agrees on it: the drive's own failure prediction and a "failing" health are Critical;
+  pending or uncorrectable sectors are High risk and Critical when they grow; any reallocated sector is Attention.
+
+**Where the defaults come from** (the common reference points, not measurements of this fleet):
+- Field studies of large drive fleets (Backblaze's published SMART statistics; Google's 2007 "Failure Trends in a Large Disk Drive
+  Population") found that drives with any reallocated, pending or uncorrectable sectors fail far more often than drives with none, and
+  that growth in those counts is the stronger sign. Hence any reallocated sector is Attention and growth is High risk or Critical.
+- The NVMe specification's "percentage used" reaches 100 at the end of the drive's rated endurance; makers warrant to that point,
+  not past it. Hence the wear ladder ends at 95%, short of 100.
+- Drive makers commonly rate operation up to about 70 °C (SSDs) or 60 °C (many hard drives). Hence Attention at 60 and High risk at 70.
+
+**Alternatives.** Fixed thresholds (nothing to misconfigure, but a release for every change); per-client thresholds (more flexible,
+more to manage). Both were offered; the owner chose Admin-set fleet-wide values with industry defaults.
+
+**Proof.** `trends.test.ts`: the class names, Unknown for no level, thresholds moving the line both ways, and non-rising sets
+refused. `admin.test.ts`: the defaults, a change with a code, a non-rising change refused with nothing saved, hostile values refused
+by the contract, Tier 2 refused. `drives.test.ts`: a stored threshold changes the class of a real report (red with the thresholds not
+passed in). `console-admin-e2e`: an Admin changes "Critical at" in Settings with a code and it is stored (red against the old page).
+`console-readings-e2e`: the Fleet page and the drive history show Critical, High risk and Attention.
+
+---
+
 ## D17. The setup test waits 90 s for "Turn demo mode on"; the seed stays one cabinet at a time (2026-11-03)
 
 **The failure.** `console-setup-e2e` failed twice in full runs: "the confirmed request was still running after 30 s (the dialog says

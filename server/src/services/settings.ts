@@ -3,6 +3,7 @@
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
+import { DEFAULT_DRIVE_THRESHOLDS, thresholdProblem, type DriveThresholds } from "./trends.js";
 
 /**
  * Writes one row of the settings table: replaces the value when the key exists, adds the row when it does not. Call it inside a
@@ -68,13 +69,40 @@ export interface PlatformSettings {
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
   /** How the agents pace themselves (see AgentPacing); the heartbeat answer carries these. */
   agents: AgentPacing;
+  /** The drive risk thresholds (decision-log D18); the defaults follow common drive-maker and field-study values. */
+  drives: DriveThresholds;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
   offlineAlertDays: 5, sessionIdleMinutes: 30, sessionAbsoluteHours: 12,
   retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
   agents: { heartbeatSeconds: 300, pollSeconds: 25, eventsPaceMs: 2_000 },
+  drives: { ...DEFAULT_DRIVE_THRESHOLDS },
 };
+
+/** Each drive threshold's key and allowed range (the console contract checks the same ranges). */
+export const DRIVE_KEYS: Readonly<Record<keyof DriveThresholds, readonly [string, number, number]>> = {
+  wearAttentionPct: ["drives.wearAttentionPct", 50, 98], wearHighRiskPct: ["drives.wearHighRiskPct", 51, 99], wearCriticalPct: ["drives.wearCriticalPct", 52, 100],
+  wearDaysHighRisk: ["drives.wearDaysHighRisk", 14, 730], wearDaysCritical: ["drives.wearDaysCritical", 7, 365],
+  temperatureAttentionC: ["drives.temperatureAttentionC", 40, 84], temperatureHighRiskC: ["drives.temperatureHighRiskC", 45, 90],
+  temperatureRiseAttentionC: ["drives.temperatureRiseAttentionC", 3, 30],
+  reallocatedHighRiskPer7Days: ["drives.reallocatedHighRiskPer7Days", 1, 100], reallocatedCriticalPer30Days: ["drives.reallocatedCriticalPer30Days", 1, 1000],
+};
+
+/** The thresholds from the settings rows: a stored value out of range, or a set whose ladders do not rise, falls back to the defaults. */
+function drivesFrom(rows: Map<string, unknown>): DriveThresholds {
+  const t = {} as DriveThresholds;
+  for (const [name, [key, min, max]] of Object.entries(DRIVE_KEYS) as [keyof DriveThresholds, readonly [string, number, number]][]) {
+    const v = rows.get(key);
+    t[name] = typeof v === "number" && Number.isInteger(v) && v >= min && v <= max ? v : DEFAULT_DRIVE_THRESHOLDS[name];
+  }
+  return thresholdProblem(t) === null ? t : { ...DEFAULT_DRIVE_THRESHOLDS };
+}
+
+/** The drive thresholds in force, for judging a drive's history. */
+export async function driveThresholds(db: Queryable): Promise<DriveThresholds> {
+  return drivesFrom(new Map((await db.query<{ key: string; value: unknown }>("SELECT [key], [value] FROM settings WHERE [key] LIKE 'drives.%'")).rows.map(r => [r.key, r.value])));
+}
 
 /** Each setting's key in the settings table, with the range it must be in (the console contract checks the same ranges). */
 const KEYS = {
@@ -86,7 +114,7 @@ const KEYS = {
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
   const rows = new Map((await db.query<{ key: string; value: unknown }>(
-    "SELECT [key], [value] FROM settings WHERE [key] LIKE 'alerts.%' OR [key] LIKE 'sessions.%' OR [key] LIKE 'retention.%' OR [key] LIKE 'agents.%'")).rows.map(r => [r.key, r.value]));
+    "SELECT [key], [value] FROM settings WHERE [key] LIKE 'alerts.%' OR [key] LIKE 'sessions.%' OR [key] LIKE 'retention.%' OR [key] LIKE 'agents.%' OR [key] LIKE 'drives.%'")).rows.map(r => [r.key, r.value]));
   const num = (name: keyof typeof KEYS, fallback: number): number => {
     const [key, min, max] = KEYS[name];
     const v = rows.get(key);
@@ -100,6 +128,7 @@ export async function platformSettings(db: Queryable): Promise<PlatformSettings>
       alertsDays: num("alertsDays", d.retention.alertsDays), firewallDays: num("firewallDays", d.retention.firewallDays),
       diagnosesDays: num("diagnosesDays", d.retention.diagnosesDays), bootsDays: num("bootsDays", d.retention.bootsDays), jobsDays: num("jobsDays", d.retention.jobsDays) },
     agents: pacingFrom(rows),
+    drives: drivesFrom(rows),
   };
 }
 
@@ -161,6 +190,7 @@ export interface SettingsChange {
   offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number;
   retention?: Partial<PlatformSettings["retention"]>;
   agents?: Partial<AgentPacing>;
+  drives?: Partial<DriveThresholds>;
 }
 
 export async function updatePlatformSettings(pool: Pool, adminId: string, change: SettingsChange, stepUpToken: string): Promise<PlatformSettings> {
@@ -176,6 +206,17 @@ export async function updatePlatformSettings(pool: Pool, adminId: string, change
       const [key, min, max] = PACING_KEYS[name];
       const v = change.agents?.[name];
       if (v !== undefined) writes.push([key, Math.min(max, Math.max(min, v))]);
+    }
+    if (change.drives) {
+      // The whole set after the change must hold together, so one value is never saved that the rest would contradict.
+      const next = { ...before.drives, ...change.drives };
+      for (const [name, [, min, max]] of Object.entries(DRIVE_KEYS) as [keyof DriveThresholds, readonly [string, number, number]][]) {
+        const v = next[name];
+        if (!Number.isInteger(v) || v < min || v > max) throw new Refused("invalid_request", 400, `${name} must be a whole number from ${min} to ${max}`);
+      }
+      const problem = thresholdProblem(next);
+      if (problem) throw new Refused("invalid_request", 400, problem);
+      for (const name of Object.keys(change.drives) as (keyof DriveThresholds)[]) writes.push([DRIVE_KEYS[name][0], next[name]]);
     }
     for (const [key, value] of writes) await upsertSetting(c, key, value, adminId);
     const after = await platformSettings(c);
