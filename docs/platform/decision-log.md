@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D16. A diagnosis that finds a problem opens the incident (2026-11-03)
+
+**Owner's decision.** Asked what should create an incident, the owner chose: a diagnosis that finds a problem (over "a person opens
+it" and "both").
+
+**What is built.** One open incident per cabinet and module (`server/src/services/diagnosis-incidents.ts`):
+- **Network diagnosis:** module `network-diagnosis`, from its findings. A problem counts once, through the finding that explains it.
+- **Cabinet diagnosis:** one incident per cabinet module (`cabinet-storage`, `cabinet-time` and so on), from each area's state. The
+  network area is left out: the network diagnosis run alongside records its own.
+- **A problem** opens the incident if none is open, with the first problem as its symptom. Every run adds an evidence step with what it
+  found and is linked to the incident.
+- **Warnings only** add evidence to an open incident, and open nothing.
+- **A clean run** adds evidence and closes the incident as resolved, by the platform. If a repair was running it is recorded as a
+  passed verification instead, which ends the same way.
+- **A run that could not tell** (the network settings could not be read; a cabinet area that was not read) changes nothing, so a
+  cabinet that is offline or half-read never closes an incident by saying nothing.
+- Steps and the opening are by the system actor `diagnosis`, audited like every incident step. A failure to record never fails the
+  diagnosis: it is logged and the diagnosis stays done.
+- Finding titles come from cabinet data, so they are made one line and cut to the record's limits, never refused.
+
+**Why.** Every incident then has evidence behind it, nobody has to remember to open one, and "fixed" is shown by a later run rather
+than asserted, which is what the incident record was for (diagnostic-engine-audit.md, section 7).
+
+**Costs and limits.**
+- Two diagnoses of the same kind on one cabinet finishing at the same moment could open two incidents. Both diagnosis kinds already
+  share a running run per cabinet, so this needs two runs started more than a run's length apart and finishing together; not guarded
+  further.
+- An incident awaiting approval or approved, with no repair run yet, is closed by a clean run: the problem went away by itself.
+- Nothing in the console shows the incidents beyond the cabinet's History tab yet; triage and the crash incident page are the next part.
+
+**Proof.** `server/test/diagnosis-incidents.test.ts`: the outcome rules, open, add, close, reopen as a new incident, modules kept
+apart, the repair-then-verify path, and hostile titles. `demo.test.ts`: a real network diagnosis on a demo cabinet opens the incident,
+and the clean run after the one-click fix closes the same one. `troubleshooting.test.ts`: a real cabinet diagnosis of a failing drive
+opens the storage incident. Each goes red with its wiring removed.
+
+---
+
 ## D15. The SQL connectivity ladder runs in the network diagnosis, on sync port 1433 (2026-11-03)
 
 **Decision.** The ladder is its own diagnostic module, `sql-connectivity-ladder`, now registered as built. The network diagnosis runs it

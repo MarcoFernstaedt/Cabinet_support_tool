@@ -15,7 +15,8 @@ import { upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
 import { layerStates, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
 import type { TraceRun } from "./network-observations.js";
-import { runNetworkModule } from "./network-module.js";
+import { networkModule, runNetworkModule } from "./network-module.js";
+import { networkOutcome, recordCheck } from "../services/diagnosis-incidents.js";
 import { SQL_SERVER_PORT, type DatabaseRun } from "./sql-findings.js";
 
 /**
@@ -109,7 +110,13 @@ export async function beginDiagnosis(pool: Pool, user: { userId: string; role: R
   const first = [await issue("config", "Network settings", "network.config", {}), await issue("firewall", "Firewall", "firewall.state", {})];
   await pool.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands, batch_id) VALUES ($1, $2, 'network', $3, 'running', $4, $5)",
     [id, cabinetId, user.userId, safeJson(first.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId }))), batchId]);
-  const done = run(pool, user, cabinetId, { name: k.name, role: k.role }, id, first, issue).catch(async e => {
+  const done = run(pool, user, cabinetId, { name: k.name, role: k.role }, id, first, issue).then(async findings => {
+    // A problem opens (or adds to) the cabinet's network incident and a clean run closes it (D16); never a reason to fail the diagnosis.
+    try {
+      const m = networkModule();
+      await recordCheck(pool, { cabinetId, diagnosisId: id, module: { id: m.id, version: m.version }, label: "The network diagnosis", outcome: networkOutcome(findings) });
+    } catch (e) { log(`the network diagnosis could not be recorded on its incident: ${(e as Error).message}`); }
+  }, async e => {
     log(`network diagnosis failed: ${(e as Error).message}`);
     await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
   });
@@ -117,7 +124,7 @@ export async function beginDiagnosis(pool: Pool, user: { userId: string; role: R
 }
 
 async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, cabinet: { name: string; role: string }, id: string, first: Issued[],
-  issue: (key: string, label: string, operation: string, params: Record<string, unknown>) => Promise<Issued>): Promise<void> {
+  issue: (key: string, label: string, operation: string, params: Record<string, unknown>) => Promise<Issued>): Promise<Finding[]> {
   const deadline = Date.now() + RUN_LIMIT_MS;
   const firstDone = await waitFor(pool, [first[0]!.commandId], Math.min(deadline, Date.now() + 30_000));
   const config = firstDone.get(first[0]!.commandId);
@@ -176,6 +183,7 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
   const seen = await fixesForFindings(pool, findings.filter(f => f.severity !== "ok").map(f => f.id));
   await markSeen(pool, [...new Set(Object.values(seen).flat().map(f => f.id))]);
+  return findings;
 }
 
 /** The minor alert that says a cabinet differs from its site's baseline; the same alert is kept while it differs. */

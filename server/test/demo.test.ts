@@ -391,9 +391,11 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
     const sync = (await db.app.query<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Pharmacy Sync' AND demo_scenario IS NOT NULL")).rows[0]!.id;
     await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":true,"public":true}', demo_scenario = 'firewall_drift' WHERE id = $1`, [sync]);
     await evaluateDrift(db.app, { cabinetId: sync });
+    let lastRun = "";
     const run = async () => {
       const started = await call("POST", `/api/cabinets/${surgery}/diagnose/network`, {}, t1);
       assert.equal(started.status, 202, JSON.stringify(started.body));
+      lastRun = started.body.diagnosisId;
       let d: any;
       await until("the diagnosis", async () => (d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body).state === "done", 20_000);
       return d.findings as { id: string; severity: string; certainty: string; title: string; action?: { kind: string; cabinetId: string } }[];
@@ -405,6 +407,14 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
     assert.equal(blocked.certainty, "probable", "a closed port and a firewall that is on are evidence, not proof");
     assert.deepEqual(blocked.action, { kind: "apply_policy", cabinetId: sync, cabinetName: "Pharmacy Sync" });
     assert.equal(before[0]!.id, "sync-firewall", "problems come first");
+    // The problem opened the cabinet's network incident, linked to this run (D16). It is recorded just after the diagnosis is stored.
+    const linked = async (diagnosisId: string) => (await db.app.query<{ id: string; state: string }>(
+      `SELECT i.id, i.state FROM incidents i JOIN incident_links l ON l.incident_id = i.id AND l.kind = 'diagnosis' AND l.ref_id = $2
+        WHERE i.cabinet_id = $1 AND i.module_id = 'network-diagnosis'`, [surgery, diagnosisId])).rows[0];
+    const firstRun = lastRun;
+    await until("the incident to be opened", async () => (await linked(firstRun)) !== undefined);
+    const incident = (await linked(firstRun))!;
+    assert.equal(incident.state, "open");
     // Each command the diagnosis issued is the person's own, in the audit log.
     assert.ok(Number((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM audit_log WHERE action = 'command.issue' AND JSON_VALUE(details, '$.operation') = 'network.test' AND target_id = $1", [surgery])).rows[0]!.n) >= 4);
     // The fix, as the finding offers it: apply the policy on the sync cabinet. Then the satellite reaches it.
@@ -413,6 +423,10 @@ test("diagnose network on a satellite finds the sync cabinet's firewall, offers 
     const after = await run();
     assert.ok(after.some(f => f.id === "sync-ok"), JSON.stringify(after.map(f => f.id)));
     assert.ok(!after.some(f => f.severity === "problem"), JSON.stringify(after.filter(f => f.severity === "problem")));
+    // The clean run closed that incident as resolved, by the platform, and is linked to it.
+    const secondRun = lastRun;
+    await until("the incident to close", async () => (await linked(secondRun))?.state === "resolved");
+    assert.equal((await linked(secondRun))!.id, incident.id, "the same incident, not a new one");
     assert.equal((await call("GET", `/api/cabinets/${surgery}/diagnose/network`, undefined, t1)).body.latest.state, "done");
   } finally {
     sim.stop();
