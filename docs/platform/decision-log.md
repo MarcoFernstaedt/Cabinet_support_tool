@@ -20,8 +20,8 @@ it" and "both").
 - **Warnings only** add evidence to an open incident, and open nothing.
 - **A clean run** adds evidence and closes the incident as resolved, by the platform. If a repair was running it is recorded as a
   passed verification instead, which ends the same way.
-- **A run that could not tell** (the network settings could not be read; a cabinet area that was not read) changes nothing, so a
-  cabinet that is offline or half-read never closes an incident by saying nothing.
+- **A run that could not tell** (a cabinet area that was not read; the network settings could not be read and no problem was
+  found) changes nothing, so a cabinet that is offline or half-read never closes an incident by saying nothing.
 - Steps and the opening are by the system actor `diagnosis`, audited like every incident step. A failure to record never fails the
   diagnosis: it is logged and the diagnosis stays done.
 - Finding titles come from cabinet data, so they are made one line and cut to the record's limits, never refused.

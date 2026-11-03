@@ -51,6 +51,8 @@ test("a network diagnosis's findings become one outcome", () => {
   const o = networkOutcome([f({ id: "gw", severity: "problem" }), f({ id: "dns", severity: "problem", causedBy: "gw" })]);
   assert.equal(o.state === "problem" && o.problems, 1);
   assert.equal(networkOutcome([f({ id: "config", severity: "info", certainty: "not_checked" })]).state, "unknown", "a run that could not read the settings tells nothing");
+  // A problem the run did find still counts: a settings read that failed decides only when nothing worse was found.
+  assert.equal(networkOutcome([f({ id: "config", severity: "info", certainty: "not_checked" }), f({ id: "sync-port", severity: "problem" })]).state, "problem");
   assert.equal(networkOutcome([f({ id: "dns", severity: "warning" })]).state, "warning");
   assert.equal(networkOutcome([f({ id: "sync-none", severity: "info", certainty: "not_checked" }), f({ id: "gw", severity: "ok" })]).state, "clean");
   assert.equal(networkOutcome([]).state, "clean");
