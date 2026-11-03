@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D19. Unexpected restarts are classified: blue screen, power button, or power lost / frozen (2026-11-03)
+
+**What the spec asks.** Phase 2 "power-loss classification": tell a bug check from a power loss from a forced power-off
+(13-roadmap.md). Before this, every Kernel-Power 41 and EventLog 6008 was one "restarted without shutting down cleanly".
+
+**Decision.** Each unexpected restart on a cabinet's crash view gets one cause (`classifyShutdowns`, `server/src/services/crashes.ts`):
+1. **Its own fields first.** Kernel-Power 41 carries `BugcheckCode` (non-zero after a blue screen) and `PowerButtonTimestamp`
+   (non-zero when the button was held). When the event arrives with them, they decide.
+2. **Else a blue screen within 10 minutes**, either side: Windows logs the BugCheck 1001 when it starts again, usually a minute or two
+   after its Kernel-Power 41. Bug check.
+3. **Else power lost, or Windows froze and was reset.** The event cannot tell these two apart, so the platform does not claim either.
+
+The crash view returns `shutdownCauses` (counts by cause) and each timeline entry says its cause; the console shows "Why they restarted".
+
+**What is not built yet.** The agent's event watch sends only the first line of each event's message, not its data fields, so step 1
+has nothing to read from cabinets today: a held power button shows as "power lost or Windows froze" until the agent sends those two
+fields. That is the next PR (agent: attach `BugcheckCode`, `PowerButtonTimestamp` and `SleepInProgress` to watched Kernel-Power 41
+events). Field values that are not plain numbers never decide a cause.
+
+**Why 10 minutes.** Long enough for a slow start after a blue screen, short enough that an unrelated blue screen hours later does not
+claim a power cut. Worked out, not measured on cabinets.
+
+**Proof.** `crashes.test.ts`: the rules with hostile field values; the pairing window both inside and just outside; a cabinet with four
+restarts (no fields, button held, blue screen paired, bug-check field) counted 2 / 1 / 1 through the API, red with the classification
+removed; and the demo's blue-screen cabinet classified as a bug check.
+
+---
+
 ## D18. Drive risk classes, with thresholds an Admin sets (2026-11-03)
 
 **Owner's decision.** Asked what "configurable rules" means for the spec's five drive classes (13-roadmap.md, line 5): an Admin sets
