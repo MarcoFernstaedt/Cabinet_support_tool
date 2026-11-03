@@ -105,6 +105,9 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await page.getByText(/Packet loss to the gateway/).first().waitFor();
     await page.getByText("Everything that was read").click();
     await page.getByRole("heading", { name: "Routes" }).waitFor();
+    // The demo's sites sync on 1433, so the full read includes the SQL Server check, step by step (#142 review).
+    await page.getByRole("heading", { name: "SQL Server", exact: true }).waitFor();
+    await page.locator(".readings").getByText("Pre-login", { exact: true }).first().waitFor();
     if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/batch-fullread.png`, fullPage: true });
     const policy = (await db.app.query<{ firewall_profiles: Record<string, boolean> }>("SELECT firewall_profiles FROM cabinets WHERE name = 'Midtown Sync'")).rows[0]!.firewall_profiles;
     assert.deepEqual(Object.values(policy), [false, false, false], "the cabinet really changed");
