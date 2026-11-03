@@ -6,6 +6,28 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D17. The setup test waits 90 s for "Turn demo mode on"; the seed stays one cabinet at a time (2026-11-03)
+
+**The failure.** `console-setup-e2e` failed twice in full runs: "the confirmed request was still running after 30 s (the dialog says
+Confirming…)". Both times it was the "Turn demo mode on" step; it passed alone each time.
+
+**Measured** (`enableDemo` alone on a fresh test database, this container, three runs): 22.7, 25.1 and 23.3 s in all. By phase
+(runs 2 and 3): inserting the fleet 0.4–0.6 s; each cabinet's heartbeat, drift and time checks and events, one at a time, 8.7–9.2 s;
+the history 5.0–5.3 s; configuration snapshots and baseline alerts 4.9–5.1 s; the fleet checks 0.5 s. So the step uses most of a 30 s
+wait on an idle machine, and the suite runs two files at once.
+
+**Decision.** The test gives that one step 90 s (`DEMO_ON_LIMIT_MS`); every other confirmation keeps 30 s. Proof: with the limit set to
+15 s the test fails alone ("still running after 15 s"); at 90 s it passes alone (47 s for the whole test).
+
+**Tried and rejected: seeding six cabinets at once.** Running the per-cabinet step six at a time made one statement exceed the
+driver's 10 s limit (`ETIMEOUT`) on the first run: the cabinets of one site wait on each other in the database. Making that safe means
+reworking the locking on the heartbeat and alert paths, which is not worth it for a demo seed, so the change was reverted.
+
+**Cost.** An Admin waits about 20–25 s behind "Confirming…" when turning demo mode on. Speeding the seed up (for example by writing
+the history and snapshots in fewer statements) is listed under the open fixes in remaining-phases.md.
+
+---
+
 ## D16. A diagnosis that finds a problem opens the incident (2026-11-03)
 
 **Owner's decision.** Asked what should create an incident, the owner chose: a diagnosis that finds a problem (over "a person opens

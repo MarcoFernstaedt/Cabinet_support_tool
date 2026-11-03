@@ -203,7 +203,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~3 | The console-setup confirm timeout, the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
+| Open fixes | ~3 | Turning demo mode on takes 20–25 s (measured; the setup test now allows for it, D17), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
 
 ## Fixes from the hardware test (2026-10-30)
 
@@ -250,6 +250,9 @@ order they are being fixed.
     cannot say whether the approval was refused or still running. Not root-caused. Passed 3 of 3 locally on 2026-11-02 (with
     the D10 fix), so not reproduced; a 500 from the audit race above would also leave the dialog open, but that is not shown. PR #132 makes the wait report which it was
     (the console's refusal text, or "still Confirming…"), so the next occurrence names its cause.
+    Since then (2026-11-02 and 11-03) the same test failed twice in local full runs, both at "Turn demo mode on" and both
+    "still Confirming…": that request takes 20–25 s alone (measured), so the step now has 90 s (D17). The approval-step failure
+    above is a different step and stays unreproduced.
 - [ ] **Two more at `e429b81` (one run, job 124754172624), also outside the PR's files.**
   - `console-screens-e2e.test.ts` "every page fits its screen…": asserted `#root` visible with `isVisible()` (which does not wait)
     straight after `goto`, before the console had drawn. Fixed in PR #132: it waits for the sign-in form first.

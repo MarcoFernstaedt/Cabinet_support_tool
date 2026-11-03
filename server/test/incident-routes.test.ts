@@ -100,6 +100,10 @@ test("the fleet's open incidents for triage: only open ones on active cabinets, 
   await appendStep(db.app, closed, { kind: "close", result: "resolved", summary: "Fixed" }, engine);
   await openIncident(db.app, { cabinetId: gone, symptom: "On a removed cabinet", by: engine });
   await db.app.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [gone]);
+  // The order is by when each incident last changed; set those times apart so two changes in the same millisecond (updated_at keeps
+  // milliseconds) cannot decide it by id instead (#146 review).
+  await db.app.query("UPDATE incidents SET updated_at = DATEADD(minute, -2, SYSUTCDATETIME()) WHERE id = $1", [older]);
+  await db.app.query("UPDATE incidents SET updated_at = DATEADD(minute, -1, SYSUTCDATETIME()) WHERE id = $1", [newer]);
 
   const all = await h.call("GET", "/api/incidents/open", undefined, me);
   assert.equal(all.status, 200, JSON.stringify(all.body));
