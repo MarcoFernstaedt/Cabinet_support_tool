@@ -93,8 +93,9 @@ twice.
    live database** before it goes anywhere near the live platform; and the contract's refusal paths (an unknown read, a
    missing signal, a module claiming a repair it cannot verify).
 6. **Console.** (Cabinet half built 2026-10-31: the History tab lists a cabinet's incidents and opens each to its steps and links, read
-   through `GET /api/cabinets/:id/incidents` and `/api/cabinets/:id/incidents/:incidentId`, Tier 1 and up, read only. Triage and the crash
-   incident page follow as their own change.) The incident record appears where a person already looks — the cabinet's history and triage views and the
+   through `GET /api/cabinets/:id/incidents` and `/api/cabinets/:id/incidents/:incidentId`, Tier 1 and up, read only. Triage's **Open incidents** view, built
+   2026-11-03, lists every incident not yet closed across the fleet through `GET /api/incidents/open`, Tier 1 and up, read only, each
+   opening on its cabinet's History tab. The crash incident page follows once a crash module opens incidents.) The incident record appears where a person already looks — the cabinet's history and triage views and the
    crash incident page. No new page in this session.
 
 ## The first module: the SQL connectivity ladder

@@ -255,3 +255,40 @@ export async function cabinetIncidents(db: Queryable, cabinetId: string, limit =
     module: r.module_id === null ? null : { id: r.module_id, version: Number(r.module_version) }, openedBy: actorFrom(r.opened_by_kind, r.opened_by),
     openedAt: iso(r.opened_at)!, updatedAt: iso(r.updated_at)!, closedAt: iso(r.closed_at), outcome: r.outcome }));
 }
+
+/** One open incident as the fleet triage list shows it: where, what, how far it got, and the last thing recorded. */
+export interface OpenIncident {
+  id: string; state: IncidentState; symptom: string; module: { id: string; version: number } | null; openedAt: string; updatedAt: string;
+  cabinet: { id: string; name: string }; site: { id: string; name: string }; client: { id: string; name: string };
+  steps: number; runs: number; lastStep: { kind: StepKind; summary: string; at: string };
+}
+
+/**
+ * The fleet's incidents that are not closed, on active cabinets, most recently changed first, optionally for one client. `runs` is how
+ * many diagnoses are linked: how many times the problem has been looked at.
+ */
+export async function openIncidents(db: Queryable, o: { clientId?: string; limit?: number } = {}): Promise<OpenIncident[]> {
+  const n = Math.max(1, Math.min(200, Math.trunc(o.limit ?? 100)));
+  const clientId = o.clientId === undefined ? null : uuid(o.clientId, "the client");
+  const rows = (await db.query<{ id: string; state: IncidentState; symptom: string; module_id: string | null; module_version: number | null; opened_at: Date; updated_at: Date;
+    cabinet_id: string; cabinet_name: string; site_id: string; site_name: string; client_id: string; client_name: string; steps: number; runs: number;
+    last_kind: StepKind; last_summary: string; last_at: Date }>(
+    `SELECT TOP (${n}) i.id, i.state, i.symptom, i.module_id, i.module_version, i.opened_at, i.updated_at,
+            k.id AS cabinet_id, k.name AS cabinet_name, s.id AS site_id, s.name AS site_name, c.id AS client_id, c.name AS client_name,
+            (SELECT count(*) FROM incident_steps st WHERE st.incident_id = i.id) AS steps,
+            (SELECT count(*) FROM incident_links l WHERE l.incident_id = i.id AND l.kind = 'diagnosis') AS runs,
+            last.kind AS last_kind, last.summary AS last_summary, last.[at] AS last_at
+       FROM incidents i
+       JOIN cabinets k ON k.id = i.cabinet_id AND k.status = 'active'
+       JOIN sites s ON s.id = k.site_id
+       JOIN clients c ON c.id = s.client_id
+       CROSS APPLY (SELECT TOP (1) kind, summary, [at] FROM incident_steps st WHERE st.incident_id = i.id ORDER BY position DESC) last
+      WHERE i.state NOT IN ('resolved', 'unresolved') AND ($1 IS NULL OR c.id = CAST($1 AS uniqueidentifier))
+      ORDER BY i.updated_at DESC, i.id`, [clientId])).rows;
+  return rows.map(r => ({
+    id: r.id.toLowerCase(), state: r.state, symptom: r.symptom, module: r.module_id === null ? null : { id: r.module_id, version: Number(r.module_version) },
+    openedAt: iso(r.opened_at)!, updatedAt: iso(r.updated_at)!,
+    cabinet: { id: r.cabinet_id.toLowerCase(), name: r.cabinet_name }, site: { id: r.site_id.toLowerCase(), name: r.site_name }, client: { id: r.client_id.toLowerCase(), name: r.client_name },
+    steps: Number(r.steps), runs: Number(r.runs), lastStep: { kind: r.last_kind, summary: r.last_summary, at: iso(r.last_at)! },
+  }));
+}

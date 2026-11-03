@@ -5,7 +5,7 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import type { Queryable } from "../db/db.js";
 import { Refused } from "../services/errors.js";
-import { cabinetIncidents, getIncident, type Actor } from "../services/incidents.js";
+import { cabinetIncidents, getIncident, openIncidents, type Actor } from "../services/incidents.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -21,6 +21,13 @@ async function names(db: Queryable, actors: readonly Actor[]): Promise<(a: Actor
 }
 
 export async function incidentRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
+  // The fleet's open incidents for triage: Tier 1 and up, read only, like a cabinet's own list. Each names its cabinet, so it is opened
+  // through that cabinet's page.
+  app.get("/api/incidents/open", async request => {
+    await o.guards.role(request, "tier1");
+    const q = consoleBodies.openIncidentsQuery.parse(request.query);
+    return { incidents: await openIncidents(o.pool, { ...(q.clientId !== undefined ? { clientId: q.clientId } : {}), limit: q.limit === undefined ? 100 : Number(q.limit) }) };
+  });
   app.get("/api/cabinets/:id/incidents", async request => {
     await o.guards.role(request, "tier1");
     const q = consoleBodies.incidentQuery.parse(request.query);

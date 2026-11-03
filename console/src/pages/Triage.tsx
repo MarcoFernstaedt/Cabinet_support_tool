@@ -8,6 +8,7 @@ import { atLeast, useSession } from "../lib/session";
 import { ago, fullTime } from "../lib/time";
 import { Badge, Empty } from "../components/ui";
 import { Pager, usePaged } from "../components/Pager";
+import { incidentHref, moduleArea, runsText, stateOf, stepLabel, type OpenIncident } from "../lib/incidents";
 
 interface Item {
   key: string; issueTypeId: string; title: string; cause: string; severity: "major" | "minor"; cabinets: number; sites: number; clients: number; alerts: number; unclaimed: number;
@@ -21,7 +22,7 @@ interface IssueTrend extends Trend { issueTypeId: string; name: string; severity
 interface ErrorTrend extends Trend { log: string; source: string; eventId: number; issueName: string | null; unrecognized: boolean; sample: string | null }
 interface Trends { computedThrough: string | null; computedAt: string | null; days: string[]; issues: IssueTrend[]; errors: ErrorTrend[]; running: boolean }
 
-type View = "queue" | "unrecognized" | "trends";
+type View = "queue" | "unrecognized" | "trends" | "incidents";
 
 const MARK = { new: <Badge tone="info">New</Badge>, rising: <Badge tone="warn">Rising</Badge> } as const;
 
@@ -35,7 +36,7 @@ export function Spark({ values, label }: { values: number[]; label: string }) {
 export function TriagePage() {
   const { path, navigate } = useRouter();
   const query = new URLSearchParams(path.split("?")[1] ?? "");
-  const view = (["queue", "unrecognized", "trends"].includes(query.get("view") ?? "") ? query.get("view") : "queue") as View;
+  const view = (["queue", "unrecognized", "trends", "incidents"].includes(query.get("view") ?? "") ? query.get("view") : "queue") as View;
   const [clientId, setClientId] = useState("");
   const [days, setDays] = useState("14");
   const clients = useLoad<{ id: string; name: string }[]>("/api/fleet/clients");
@@ -45,17 +46,44 @@ export function TriagePage() {
       <h1>Triage</h1>
       <p className="muted">What needs attention first across the fleet, grouped by likely cause, with the reasons for the order.</p>
       <div className="subtabs" role="group" aria-label="Triage views">
-        {([["queue", "Needs attention"], ["unrecognized", "Unrecognized errors"], ["trends", "Error trends"]] as const).map(([v, label]) =>
+        {([["queue", "Needs attention"], ["incidents", "Open incidents"], ["unrecognized", "Unrecognized errors"], ["trends", "Error trends"]] as const).map(([v, label]) =>
           <button key={v} aria-pressed={view === v} onClick={() => navigate(v === "queue" ? "/triage" : `/triage?view=${v}`)}>{label}</button>)}
       </div>
       <form className="filters" onSubmit={e => e.preventDefault()} aria-label="Filter">
         <label className="field"><span>Client</span><select value={clientId} onChange={e => setClientId(e.target.value)}><option value="">All clients</option>
           {clients.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-        <label className="field"><span>Period</span><select value={days} onChange={e => setDays(e.target.value)}><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>
+        {view !== "incidents" && <label className="field"><span>Period</span><select value={days} onChange={e => setDays(e.target.value)}><option value="7">7 days</option><option value="14">14 days</option><option value="30">30 days</option></select></label>}
       </form>
-      {view === "trends" ? <TrendsView filter={filter} clientId={clientId} days={days} /> : <QueueView filter={filter} unrecognizedOnly={view === "unrecognized"} />}
+      {view === "incidents" ? <IncidentsView clientId={clientId} /> : view === "trends" ? <TrendsView filter={filter} clientId={clientId} days={days} /> : <QueueView filter={filter} unrecognizedOnly={view === "unrecognized"} />}
     </div>
   );
+}
+
+/** Every incident not yet closed, most recently changed first: what the diagnoses found and have not seen fixed yet (D16). */
+function IncidentsView({ clientId }: { clientId: string }) {
+  const { data, problem, reload } = useLoad<{ incidents: OpenIncident[] }>(`/api/incidents/open${clientId ? `?clientId=${clientId}` : ""}`);
+  const paged = usePaged(data?.incidents ?? []);
+  return (<>
+    <p className="small muted">A diagnosis that finds a problem opens an incident on that cabinet; the next diagnosis that finds it fixed closes it. Each one opens on its cabinet's History tab with every step.</p>
+    {problem && <div className="row gap wrap"><p className="error" role="alert">{problem}</p><button className="btn small" onClick={reload}>Try again</button></div>}
+    {!data && !problem && <p className="muted" role="status">Loading…</p>}
+    {data && data.incidents.length === 0 && <Empty>No open incidents.</Empty>}
+    {data && data.incidents.length > 0 && (
+      <table className="table compact"><caption className="sr-only">Open incidents, most recently changed first</caption>
+        <thead><tr><th scope="col">Problem</th><th scope="col">Cabinet</th><th scope="col">Area</th><th scope="col">State</th><th scope="col">Last step</th></tr></thead>
+        <tbody>{paged.rows.map(i => {
+          const [label, tone] = stateOf(i.state);
+          return (
+            <tr key={i.id}>
+              <th scope="row"><Link to={incidentHref(i)}>{i.symptom}</Link><div className="muted small">opened <span title={fullTime(i.openedAt)}>{ago(i.openedAt)}</span> · {runsText(i.runs)}</div></th>
+              <td>{i.cabinet.name}<div className="muted small">{i.site.name} · {i.client.name}</div></td>
+              <td>{moduleArea(i.module)}</td>
+              <td><Badge tone={tone}>{label}</Badge></td>
+              <td className="small"><span className="muted">{stepLabel(i.lastStep.kind)}, <span title={fullTime(i.lastStep.at)}>{ago(i.lastStep.at)}</span>:</span> {i.lastStep.summary}</td>
+            </tr>);
+        })}</tbody></table>)}
+    <Pager {...paged} label="open incidents" />
+  </>);
 }
 
 function QueueView({ filter, unrecognizedOnly }: { filter: string; unrecognizedOnly: boolean }) {
