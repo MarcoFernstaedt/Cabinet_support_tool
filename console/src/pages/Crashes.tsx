@@ -1,6 +1,7 @@
 // Crash investigation (docs/spec/13-roadmap.md phase 2): on a cabinet, its blue screens, unexpected restarts and what changed
 // in the 72 hours before the first; on the Incidents page, a fleet crash incident with the cabinets that crashed compared
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
+import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
 import { EncryptedExport } from "../components/EncryptedExport";
@@ -14,6 +15,8 @@ interface StopCode { code: number | null; text: string; name: string | null; hin
 interface TimelineItem { at: string; category: string; title: string; detail: string; stopCode?: StopCode }
 interface CabinetCrashes {
   days: number; crashes: number; unexpectedShutdowns: number; boots: number; storageErrors: number; hardwareErrors: number;
+  /** Absent from a server older than the classification. */
+  shutdownCauses?: ShutdownCauses;
   stopCodes: { stopCode: StopCode; count: number }[]; rebootLoop: { open: boolean; title: string; since: string } | null;
   firstAt: string | null; beforeFirst: TimelineItem[]; timeline: TimelineItem[];
 }
@@ -82,6 +85,7 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
           {[["Blue screens", data.crashes, data.crashes > 0], ["Unexpected restarts", data.unexpectedShutdowns, data.unexpectedShutdowns > 0], ["Starts", data.boots, false],
             ["Storage errors", data.storageErrors, data.storageErrors > 0], ["Hardware errors", data.hardwareErrors, data.hardwareErrors > 0]].map(([k, v, bad]) => (
             <div key={String(k)}><dt>{k}</dt><dd>{bad ? <Badge tone="crit">{String(v)}</Badge> : String(v)}</dd></div>))}
+          {causesLine(data.shutdownCauses) && <div><dt>Why they restarted</dt><dd>{causesLine(data.shutdownCauses)}</dd></div>}
           <div><dt>Reboot loop</dt><dd>{data.rebootLoop?.open ? <Badge tone="crit">Restarting repeatedly since {ago(data.rebootLoop.since)}</Badge> : data.rebootLoop ? "Ended" : "No"}</dd></div>
         </dl>
         {data.stopCodes.length > 0 && (

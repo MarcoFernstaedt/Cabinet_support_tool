@@ -51,8 +51,9 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   `storage.health` below.)
 
 **Partly built:**
-- Power-loss classification: "restarted without shutting down cleanly" (Kernel-Power 41) is recognised; telling a bug check
-  from power loss from forced off is not.
+- Power-loss classification (D19): each unexpected restart is a blue screen, a held power button, or power lost / Windows frozen,
+  from the event's own fields or a blue screen logged within 10 minutes. Not yet: the agent does not send Kernel-Power 41's data
+  fields, so a held power button shows as power lost until it does (the next PR).
 - Evidence preservation: hashed bundles built; resumable uploads not.
 
 **Not built:**

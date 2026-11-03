@@ -204,7 +204,50 @@ export function changeKey(category: Category, message: string): string {
 
 // ---- One cabinet: timeline and crashes ---------------------------------------------------------------------------------
 
-export interface TimelineItem { at: string; category: Category; title: string; detail: string; stopCode?: ReturnType<typeof describeStopCode> }
+export interface TimelineItem { at: string; category: Category; title: string; detail: string; stopCode?: ReturnType<typeof describeStopCode>; cause?: ShutdownCause }
+
+/**
+ * Why a cabinet restarted without shutting down cleanly (13-roadmap.md, phase 2 "power-loss classification"):
+ * - bug_check: Windows stopped with a blue screen (Kernel-Power 41 names a bug-check code, or a blue screen was logged within minutes);
+ * - forced_off: someone held the power button (Kernel-Power 41 records when the button was pressed);
+ * - power_loss_or_hang: neither: the power went, or Windows froze and was reset. The event cannot tell these two apart.
+ */
+export type ShutdownCause = "bug_check" | "forced_off" | "power_loss_or_hang";
+export const CAUSE_TEXT: Record<ShutdownCause, string> = {
+  bug_check: "after a blue screen", forced_off: "the power button was held", power_loss_or_hang: "power lost, or Windows froze and was reset",
+};
+/** A blue screen is logged when Windows starts again, usually within a minute or two of its Kernel-Power 41. */
+export const BUG_CHECK_PAIR_MS = 10 * 60_000;
+
+/** A field that holds a number other than zero ("0x0", "0" and blanks are zero; anything unreadable is not a number). */
+function nonZero(v: string | undefined): boolean {
+  if (v === undefined) return false;
+  const t = v.trim().toLowerCase();
+  if (t.length === 0 || t.length > 24) return false;
+  const n = t.startsWith("0x") ? Number.parseInt(t.slice(2), 16) : [...t].every(ch => ch >= "0" && ch <= "9") ? Number(t) : Number.NaN;
+  return Number.isFinite(n) && n !== 0;
+}
+
+/** The cause the event's own fields give, when the agent sent them (Kernel-Power 41's BugcheckCode and PowerButtonTimestamp). */
+export function causeFromFields(fields: Record<string, string> | null | undefined): ShutdownCause | null {
+  if (!fields) return null;
+  if (nonZero(fields.BugcheckCode)) return "bug_check";
+  if (nonZero(fields.PowerButtonTimestamp)) return "forced_off";
+  return null;
+}
+
+/** Gives every unexpected restart its cause: its own fields first, then a blue screen logged within minutes, else power or a hang. */
+export function classifyShutdowns(items: TimelineItem[]): TimelineItem[] {
+  const crashes = items.filter(i => i.category === "crash").map(i => Date.parse(i.at));
+  for (const i of items) {
+    if (i.category !== "unexpected_shutdown") continue;
+    const at = Date.parse(i.at);
+    const cause = i.cause ?? (crashes.some(c => Math.abs(c - at) <= BUG_CHECK_PAIR_MS) ? "bug_check" : "power_loss_or_hang");
+    i.cause = cause;
+    i.title = `${i.title}: ${CAUSE_TEXT[cause]}`;
+  }
+  return items;
+}
 
 // JSON_VALUE stops at 4000 characters and gives NULL beyond it, so the message is read with OPENJSON.
 const messageOf = (alias: string) => `ISNULL((SELECT j.message FROM OPENJSON(${alias}.detail) WITH (message nvarchar(max) '$.message') j), '')`;
@@ -223,6 +266,7 @@ function toItem(r: EventRow): TimelineItem | null {
   if (!c) return null;
   const item: TimelineItem = { at: r.occurred_at.toISOString(), category: c.category, title: c.label, detail: r.message };
   if (CHANGE_CATEGORIES.has(c.category)) item.title = `${c.label}: ${changeKey(c.category, r.message)}`;
+  if (c.category === "unexpected_shutdown") { const cause = causeFromFields(r.fields); if (cause) item.cause = cause; }
   if (c.category === "crash") { const sc = describeStopCode(stopCodeOf(r.message)); item.stopCode = sc; item.title = `Blue screen ${sc.text}${sc.name ? ` ${sc.name}` : ""}`; }
   return item;
 }
@@ -249,7 +293,7 @@ export async function timeline(db: Queryable, cabinetId: string, from: Date, to:
     if (b.source === "heartbeat" && !bootEvents.has(Math.round(b.booted_at.getTime() / 180_000)))
       items.push({ at: b.booted_at.toISOString(), category: "boot", title: "Windows started", detail: "Estimated from the agent's uptime." });
   for (const w of writes) items.push({ at: w.issued_at.toISOString(), category: "platform_change", title: `Platform change: ${w.operation}`, detail: `By ${w.name}; ${w.status}.` });
-  return items.sort((a, b) => a.at.localeCompare(b.at));
+  return classifyShutdowns(items.sort((a, b) => a.at.localeCompare(b.at)));
 }
 const WRITE_OPS = ["firewall.setProfile", "firewall.setRule", "firewall.restore", "firewall.applyPolicy", "network.setIp", "network.setDns", "package.install", "driver.uninstall", "updates.uninstall", "service.control", "service.setStartType", "time.setZone", "time.sync", "network.renewLease", "network.flushDns", "system.restart", "process.end", "power.set"];
 
@@ -272,7 +316,10 @@ export async function cabinetCrashes(db: Queryable, cabinetId: string, days = 30
   for (const c of crashes) { const k = c.stopCode!.text; stopCodes.set(k, { stopCode: c.stopCode!, count: (stopCodes.get(k)?.count ?? 0) + 1 }); }
   return {
     days, from: from.toISOString(), to: to.toISOString(),
-    crashes: crashes.length, unexpectedShutdowns: unexpected.length, boots: inWindow.filter(i => i.category === "boot").length,
+    crashes: crashes.length, unexpectedShutdowns: unexpected.length,
+    // Each unexpected restart by its cause (classifyShutdowns): a blue screen, the power button, or power lost / Windows frozen.
+    shutdownCauses: { bugCheck: unexpected.filter(i => i.cause === "bug_check").length, forcedOff: unexpected.filter(i => i.cause === "forced_off").length,
+      powerLossOrHang: unexpected.filter(i => i.cause === "power_loss_or_hang").length }, boots: inWindow.filter(i => i.category === "boot").length,
     stopCodes: [...stopCodes.values()].sort((a, b) => b.count - a.count),
     storageErrors: inWindow.filter(i => i.category === "storage").length, hardwareErrors: inWindow.filter(i => i.category === "hardware").length,
     rebootLoop: loop ? { open: loop.state !== "resolved", title: loop.title, since: loop.first_seen.toISOString() } : null,

@@ -15,7 +15,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
 import { storeEvents } from "../src/services/events.js";
-import { categorize, changeKey, checkQuietLoops, describeStopCode, stopCodeOf } from "../src/services/crashes.js";
+import { BUG_CHECK_PAIR_MS, categorize, causeFromFields, changeKey, checkQuietLoops, classifyShutdowns, describeStopCode, stopCodeOf, type TimelineItem } from "../src/services/crashes.js";
 import { enableDemo, INCIDENT_DRIVER, INCIDENT_UPDATE } from "../src/demo/demo.js";
 import { verifyEvidence } from "../src/services/evidence.js";
 import { decryptEvidence } from "../src/services/evidence-crypto.js";
@@ -152,6 +152,9 @@ test("the overnight incident: who crashed, when it began, the stop code, who is 
   const d = (await call(`/api/cabinets/${one.id}/crashes?days=7`)).body;
   assert.equal(d.crashes, 1);
   assert.equal(d.stopCodes[0].stopCode.name, "DRIVER_IRQL_NOT_LESS_OR_EQUAL");
+  // Its unexpected restart is the blue screen's own Kernel-Power 41, logged half a minute before it: a bug check, not a power cut.
+  assert.deepEqual(d.shutdownCauses, { bugCheck: d.unexpectedShutdowns, forcedOff: 0, powerLossOrHang: 0 });
+  assert.ok(d.unexpectedShutdowns >= 1);
   const before = d.beforeFirst.map((i: { title: string }) => i.title);
   assert.ok(before.includes(`Update installed: ${INCIDENT_UPDATE}`) && before.includes(`Driver installed: Driver ${INCIDENT_DRIVER}`), JSON.stringify(before));
   assert.ok(d.timeline.some((i: { category: string }) => i.category === "boot"));
@@ -204,4 +207,48 @@ test("an evidence package holds the cabinet's events, boots, alerts, commands an
   for (const q of ["days=1000", "from=2020-01-01T00:00:00Z&to=2026-10-01T00:00:00Z", "days=7&x=1"])
     assert.equal((await call(`/api/cabinets/${one}/evidence?${q}`)).status, 400, q);
   assert.equal((await call(`/api/cabinets/${one}/evidence`, null)).status, 401);
+});
+
+test("an unexpected restart's cause: its own fields first, then a blue screen within minutes, else power lost or a hang", () => {
+  assert.equal(causeFromFields({ BugcheckCode: "209", PowerButtonTimestamp: "0" }), "bug_check");
+  assert.equal(causeFromFields({ BugcheckCode: "0x0", PowerButtonTimestamp: "133457952000000000" }), "forced_off");
+  assert.equal(causeFromFields({ BugcheckCode: "0", PowerButtonTimestamp: "0" }), null, "both zero: the fields cannot tell");
+  assert.equal(causeFromFields(null), null);
+  // Hostile or odd values are not numbers, so they never decide a cause.
+  for (const v of ["", " ", "0x", "zz", "-1", "1e5", "0x" + "f".repeat(30), "１２", "209; DROP TABLE events", "NaN", "Infinity"])
+    assert.equal(causeFromFields({ BugcheckCode: v }), null, JSON.stringify(v));
+  const at = (ms: number) => new Date(Date.UTC(2026, 10, 1) + ms).toISOString();
+  const shutdown = (ms: number, cause?: TimelineItem["cause"]): TimelineItem => ({ at: at(ms), category: "unexpected_shutdown", title: "Restarted without shutting down cleanly", detail: "", ...(cause ? { cause } : {}) });
+  const crash = (ms: number): TimelineItem => ({ at: at(ms), category: "crash", title: "Blue screen", detail: "" });
+  const items = classifyShutdowns([shutdown(0), crash(90_000), shutdown(3_600_000), crash(3_600_000 + BUG_CHECK_PAIR_MS + 1_000), shutdown(7_200_000, "forced_off")]);
+  const causes = items.filter(i => i.category === "unexpected_shutdown").map(i => i.cause);
+  assert.deepEqual(causes, ["bug_check", "power_loss_or_hang", "forced_off"], "paired within the window, not beyond it; a cause from fields stands");
+  assert.match(items[0]!.title, /after a blue screen/);
+  assert.match(items[2]!.title, /power lost, or Windows froze/);
+});
+
+test("the cabinet's crash view counts unexpected restarts by cause, from what the cabinet reported", async () => {
+  const [client, site, k] = [randomUUID(), randomUUID(), randomUUID()];
+  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Power ${randomBytes(3).toString("hex")}`]);
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
+  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, 'POWER TEST', 'standalone', 'active')", [k, site]);
+  const when = (hoursAgo: number, plusMs = 0) => new Date(Math.floor((Date.now() - hoursAgo * 3_600_000 + plusMs) / 1000) * 1000).toISOString().split(".")[0] + "Z";
+  let rec = 100;
+  const kp41 = (t: string, fields?: Record<string, string>) => ({ eventId: randomUUID(), kind: "error" as const, occurredAt: t, severityHint: "major" as const,
+    source: { log: "System" as const, source: "Microsoft-Windows-Kernel-Power", eventId: 41, level: "critical" as const, recordId: rec++ },
+    detail: { message: "The system has rebooted without cleanly shutting down first.", ...(fields ? { fields } : {}) } });
+  const bugcheck = (t: string) => ({ eventId: randomUUID(), kind: "error" as const, occurredAt: t, severityHint: "major" as const,
+    source: { log: "System" as const, source: "BugCheck", eventId: 1001, level: "error" as const, recordId: rec++ },
+    detail: { message: "The computer has rebooted from a bugcheck.  The bugcheck was: 0x000000d1 (0x0, 0x2, 0x0, 0x0). A dump was saved in: C:\\Windows\\MEMORY.DMP." } });
+  await storeEvents(db.app, k, { events: [
+    kp41(when(70)),                                                             // nothing else: power or a hang
+    kp41(when(50), { BugcheckCode: "0", PowerButtonTimestamp: "133457952000000000" }), // the button was held
+    kp41(when(30)), bugcheck(when(30, 90_000)),                                 // a blue screen logged on the next start
+    kp41(when(10), { BugcheckCode: "209", PowerButtonTimestamp: "0" }),          // the event names its own bug check
+  ] });
+  const d = (await call(`/api/cabinets/${k}/crashes?days=7`)).body;
+  assert.equal(d.unexpectedShutdowns, 4);
+  assert.deepEqual(d.shutdownCauses, { bugCheck: 2, forcedOff: 1, powerLossOrHang: 1 });
+  const titles = (d.timeline as { category: string; title: string }[]).filter(i => i.category === "unexpected_shutdown").map(i => i.title);
+  assert.ok(titles.some(t => t.includes("power button was held")), JSON.stringify(titles));
 });
