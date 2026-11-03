@@ -52,6 +52,8 @@ public sealed record EventSummary
     public required string Source { get; init; }
     public required int EventId { get; init; }
     public required string FirstLine { get; init; }
+    /// <summary>Only for Kernel-Power 41: the event's own data that says why it restarted (see KernelPowerFields). Null for every other entry.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public IReadOnlyDictionary<string, string>? Fields { get; init; }
 }
 
 public sealed record EventlogQueryOutput

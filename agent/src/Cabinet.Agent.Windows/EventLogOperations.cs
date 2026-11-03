@@ -99,6 +99,9 @@ public static class EventLogOperations
                     Source = EventText.ShortText(record.ProviderName),
                     EventId = record.Id is >= 0 and <= 65535 ? record.Id : 0,
                     FirstLine = EventText.FirstLine(Message(record)),
+                    Fields = KernelPowerFields.Applies(record.ProviderName, record.Id)
+                        ? KernelPowerFields.Pick(EventData(Safe(record.ToXml) ?? "").Select(d => new KeyValuePair<string, string?>(d.Name, d.Value)))
+                        : null,
                 });
             }
         }
