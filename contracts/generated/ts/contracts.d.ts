@@ -978,6 +978,7 @@ export interface CommandRequest {
     | "eventlog.query"
     | "boot.history"
     | "crash.list"
+    | "storage.health"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -1631,6 +1632,7 @@ export interface RunbookPropose {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1696,6 +1698,7 @@ export interface RunbookPropose {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1766,6 +1769,7 @@ export interface RunbookPropose {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -1831,6 +1835,7 @@ export interface RunbookPropose {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2275,6 +2280,7 @@ export interface DiagnosticModule {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2344,6 +2350,7 @@ export interface DiagnosticModule {
           | "eventlog.query"
           | "boot.history"
           | "crash.list"
+          | "storage.health"
           | "eventlog.get"
           | "devices.list"
           | "usb.ports"
@@ -2546,6 +2553,7 @@ export interface DiagnosticModule {
       | "eventlog.query"
       | "boot.history"
       | "crash.list"
+      | "storage.health"
       | "eventlog.get"
       | "devices.list"
       | "usb.ports"
@@ -2704,6 +2712,7 @@ export interface Command {
     | "eventlog.query"
     | "boot.history"
     | "crash.list"
+    | "storage.health"
     | "eventlog.get"
     | "devices.list"
     | "usb.ports"
@@ -3605,6 +3614,81 @@ export interface CrashListOutput {
    * True when the folder held more than 50 small dumps; the newest are listed.
    */
   truncated: boolean;
+}
+
+export interface StorageHealthParams {}
+
+export interface StorageHealthOutput {
+  /**
+   * UTC time, ISO 8601, always ending in Z.
+   */
+  takenAt: string;
+  /**
+   * @maxItems 32
+   */
+  drives: {
+    /**
+     * The Windows disk number.
+     */
+    number: number;
+    model: string | null;
+    bus: "nvme" | "sata" | "sas" | "usb" | "raid" | "other" | "unknown";
+    nvme: {
+      criticalWarnings: {
+        spareBelowThreshold: boolean;
+        temperatureOutOfRange: boolean;
+        reliabilityDegraded: boolean;
+        readOnly: boolean;
+        volatileBackupFailed: boolean;
+        persistentMemoryReadOnly: boolean;
+      };
+      /**
+       * The composite temperature; null when the drive did not report one or reported one no drive can be.
+       */
+      temperatureCelsius: number | null;
+      availableSparePercent: number | null;
+      spareThresholdPercent: number | null;
+      /**
+       * How much of the drive's rated endurance is used; it may pass 100.
+       */
+      percentageUsed: number;
+      dataReadBytes: number;
+      dataWrittenBytes: number;
+      powerCycles: number;
+      powerOnHours: number;
+      unsafeShutdowns: number;
+      /**
+       * Unrecovered data integrity errors.
+       */
+      mediaErrors: number;
+      errorLogEntries: number;
+      warningTemperatureMinutes: number;
+      criticalTemperatureMinutes: number;
+    } | null;
+    /**
+     * Why there is no health log: the drive is not NVMe, its driver does not pass the query on, or the answer could not be read.
+     */
+    nvmeProblem: ("not_nvme" | "not_supported" | "unreadable") | null;
+  }[];
+  /**
+   * @maxItems 32
+   */
+  volumes: {
+    letter: string | null;
+    label: string | null;
+    fileSystem: "ntfs" | "refs" | "fat32" | "exfat" | "fat" | "other" | "unknown";
+    sizeBytes: number;
+    freeBytes: number;
+    health: "healthy" | "warning" | "unhealthy" | "unknown";
+    /**
+     * The worst repair the file system's own status asks for (scan, spot fix, or full repair with chkdsk).
+     */
+    repair: "none" | "scan_needed" | "spot_fix_needed" | "full_repair_needed" | "unknown";
+    /**
+     * The volume's dirty bit: Windows will check the file system at the next start. Null when it could not be read.
+     */
+    dirty: boolean | null;
+  }[];
 }
 
 export interface EventlogGetParams {
@@ -5398,7 +5482,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "crash.list" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "crash.list" | "storage.health" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -5412,6 +5496,7 @@ export interface OperationTypes {
   "eventlog.query": { params: EventlogQueryParams; output: EventlogQueryOutput };
   "boot.history": { params: BootHistoryParams; output: BootHistoryOutput };
   "crash.list": { params: CrashListParams; output: CrashListOutput };
+  "storage.health": { params: StorageHealthParams; output: StorageHealthOutput };
   "eventlog.get": { params: EventlogGetParams; output: EventlogGetOutput };
   "devices.list": { params: DevicesListParams; output: DevicesListOutput };
   "drivers.list": { params: DriversListParams; output: DriversListOutput };

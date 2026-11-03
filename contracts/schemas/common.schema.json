@@ -232,6 +232,7 @@
         "eventlog.query",
         "boot.history",
         "crash.list",
+        "storage.health",
         "eventlog.get",
         "devices.list",
         "usb.ports",

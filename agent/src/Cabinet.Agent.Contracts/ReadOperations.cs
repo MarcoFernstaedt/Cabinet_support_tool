@@ -117,6 +117,69 @@ public sealed record CrashListOutput
     public required bool Truncated { get; init; }
 }
 
+public enum StorageBus { Nvme, Sata, Sas, Usb, Raid, Other, Unknown }
+public enum NvmeProblem { NotNvme, NotSupported, Unreadable }
+
+public sealed record NvmeCriticalWarnings
+{
+    public required bool SpareBelowThreshold { get; init; }
+    public required bool TemperatureOutOfRange { get; init; }
+    public required bool ReliabilityDegraded { get; init; }
+    public required bool ReadOnly { get; init; }
+    public required bool VolatileBackupFailed { get; init; }
+    public required bool PersistentMemoryReadOnly { get; init; }
+}
+
+public sealed record NvmeHealthInfo
+{
+    public required NvmeCriticalWarnings CriticalWarnings { get; init; }
+    public required int? TemperatureCelsius { get; init; }
+    public required int? AvailableSparePercent { get; init; }
+    public required int? SpareThresholdPercent { get; init; }
+    public required int PercentageUsed { get; init; }
+    public required long DataReadBytes { get; init; }
+    public required long DataWrittenBytes { get; init; }
+    public required long PowerCycles { get; init; }
+    public required long PowerOnHours { get; init; }
+    public required long UnsafeShutdowns { get; init; }
+    public required long MediaErrors { get; init; }
+    public required long ErrorLogEntries { get; init; }
+    public required long WarningTemperatureMinutes { get; init; }
+    public required long CriticalTemperatureMinutes { get; init; }
+}
+
+public sealed record StorageDrive
+{
+    public required int Number { get; init; }
+    public required string? Model { get; init; }
+    public required StorageBus Bus { get; init; }
+    public required NvmeHealthInfo? Nvme { get; init; }
+    public required NvmeProblem? NvmeProblem { get; init; }
+}
+
+public enum VolumeHealth { Healthy, Warning, Unhealthy, Unknown }
+public enum VolumeRepair { None, ScanNeeded, SpotFixNeeded, FullRepairNeeded, Unknown }
+public enum VolumeFileSystem { Ntfs, Refs, Fat32, Exfat, Fat, Other, Unknown }
+
+public sealed record StorageVolume
+{
+    public required string? Letter { get; init; }
+    public required string? Label { get; init; }
+    public required VolumeFileSystem FileSystem { get; init; }
+    public required long SizeBytes { get; init; }
+    public required long FreeBytes { get; init; }
+    public required VolumeHealth Health { get; init; }
+    public required VolumeRepair Repair { get; init; }
+    public required bool? Dirty { get; init; }
+}
+
+public sealed record StorageHealthOutput
+{
+    public required DateTimeOffset TakenAt { get; init; }
+    public required IReadOnlyList<StorageDrive> Drives { get; init; }
+    public required IReadOnlyList<StorageVolume> Volumes { get; init; }
+}
+
 public sealed record EventlogQueryOutput
 {
     public required string Log { get; init; }

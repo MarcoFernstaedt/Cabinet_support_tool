@@ -1,0 +1,63 @@
+{
+  "takenAt": "2026-11-03T09:00:00Z",
+  "drives": [
+    {
+      "number": 0,
+      "model": "NVMe SSD 512GB",
+      "bus": "nvme",
+      "nvme": {
+        "criticalWarnings": {
+          "spareBelowThreshold": false,
+          "temperatureOutOfRange": false,
+          "reliabilityDegraded": false,
+          "readOnly": false,
+          "volatileBackupFailed": false,
+          "persistentMemoryReadOnly": false
+        },
+        "temperatureCelsius": 38,
+        "availableSparePercent": 100,
+        "spareThresholdPercent": 10,
+        "percentageUsed": 4,
+        "dataReadBytes": 12000000000000,
+        "dataWrittenBytes": 9500000000000,
+        "powerCycles": 412,
+        "powerOnHours": 9811,
+        "unsafeShutdowns": 21,
+        "mediaErrors": 0,
+        "errorLogEntries": 0,
+        "warningTemperatureMinutes": 0,
+        "criticalTemperatureMinutes": 0
+      },
+      "nvmeProblem": "unreadable"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    }
+  ],
+  "volumes": [
+    {
+      "letter": "C",
+      "label": "Windows",
+      "fileSystem": "ntfs",
+      "sizeBytes": 510770802688,
+      "freeBytes": 301000000000,
+      "health": "healthy",
+      "repair": "none",
+      "dirty": false
+    },
+    {
+      "letter": null,
+      "label": "Recovery",
+      "fileSystem": "ntfs",
+      "sizeBytes": 700000000,
+      "freeBytes": 100000000,
+      "health": "unknown",
+      "repair": "unknown",
+      "dirty": null
+    }
+  ]
+}
