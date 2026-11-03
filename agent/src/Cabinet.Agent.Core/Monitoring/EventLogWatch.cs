@@ -146,6 +146,7 @@ public sealed class EventLogWatch(StateFile<EventLogWatch.State> store, Func<Eve
         OccurredAt = e.Time,
         Source = new EventSource { Log = log, Source = e.Source, EventId = e.EventId, Level = e.Level, RecordId = e.RecordId },
         SeverityHint = e.Level == EventLevel.Critical ? SeverityHint.Major : SeverityHint.Minor,
-        Detail = new EventDetail { Message = e.FirstLine },
+        // Kernel-Power 41 carries the fields that tell a blue screen from a held power button (D19); every other entry sends none.
+        Detail = new EventDetail { Message = e.FirstLine, Fields = e.Fields is { Count: > 0 } f ? new Dictionary<string, string>(f) : null },
     };
 }

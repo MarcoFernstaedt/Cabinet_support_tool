@@ -3474,6 +3474,15 @@ export interface EventlogQueryOutput {
     source: string;
     eventId: number;
     firstLine: string;
+    /**
+     * Only for Kernel-Power 41 (an unexpected restart): the event's own data that says why. BugcheckCode is non-zero after a blue screen, PowerButtonTimestamp when the power button was held. Absent for every other entry; never any other field.
+     */
+    fields?: {
+      BugcheckCode?: string;
+      BugcheckParameter1?: string;
+      PowerButtonTimestamp?: string;
+      SleepInProgress?: string;
+    };
   }[];
   nextBeforeRecordId: number | null;
   truncated: boolean;

@@ -1,0 +1,18 @@
+{
+  "log": "System",
+  "entries": [
+    {
+      "recordId": 4021,
+      "time": "2026-11-02T03:14:00Z",
+      "level": "critical",
+      "source": "Microsoft-Windows-Kernel-Power",
+      "eventId": 41,
+      "firstLine": "The system has rebooted without cleanly shutting down first.",
+      "fields": {
+        "CommandLine": "cmd.exe /c whoami"
+      }
+    }
+  ],
+  "nextBeforeRecordId": null,
+  "truncated": false
+}

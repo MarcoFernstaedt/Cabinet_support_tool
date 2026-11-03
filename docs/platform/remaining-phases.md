@@ -52,8 +52,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 
 **Partly built:**
 - Power-loss classification (D19): each unexpected restart is a blue screen, a held power button, or power lost / Windows frozen,
-  from the event's own fields or a blue screen logged within 10 minutes. Not yet: the agent does not send Kernel-Power 41's data
-  fields, so a held power button shows as power lost until it does (the next PR).
+  from the event's own fields or a blue screen logged within 10 minutes. The agent sends Kernel-Power 41's fields with the event
+  (proven on Linux; the Windows read itself waits for CI or a real cabinet).
 - Evidence preservation: hashed bundles built; resumable uploads not.
 
 **Not built:**

@@ -92,6 +92,30 @@
                     "type": "string"
                   }
                 ]
+              },
+              "fields": {
+                "description": "Only for Kernel-Power 41 (an unexpected restart): the event's own data that says why. BugcheckCode is non-zero after a blue screen, PowerButtonTimestamp when the power button was held. Absent for every other entry; never any other field.",
+                "type": "object",
+                "additionalProperties": false,
+                "minProperties": 1,
+                "properties": {
+                  "BugcheckCode": {
+                    "type": "string",
+                    "pattern": "^(0x[0-9A-Fa-f]{1,16}|[0-9]{1,20})$"
+                  },
+                  "BugcheckParameter1": {
+                    "type": "string",
+                    "pattern": "^(0x[0-9A-Fa-f]{1,16}|[0-9]{1,20})$"
+                  },
+                  "PowerButtonTimestamp": {
+                    "type": "string",
+                    "pattern": "^(0x[0-9A-Fa-f]{1,16}|[0-9]{1,20})$"
+                  },
+                  "SleepInProgress": {
+                    "type": "string",
+                    "pattern": "^(0x[0-9A-Fa-f]{1,16}|[0-9]{1,20})$"
+                  }
+                }
               }
             },
             "required": [

@@ -20,10 +20,12 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 The crash view returns `shutdownCauses` (counts by cause) and each timeline entry says its cause; the console shows "Why they restarted".
 
-**What is not built yet.** The agent's event watch sends only the first line of each event's message, not its data fields, so step 1
-has nothing to read from cabinets today: a held power button shows as "power lost or Windows froze" until the agent sends those two
-fields. That is the next PR (agent: attach `BugcheckCode`, `PowerButtonTimestamp` and `SleepInProgress` to watched Kernel-Power 41
-events). Field values that are not plain numbers never decide a cause.
+**The agent's half.** The event watch sent only the first line of each event's message. Since the follow-up PR, `eventlog.query`
+returns, for Kernel-Power 41 only, the event's `BugcheckCode`, `BugcheckParameter1`, `PowerButtonTimestamp` and `SleepInProgress`
+(`KernelPowerFields`), and the watch puts them in the event's `detail.fields`. The contract allows only those four names and only plain
+decimal or 0x-hex numbers, so this is not a way to send other event data. Field values that are not plain numbers never decide a
+cause. The Windows read of the fields runs only on Windows and is proven there by CI or a real cabinet; the picking and the event are
+tested on Linux. A cabinet on an older agent sends no fields and keeps the step 2 and 3 classification.
 
 **Why 10 minutes.** Long enough for a slow start after a blue screen, short enough that an unrelated blue screen hours later does not
 claim a power cut. Worked out, not measured on cabinets.
