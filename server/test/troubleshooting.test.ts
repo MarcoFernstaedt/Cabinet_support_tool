@@ -91,7 +91,7 @@ test("Diagnose this cabinet: the scanner that is not detected comes first, with 
   assert.equal((await call("GET", `/api/cabinets/${k}/diagnose`, undefined, t1)).body.latest.id, started.body.diagnosisId);
   // The reads it issued are audited as the person's own, and nothing but reads went out.
   const ops = (await db.app.query<{ operation: string }>("SELECT DISTINCT operation FROM commands WHERE cabinet_id = $1 AND issued_by = $2", [k, t1.id])).rows.map(r => r.operation);
-  for (const op of ops) assert.ok(["system.info", "disk.smart", "system.performance", "peripheral.status", "usb.ports", "devices.list", "services.list", "updates.status", "time.status", "eventlog.query", "network.config", "firewall.state", "network.test", "network.trace"].includes(op), op);
+  for (const op of ops) assert.ok(["system.info", "disk.smart", "system.performance", "peripheral.status", "usb.ports", "devices.list", "services.list", "updates.status", "time.status", "eventlog.query", "network.config", "firewall.state", "network.test", "network.trace", "database.connectivity"].includes(op), op);
   const audited = await db.app.query("SELECT 1 FROM audit_log WHERE action = 'diagnosis.start' AND actor_id = $1", [t1.id]);
   assert.equal(audited.rowCount, 1);
 });
