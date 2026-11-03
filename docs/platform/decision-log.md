@@ -37,6 +37,9 @@ permanent backlog (four rows idle for 11+ days whose causes were gone), and a ne
 - a recurrence opens a new alert.
 
 Making the close a no-op, or adding `audit_chain` to the closable kinds, fails the test.
+
+---
+
 ## D13. The SQL connectivity check: how it is built (2026-11-02)
 
 The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed

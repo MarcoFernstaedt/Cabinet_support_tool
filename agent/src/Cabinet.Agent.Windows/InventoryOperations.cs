@@ -174,7 +174,7 @@ public static class InventoryOperations
     public static StartupListOutput StartupList()
     {
         var startup = Try(Wmi.CimV2, "SELECT Name, Command, Location FROM Win32_StartupCommand", 400)
-            .Select(r => new StartupItem { Name = InventoryRules.Clean(r.Text("Name"), 200) ?? "(unnamed)", Command = InventoryRules.Clean(r.Text("Command"), 500) ?? "", Location = InventoryRules.Clean(r.Text("Location"), 200) ?? "" });
+            .Select(r => InventoryRules.StartupItemFor(r.Text("Name"), r.Text("Command"), r.Text("Location")));
         var (startupItems, cutStartup) = InventoryRules.Bound(startup, 300);
         var tasks = Try(TaskScheduler, "SELECT TaskName, TaskPath, State FROM MSFT_ScheduledTask", 2000)
             .Where(t => !(t.Text("TaskPath") ?? "").StartsWith(@"\Microsoft\", StringComparison.OrdinalIgnoreCase))
@@ -236,11 +236,7 @@ public static class InventoryOperations
     public static SharesListOutput Shares()
     {
         var shares = Try(Wmi.CimV2, "SELECT Name, Path, Description, Type FROM Win32_Share", 200)
-            .Select(r =>
-            {
-                string name = InventoryRules.Clean(r.Text("Name"), 80) ?? "(unnamed)";
-                return new ShareInfo { Name = name, Path = InventoryRules.Clean(r.Text("Path"), 260), Description = InventoryRules.Clean(r.Text("Description"), 200), Kind = InventoryRules.ShareKindFor(r.Long("Type"), name) };
-            }).Take(100).ToList();
+            .Select(r => InventoryRules.ShareInfoFor(r.Text("Name"), r.Text("Path"), r.Text("Description"), r.Long("Type"))).Take(100).ToList();
         return new SharesListOutput { TakenAt = DateTimeOffset.UtcNow, Shares = shares };
     }
 
