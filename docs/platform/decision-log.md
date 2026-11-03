@@ -6,6 +6,47 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D15. The SQL connectivity ladder runs in the network diagnosis, on sync port 1433 (2026-11-03)
+
+**Decision.** The ladder is its own diagnostic module, `sql-connectivity-ladder`, now registered as built. The network diagnosis runs it
+after its own checks, and its findings sit in the sync layer. It checks:
+- only the sync cabinet;
+- only port 1433, SQL Server's default;
+- only when the site's sync ports include 1433.
+
+Its database check counts against the agent's 10 network tests a minute, so with four sync ports including 1433, two DNS servers are
+tested instead of three.
+
+**Findings.**
+- **Something other than SQL Server answers on 1433:** a problem (`sql-not-sql`). The likely causes are another program on the port,
+  or SQL Server listening elsewhere.
+- **SQL Server answers:** ok, with its version and certificate, and a note that no sign-in was tried.
+- **SQL Server requires encryption with a certificate a checking client would not trust:** info (`sql-cert`). It only matters if the
+  sync software checks certificates.
+- **The check did not come back:** "could not check" (`sql-nc`).
+- **A closed or silent port:** nothing new; the existing port tests already report it, so nothing is said twice.
+
+**Why 1433 only.** The sync ports are whatever the site lists; the others may not be SQL Server at all, and a pre-login to a different
+service only proves it is not SQL Server. 1433 is where SQL Server answers by default.
+
+**Alternatives.**
+- **Every sync port.** Rejected: it doubles the network tests and checks services that are not databases.
+- **A separate "database port" setting.** Rejected for now: one more setting, and nobody has needed a non-default port yet. It is the
+  change to make if a site does.
+
+**Cost.**
+- A site whose SQL Server runs on another port gets no ladder check.
+- The fourth (and now third) DNS server goes untested when 1433 is among four sync ports.
+
+**Proof.**
+- `sql-findings.test.ts` covers each answer, what is left to the port tests, a sync cabinet, a diagnosis made before the ladder
+  existed, and that the module declares exactly the causes the rule can raise.
+- `network-module.test.ts` covers that the plan runs the check exactly when 1433 is a tested sync port, within the 10-test limit, and
+  that the module declares exactly that read.
+- An empty rule fails five tests; dropping the check from the plan fails two.
+
+---
+
 ## D14. One-off security alerts close themselves after 14 days with no recurrence (2026-11-02)
 
 **Decision (owner's, from three options).** Open security alerts of the event-driven kinds close automatically when they have not recurred

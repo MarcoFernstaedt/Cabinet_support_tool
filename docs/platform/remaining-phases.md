@@ -87,8 +87,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Required ports: sync ports per client and site; no per-vendor endpoint list.
 
 **Not built:**
-- **The SQL connectivity ladder as a module:** the operation `database.connectivity` is built (D13: TCP, TDS pre-login, TLS inside
-  TDS; a button on the cabinet's network page), but it is not yet a diagnostic module with findings, and not part of the diagnosis.
+- (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
+  diagnosis on sync port 1433 (D15).)
 - Process signer and parent; service dependencies; application-crash correlation (Application Error and hang events are
   not mapped); the files installed by each driver.
 - Boot and recovery: boot configuration, WinRE status, boot-critical services.

@@ -1,0 +1,29 @@
+{
+  "id": "sql-connectivity-ladder",
+  "version": 1,
+  "title": "Prove the sync cabinet's SQL Server answers: TCP, a login-free pre-login and the certificate it presents",
+  "area": "network",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      { "id": "sql_1433", "operation": "database.connectivity", "params": { "port": 1433 } }
+    ]
+  },
+  "procedure": [
+    { "id": "read_sql_1433", "kind": "read", "read": "sql_1433" },
+    { "id": "check", "kind": "rule", "rule": "sql.findings" }
+  ],
+  "evidence": { "keep": ["sql_1433"], "retentionDays": 30 },
+  "hypotheses": [
+    { "id": "sql_not_sql", "findingKey": "sql-not-sql", "statement": "The SQL Server port answers, but not as SQL Server", "severity": "problem", "certainty": "possible" },
+    { "id": "sql_cert", "findingKey": "sql-cert", "statement": "SQL Server requires encryption with a certificate a checking client would not trust", "severity": "info", "certainty": "possible" },
+    { "id": "sql_nc", "findingKey": "sql-nc", "statement": "Could not check SQL Server on the sync cabinet", "severity": "info", "certainty": "possible" }
+  ],
+  "remediation": [],
+  "limits": [
+    "Runs only when the site's sync ports include 1433, SQL Server's default port",
+    "Stops before any login: it proves SQL Server answers, not that the sync software can sign in",
+    "A port that is closed or silent is reported by the network diagnosis's own port tests, not here"
+  ],
+  "escalation": { "to": "tier2", "when": "SQL Server answers here but the sync still fails: the cause is past the connection (sign-in, the database, the sync software)" }
+}

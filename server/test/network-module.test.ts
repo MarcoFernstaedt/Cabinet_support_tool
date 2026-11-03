@@ -9,7 +9,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { cabinetModules } from "../src/diagnose/cabinet-findings.js";
-import { NETWORK_RULES, networkModule } from "../src/diagnose/network-module.js";
+import { NETWORK_RULES, networkModule, sqlLadderModule } from "../src/diagnose/network-module.js";
 import { AGENT_NETWORK_TESTS_PER_MINUTE, plannedTests } from "../src/diagnose/network.js";
 import { loadRegistry } from "../src/diagnose/registry.js";
 import { findingKey } from "../src/services/known-fixes.js";
@@ -23,7 +23,7 @@ test("the module is checked, names only the server's rules, and is registered as
   const m = networkModule();
   assert.equal(m.id, "network-diagnosis");
   assert.deepEqual(m.procedure.filter(p => p.kind === "rule").map(p => p.rule), Object.keys(NETWORK_RULES));
-  const r = loadRegistry(new Map([...cabinetModules(), m].map(x => [x.id, x])));
+  const r = loadRegistry(new Map([...cabinetModules(), m, sqlLadderModule()].map(x => [x.id, x])));
   assert.equal(r.capabilities.find(c => c.id === "network-diagnosis")?.status, "built");
 });
 
@@ -47,7 +47,9 @@ test("no plan asks the agent for more network tests than it takes in a minute, a
   for (const ports of [null, [], [445], [445, 1433], [445, 1433, 8080], PORTS, [...PORTS, 9200]]) {
     for (let dns = 1; dns <= 4; dns++) {
       const p = plannedTests(dns, ports);
-      assert.ok(p.tests.length <= AGENT_NETWORK_TESTS_PER_MINUTE, `${dns} DNS, ${JSON.stringify(ports)}: ${p.tests.length} tests`);
+      // The SQL connectivity ladder's check counts against the same limit.
+      assert.ok(p.tests.length + p.databases.length <= AGENT_NETWORK_TESTS_PER_MINUTE, `${dns} DNS, ${JSON.stringify(ports)}: ${p.tests.length} tests + ${p.databases.length}`);
+      assert.equal(p.databases.length, (ports ?? []).slice(0, 4).includes(1433) ? 1 : 0, "the SQL check runs exactly when 1433 is one of the tested sync ports");
       assert.ok(p.tests.every(t => t.operation === "network.test"));
       const tcp = p.tests.filter(t => t.params.method === "tcp").map(t => t.params.port);
       assert.deepEqual(tcp, (ports ?? []).slice(0, 4), "every configured port up to four is tested");
@@ -56,9 +58,19 @@ test("no plan asks the agent for more network tests than it takes in a minute, a
       assert.ok(dnsKeys.length >= 1, "at least one DNS server is always tested");
     }
   }
-  // The one case that is over: four DNS servers and four ports keep three DNS servers.
-  assert.equal(plannedTests(4, PORTS).tests.filter(t => t.key.startsWith("dns-")).length, 3);
-  assert.equal(plannedTests(4, PORTS).tests.length, AGENT_NETWORK_TESTS_PER_MINUTE);
+  // Four DNS servers and four ports, 1433 among them, with the SQL check: two DNS servers fit. Without 1433, three.
+  assert.equal(plannedTests(4, PORTS).tests.filter(t => t.key.startsWith("dns-")).length, 2);
+  assert.equal(plannedTests(4, PORTS).tests.length + plannedTests(4, PORTS).databases.length, AGENT_NETWORK_TESTS_PER_MINUTE);
+  assert.equal(plannedTests(4, [445, 8080, 9100, 3306]).tests.filter(t => t.key.startsWith("dns-")).length, 3);
+});
+
+test("the SQL connectivity ladder declares exactly the read the diagnosis plans, and is registered as built", () => {
+  const m = sqlLadderModule();
+  assert.equal(m.id, "sql-connectivity-ladder");
+  const key = (x: { operation: string; params: Record<string, unknown> }) => `${x.operation} ${JSON.stringify(x.params)}`;
+  assert.deepEqual(m.signals.reads.map(key), plannedTests(1, [1433]).databases.map(key));
+  assert.deepEqual(plannedTests(1, [8080]).databases, [], "no 1433, no SQL check");
+  assert.deepEqual(plannedTests(1, null).databases, [], "a sync cabinet itself checks nothing");
 });
 
 /** Every `add({ id: …, severity: … })` in the checks, with each id's placeholders filled in from the planned tests. */

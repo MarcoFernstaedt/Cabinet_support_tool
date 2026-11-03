@@ -2,7 +2,7 @@
 // issued, checked and audited exactly as if they had clicked it), then reads the results with the fixed checks in
 // network-findings.ts. The run is stored, so the next person sees what was found.
 import { randomUUID } from "node:crypto";
-import type { FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
+import type { DatabaseConnectivityOutput, FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import type { Role } from "../services/console-commands.js";
 import { safeJson, type Pool } from "../db/db.js";
 import { issueFromConsole } from "../services/console-commands.js";
@@ -16,6 +16,7 @@ import { ISSUE } from "../services/rules.js";
 import { layerStates, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
 import type { TraceRun } from "./network-observations.js";
 import { runNetworkModule } from "./network-module.js";
+import { SQL_SERVER_PORT, type DatabaseRun } from "./sql-findings.js";
 
 /**
  * How long a diagnosis waits for its reads (docs/platform/decision-log.md, D11). The wait ends as soon as every read has answered, so a
@@ -48,7 +49,7 @@ export async function waitFor(pool: Pool, ids: string[], deadline: number): Prom
 
 const MAX_RUNNING_PER_USER = 3;
 
-export interface PlannedRead { key: string; label: string; operation: "network.test" | "network.trace"; params: Record<string, unknown> }
+export interface PlannedRead { key: string; label: string; operation: "network.test" | "network.trace" | "database.connectivity"; params: Record<string, unknown> }
 
 /**
  * The tests and traces a diagnosis issues after the network settings are in (the network-diagnosis module declares the same reads;
@@ -57,11 +58,15 @@ export interface PlannedRead { key: string; label: string; operation: "network.t
  * and on each of its first four ports; then the paths to the platform server and the sync cabinet, to see where replies stop. At most
  * AGENT_NETWORK_TESTS_PER_MINUTE tests: with four sync ports, a fourth DNS server is left out.
  */
-export function plannedTests(dnsCount: number, syncPorts: readonly number[] | null): { tests: PlannedRead[]; traces: PlannedRead[] } {
+export function plannedTests(dnsCount: number, syncPorts: readonly number[] | null): { tests: PlannedRead[]; traces: PlannedRead[]; databases: PlannedRead[] } {
   const tests: PlannedRead[] = [{ key: "gateway", label: "Gateway (ping)", operation: "network.test", params: { target: "gateway", method: "ping", count: 4 } }];
+  // The SQL connectivity ladder (D15): SQL Server on the sync cabinet, when the site's sync ports include its default port. It counts
+  // against the same agent limit as the network tests.
+  const databases: PlannedRead[] = syncPorts?.slice(0, 4).includes(SQL_SERVER_PORT)
+    ? [{ key: `sync-sql-${SQL_SERVER_PORT}`, label: "SQL Server on the sync cabinet", operation: "database.connectivity", params: { port: SQL_SERVER_PORT } }] : [];
   // Every test here is a network.test, and the agent takes at most 10 a minute. The DNS servers are the ones left out when the plan would
   // go over: Windows asks them in order, so a fourth is asked only after three have failed, while each sync port is a service of its own.
-  const syncTests = syncPorts ? 1 + Math.min(4, syncPorts.length) : 0;
+  const syncTests = (syncPorts ? 1 + Math.min(4, syncPorts.length) : 0) + databases.length;
   const dnsTests = Math.max(0, Math.min(dnsCount, AGENT_NETWORK_TESTS_PER_MINUTE - 2 - syncTests));
   for (let i = 0; i < dnsTests; i++) tests.push({ key: `dns-${i}`, label: `DNS server ${i + 1}`, operation: "network.test", params: { target: "dns_server", method: "dns", dnsServerIndex: i } });
   tests.push({ key: "platform", label: "Platform server name", operation: "network.test", params: { target: "platform_server", method: "dns" } });
@@ -72,7 +77,7 @@ export function plannedTests(dnsCount: number, syncPorts: readonly number[] | nu
   }
   const traces: PlannedRead[] = [{ key: "trace-platform", label: "Path to the platform server", operation: "network.trace", params: { target: "platform_server" } }];
   if (syncPorts) traces.push({ key: "trace-sync", label: "Path to the sync cabinet", operation: "network.trace", params: { target: "sync_cabinet" } });
-  return { tests, traces };
+  return { tests, traces, databases };
 }
 
 export async function startNetworkDiagnosis(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
@@ -126,7 +131,9 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   for (const t of plan.tests) tests.push(await issue(t.key, t.label, t.operation, t.params));
   const traces: Issued[] = [];
   for (const t of plan.traces) traces.push(await issue(t.key, t.label, t.operation, t.params));
-  const all = [...first, ...tests, ...traces];
+  const databases: Issued[] = [];
+  for (const t of plan.databases) databases.push(await issue(t.key, t.label, t.operation, t.params));
+  const all = [...first, ...tests, ...traces, ...databases];
   await pool.query("UPDATE diagnoses SET commands = $2 WHERE id = $1", [id, safeJson(all.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
   const results = await waitFor(pool, all.map(c => c.commandId), deadline);
   const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: NO_ANSWER };
@@ -156,10 +163,14 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
     const o = outcome(t);
     return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as NetworkTraceOutput } : { failure: o.failure ?? o.status }) };
   });
+  evidence.databases = databases.map((t): DatabaseRun => {
+    const o = outcome(t);
+    return { key: t.key, label: t.label, params: t.params, ...(o.status === "succeeded" ? { output: o.output as DatabaseConnectivityOutput } : { failure: o.failure ?? o.status }) };
+  });
   const findings = runNetworkModule(evidence);
   // Everything that was read, kept whether or not anything is wrong, so the console can show the full read.
   const readings = { takenAt: new Date().toISOString(), adapters: configOut?.adapters ?? [], routes: configOut?.routes ?? [], neighbors: configOut?.neighbors ?? [],
-    tests: evidence.tests, traces: evidence.traces };
+    tests: evidence.tests, traces: evidence.traces, databases: evidence.databases };
   await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
   // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
