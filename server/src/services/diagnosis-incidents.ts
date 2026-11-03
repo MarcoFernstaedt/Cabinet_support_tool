@@ -19,7 +19,7 @@ export type CheckOutcome =
 
 export const DIAGNOSIS_ACTOR: Actor = { kind: "system", name: "diagnosis" };
 
-/** A network diagnosis's findings as one outcome. A run that could not read the settings tells nothing, whatever else it found. */
+/** A network diagnosis's findings as one outcome. A problem counts even when the settings could not be read; otherwise a run that could not read them tells nothing. */
 export function networkOutcome(findings: readonly NetworkFinding[]): CheckOutcome {
   const problems = findings.filter(f => f.severity === "problem" && !f.causedBy);
   const warnings = findings.filter(f => f.severity === "warning" && !f.causedBy);
