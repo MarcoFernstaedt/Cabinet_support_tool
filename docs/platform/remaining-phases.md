@@ -191,7 +191,7 @@ platform-authored write attribution worked. Its findings:
 
 ## How many PRs are left (estimate)
 
-**About 63 to 68 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**About 62 to 67 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 
