@@ -1,0 +1,135 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/boot.history.schema.json",
+  "title": "boot.history",
+  "description": "The cabinet's starts over a number of days, newest first, each with how the run before it ended and how long that run lasted, read from the System log (Kernel-General 12 and 13, User32 1074, Kernel-Power 41, EventLog 6008, BugCheck 1001). A read in the broker; nothing is changed.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "days": {
+          "description": "How far back, 1 to 90 days (30 when left out).",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        }
+      }
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "days",
+        "boots",
+        "truncated"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 90
+        },
+        "boots": {
+          "type": "array",
+          "maxItems": 200,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "startedAt",
+              "previous",
+              "previousEndedAt",
+              "uptimeBeforeSeconds",
+              "reason",
+              "cause"
+            ],
+            "properties": {
+              "startedAt": {
+                "description": "When Windows started (Kernel-General 12).",
+                "$ref": "../common.schema.json#/$defs/timestamp"
+              },
+              "previous": {
+                "description": "How the run before this start ended: clean (Windows shut down), requested (a restart or shutdown was asked for, User32 1074), unexpected (Kernel-Power 41 or EventLog 6008), unknown (nothing in the log says, or the log does not reach back that far).",
+                "type": "string",
+                "enum": [
+                  "clean",
+                  "requested",
+                  "unexpected",
+                  "unknown"
+                ]
+              },
+              "previousEndedAt": {
+                "description": "When the run before ended, when the log says (the shutdown or the request); null for an unexpected or unknown end.",
+                "oneOf": [
+                  {
+                    "$ref": "../common.schema.json#/$defs/timestamp"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "uptimeBeforeSeconds": {
+                "description": "How long the run before lasted, from its start to its recorded end; null when either is not in the log.",
+                "oneOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 315360000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "reason": {
+                "description": "For a requested end: what asked for it, from the first line of User32 1074; otherwise null.",
+                "oneOf": [
+                  {
+                    "allOf": [
+                      {
+                        "$ref": "../common.schema.json#/$defs/shortText"
+                      },
+                      {
+                        "type": "string",
+                        "maxLength": 256
+                      }
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cause": {
+                "description": "For an unexpected end: bug_check (a blue screen), forced_off (the power button was held) or power_loss_or_hang, as decision-log D19; otherwise null.",
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "bug_check",
+                      "forced_off",
+                      "power_loss_or_hang"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "truncated": {
+          "description": "True when the log had more starts than fit, or the read stopped at its time limit.",
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

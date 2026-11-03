@@ -448,6 +448,23 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { name: "Microsoft SQL Server 2019 Express LocalDB", version: "15.0.4382.1", publisher: "Microsoft Corporation", installedOn: "20260110" }] };
     }
     case "config.snapshot": return demoConfigOutput(ctx, params.categories);
+    case "boot.history": {
+      // The cabinet's starts, newest first: the blue-screen cabinet's last one ended in a bug check 21 minutes ago (its system.info uptime);
+      // every other cabinet restarted cleanly for its updates, and the oldest start in the log says nothing about the run before it.
+      const days = typeof params.days === "number" ? params.days : 30;
+      const at = (secondsAgo: number) => iso(new Date(ctx.now.getTime() - secondsAgo * 1000));
+      const uptime = ctx.scenario === "bsod" ? 1260 : 86_400 * (3 + ctx.index);
+      const week = 7 * 86_400;
+      const boots = [
+        ctx.scenario === "bsod"
+          ? { startedAt: at(uptime), previous: "unexpected", previousEndedAt: null, uptimeBeforeSeconds: null, reason: null, cause: "bug_check" }
+          : { startedAt: at(uptime), previous: "requested", previousEndedAt: at(uptime + 40), uptimeBeforeSeconds: week - 40,
+              reason: "The process C:\\Windows\\servicing\\TrustedInstaller.exe has initiated the restart of this computer for the following reason: Operating System: Upgrade (Planned)", cause: null },
+        { startedAt: at(uptime + week), previous: "clean", previousEndedAt: at(uptime + week + 30), uptimeBeforeSeconds: week - 30, reason: null, cause: null },
+        { startedAt: at(uptime + 2 * week), previous: "unknown", previousEndedAt: null, uptimeBeforeSeconds: null, reason: null, cause: null },
+      ].filter(b => Date.parse(b.startedAt) >= ctx.now.getTime() - days * 86_400_000);
+      return { takenAt: iso(ctx.now), days, boots, truncated: false };
+    }
     default:
       return example(operation);
   }

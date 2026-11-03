@@ -1,0 +1,39 @@
+{
+  "takenAt": "2026-11-03T12:00:00Z",
+  "days": 30,
+  "truncated": false,
+  "boots": [
+    {
+      "startedAt": "2026-11-02T06:01:12Z",
+      "previous": "clean",
+      "previousEndedAt": "2026-11-02T06:00:40Z",
+      "uptimeBeforeSeconds": 86400,
+      "reason": null,
+      "cause": null
+    },
+    {
+      "startedAt": "2026-11-01T03:15:30Z",
+      "previous": "unexpected",
+      "previousEndedAt": null,
+      "uptimeBeforeSeconds": null,
+      "reason": null,
+      "cause": "bug_check"
+    },
+    {
+      "startedAt": "2026-10-30T22:04:00Z",
+      "previous": "requested",
+      "previousEndedAt": "2026-10-30T22:03:10Z",
+      "uptimeBeforeSeconds": 3600,
+      "reason": "The process C:\\Windows\\servicing\\TrustedInstaller.exe has initiated the restart of this computer",
+      "cause": null
+    },
+    {
+      "startedAt": "2026-10-01T08:00:00Z",
+      "previous": "unknown",
+      "previousEndedAt": null,
+      "uptimeBeforeSeconds": null,
+      "reason": null,
+      "cause": null
+    }
+  ]
+}

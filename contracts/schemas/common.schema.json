@@ -230,6 +230,7 @@
         "system.info",
         "eventlog.channels",
         "eventlog.query",
+        "boot.history",
         "eventlog.get",
         "devices.list",
         "usb.ports",

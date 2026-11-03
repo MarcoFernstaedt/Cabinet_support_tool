@@ -2,6 +2,8 @@
 // in the 72 hours before the first; on the Incidents page, a fleet crash incident with the cabinets that crashed compared
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
 import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
+import { durationText, endText, type BootRecord } from "../lib/boot-history";
+import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
 import { EncryptedExport } from "../components/EncryptedExport";
@@ -106,7 +108,30 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
         <h3>Timeline</h3>
         <TimelineTable items={data.timeline} label="Timeline of changes, crashes and errors" />
       </>)}
+      <BootHistoryPanel cabinetId={cabinetId} days={Number(days)} />
     </section>
+  );
+}
+
+/** Reads the cabinet's own start and shutdown records (boot.history): each start, how the run before it ended, and how long it lasted. */
+function BootHistoryPanel({ cabinetId, days }: { cabinetId: string; days: number }) {
+  const op = useOperation<{ days: number; boots: BootRecord[]; truncated: boolean }>(cabinetId, "boot.history");
+  const out = op.result?.output;
+  return (
+    <div aria-live="polite">
+      <h3>Boot history</h3>
+      <p className="muted small">Read from the cabinet's System log: every start in the period, how the run before it ended, and how long that run lasted.</p>
+      <button className="btn" onClick={() => void op.start({ days })} disabled={op.state === "running"}>{op.state === "running" ? "Reading…" : "Read the boot history"}</button>
+      {op.problem && <p className="error" role="alert">{op.problem}</p>}
+      {op.result && op.result.status !== "succeeded" && <p className="error" role="alert">{op.result.error?.message}</p>}
+      {out && (out.boots.length === 0 ? <Empty>No starts in the last {out.days} days.</Empty> : (
+        <table className="table compact"><caption className="sr-only">Boot history, newest first</caption>
+          <thead><tr><th scope="col">Started</th><th scope="col">How the run before ended</th><th scope="col">That run lasted</th></tr></thead>
+          <tbody>{out.boots.map(b => (
+            <tr key={b.startedAt}><th scope="row">{fullTime(b.startedAt)}</th><td>{endText(b)}</td><td>{durationText(b.uptimeBeforeSeconds)}</td></tr>))}</tbody>
+        </table>))}
+      {out?.truncated && <p className="muted small">The log had more than could be read; the oldest starts are not shown.</p>}
+    </div>
   );
 }
 

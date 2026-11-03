@@ -70,6 +70,29 @@ public static class EventLogOperations
         return record?.TimeCreated is { } t ? new DateTimeOffset(t.ToUniversalTime(), TimeSpan.Zero) : null;
     }
 
+    /// <summary>boot.history: the System log's starts, shutdowns and their reasons for the days asked, through the same reader as eventlog.query.</summary>
+    public static async Task<BootHistoryOutput> BootHistoryAsync(BootHistoryParams p, CancellationToken token)
+    {
+        int days = p.Days ?? BootHistory.DefaultDays;
+        DateTimeOffset now = DateTimeOffset.UtcNow;
+        var entries = new List<EventSummary>();
+        bool truncated = false;
+        long? before = null;
+        // At most 10 pages of 500: a cabinet that started thousands of times in 90 days is reported as truncated, not read without end.
+        for (int page = 0; page < 10; page++)
+        {
+            EventlogQueryOutput o = await QueryAsync(new EventlogQueryParams
+            {
+                Log = "System", From = now.AddDays(-days), EventIds = BootHistory.EventIds.ToList(), PageSize = 500, BeforeRecordId = before,
+            }, token).ConfigureAwait(false);
+            entries.AddRange(o.Entries);
+            if (o.NextBeforeRecordId is not { } next) { truncated |= o.Truncated; break; }
+            before = next;
+            if (page == 9) truncated = true;
+        }
+        return BootHistory.Build(entries, days, now, truncated);
+    }
+
     public static Task<EventlogQueryOutput> QueryAsync(EventlogQueryParams p, CancellationToken token)
     {
         RequireAllowed(p.Log);
