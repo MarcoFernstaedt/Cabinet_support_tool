@@ -143,7 +143,14 @@ interface Settings {
   offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
   agents: { heartbeatSeconds: number; pollSeconds: number; eventsPaceMs: number };
+  drives: DriveThresholds;
 }
+interface DriveThresholds {
+  wearAttentionPct: number; wearHighRiskPct: number; wearCriticalPct: number; wearDaysHighRisk: number; wearDaysCritical: number;
+  temperatureAttentionC: number; temperatureHighRiskC: number; temperatureRiseAttentionC: number; reallocatedHighRiskPer7Days: number; reallocatedCriticalPer30Days: number;
+}
+const DRIVE_FIELDS = ["wearAttentionPct", "wearHighRiskPct", "wearCriticalPct", "wearDaysHighRisk", "wearDaysCritical", "temperatureAttentionC", "temperatureHighRiskC",
+  "temperatureRiseAttentionC", "reallocatedHighRiskPer7Days", "reallocatedCriticalPer30Days"] as const;
 
 export function PlatformSettings() {
   const { data, problem, reload } = useLoad<Settings>("/api/admin/settings");
@@ -165,6 +172,9 @@ export function PlatformSettings() {
     const a: Record<string, number> = {};
     for (const k of ["heartbeatSeconds", "pollSeconds", "eventsPaceMs"] as const) if (form.agents[k] !== data.agents[k]) a[k] = form.agents[k];
     if (Object.keys(a).length) c.agents = a;
+    const d: Record<string, number> = {};
+    for (const k of DRIVE_FIELDS) if (form.drives[k] !== data.drives[k]) d[k] = form.drives[k];
+    if (Object.keys(d).length) c.drives = d;
     return c;
   };
   const save = () => {
@@ -176,6 +186,7 @@ export function PlatformSettings() {
   const set = (patch: Partial<Settings>) => setForm(f => f && { ...f, ...patch });
   const setA = (patch: Partial<Settings["agents"]>) => setForm(f => f && { ...f, agents: { ...f.agents, ...patch } });
   const setR = (patch: Partial<Settings["retention"]>) => setForm(f => f && { ...f, retention: { ...f.retention, ...patch } });
+  const setD = (patch: Partial<DriveThresholds>) => setForm(f => f && { ...f, drives: { ...f.drives, ...patch } });
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Admin", to: "/admin" }, { label: "Settings" }]} />
@@ -209,6 +220,28 @@ export function PlatformSettings() {
             {num("Pause between event batches", form.agents.eventsPaceMs, 0, 60000, n => setA({ eventsPaceMs: n }), "ms")}
           </div>
           <p className="muted small">Agents pick these up with a heartbeat answer (within about a minute). Longer intervals cost less at 10,000 cabinets; a cabinet with no contact for 5 minutes still shows as offline.</p>
+        </section>
+        <section className="panel" aria-labelledby="s-drives"><h2 id="s-drives">Drive risk</h2>
+          <p className="muted small">When a drive is Attention, High risk or Critical. The defaults follow what drive makers and published field studies use; each step must be above the one before it. Drives are judged again on their next report.</p>
+          <div className="row gap wrap">
+            {num("Rated life used: Attention at", form.drives.wearAttentionPct, 50, 98, n => setD({ wearAttentionPct: n }), "%")}
+            {num("High risk at", form.drives.wearHighRiskPct, 51, 99, n => setD({ wearHighRiskPct: n }), "%")}
+            {num("Critical at", form.drives.wearCriticalPct, 52, 100, n => setD({ wearCriticalPct: n }), "%")}
+          </div>
+          <div className="row gap wrap">
+            {num("Projected to reach its rated life: High risk within", form.drives.wearDaysHighRisk, 14, 730, n => setD({ wearDaysHighRisk: n }), "days")}
+            {num("Critical within", form.drives.wearDaysCritical, 7, 365, n => setD({ wearDaysCritical: n }), "days")}
+          </div>
+          <div className="row gap wrap">
+            {num("Temperature: Attention at", form.drives.temperatureAttentionC, 40, 84, n => setD({ temperatureAttentionC: n }), "°C")}
+            {num("High risk at", form.drives.temperatureHighRiskC, 45, 90, n => setD({ temperatureHighRiskC: n }), "°C")}
+            {num("Attention when it rose in 30 days by", form.drives.temperatureRiseAttentionC, 3, 30, n => setD({ temperatureRiseAttentionC: n }), "°C")}
+          </div>
+          <div className="row gap wrap">
+            {num("New reallocated sectors: High risk at, in 7 days", form.drives.reallocatedHighRiskPer7Days, 1, 100, n => setD({ reallocatedHighRiskPer7Days: n }), "sectors")}
+            {num("Critical at, in 30 days", form.drives.reallocatedCriticalPer30Days, 1, 1000, n => setD({ reallocatedCriticalPer30Days: n }), "sectors")}
+          </div>
+          <p className="muted small">Always, whatever is set here: the drive's own failure prediction and a failing health are Critical; pending or uncorrectable sectors are High risk, and Critical when they grow; any reallocated sector is Attention.</p>
         </section>
         <button className="btn primary" type="submit" disabled={Object.keys(changes()).length === 0}>Save settings</button>
       </form>

@@ -49,13 +49,15 @@ const alertsFor = async (cabinetId: string) => (await db.app.query<{ title: stri
 
 test("the simulated fleet has three drives with trends the platform catches early, each at the level its history earns", async () => {
   const t1 = await h.account("tier1");
-  const risk = (await h.call("GET", "/api/fleet/drives-at-risk", undefined, t1)).body.drives as { cabinet: string; level: string; reasons: string[] }[];
+  const risk = (await h.call("GET", "/api/fleet/drives-at-risk", undefined, t1)).body.drives as { cabinet: string; level: string; riskClass: string; reasons: string[] }[];
   const by = Object.fromEntries(risk.map(r => [r.cabinet, r]));
   assert.equal(by.Surgery?.level, "urgent");
   assert.match(by.Surgery!.reasons.join(" "), /reallocated sectors/);
   assert.equal(by.Lab?.level, "act");
   assert.match(by.Lab!.reasons.join(" "), /rated life/);
   assert.equal(by.ICU?.level, "watch");
+  // The spec's named classes ride along with the level (D18).
+  assert.deepEqual([by.Surgery?.riskClass, by.Lab?.riskClass, by.ICU?.riskClass], ["critical", "high_risk", "attention"]);
   assert.equal(risk.length, 3, "every other drive is fine and is not listed");
   assert.equal(risk[0]!.cabinet, "Surgery", "the worst first");
   // Urgent and act raise alerts; watch does not.
@@ -64,6 +66,7 @@ test("the simulated fleet has three drives with trends the platform catches earl
   assert.deepEqual(await alertsFor(await cab("ICU")), []);
   const history = (await h.call("GET", `/api/cabinets/${await cab("Surgery")}/drives`, undefined, t1)).body.drives[0];
   assert.equal(history.level, "urgent");
+  assert.equal(history.riskClass, "critical");
   assert.equal(history.history.length, 30);
   assert.ok(history.latest.reallocated > 20);
 });
@@ -149,4 +152,21 @@ test("the disk-filling forecast resolves itself once the system drive stops fill
                       SELECT $1, DATEADD(hour, -h, SYSUTCDATETIME()), 10, 40, 55 FROM (SELECT TOP (56) 3 + (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1) * 6 AS h FROM sys.all_objects a CROSS JOIN sys.all_objects b) x`, [id]);
   await heartbeat(id, [drive({ serialNumber: "WD-TEST-REC" })]);
   assert.equal((await db.app.query("SELECT 1 FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'", [id])).rowCount, 0);
+});
+
+test("a drive is judged against the thresholds in force: an Admin's higher wear line makes the same report Healthy", async () => {
+  const k = await cab("Front Desk");
+  await clean(k);
+  await heartbeat(k, [drive({ serialNumber: "WD-WEAR-85", wearPercent: 85 })]);
+  const level = async () => (await db.app.query<{ level: string }>("SELECT [level] FROM drive_status WHERE cabinet_id = $1", [k])).rows[0]?.level;
+  assert.equal(await level(), "watch", "85% of rated life is Attention by default");
+  await db.app.query("INSERT INTO settings ([key], [value]) VALUES ('drives.wearAttentionPct', '86')");
+  try {
+    await clean(k);
+    await heartbeat(k, [drive({ serialNumber: "WD-WEAR-85", wearPercent: 85 })]);
+    assert.equal(await level(), "ok", "with Attention at 86%, 85% is Healthy");
+  } finally {
+    await db.app.query("DELETE FROM settings WHERE [key] = 'drives.wearAttentionPct'");
+    await clean(k);
+  }
 });

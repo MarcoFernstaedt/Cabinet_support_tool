@@ -916,3 +916,8 @@ Open, not built. The owner agreed the Windows CI job should check the SQL Server
 
 The spec and the execution plan define the incident record but not what creates one. Answered by the owner (2026-11-03): a diagnosis
 that finds a problem opens it; later runs add to it and a clean run closes it. Built; details and limits in docs/platform/decision-log.md, D16.
+
+
+## Drive risk classes: what is configurable (2026-11-03)
+
+The roadmap asks for Healthy, Attention, High risk, Critical and Unknown "from configurable rules" without saying what is configurable. Answered by the owner (2026-11-03): an Admin sets the thresholds, with defaults that follow the common drive-maker and field-study metrics. Built; details in docs/platform/decision-log.md, D18.

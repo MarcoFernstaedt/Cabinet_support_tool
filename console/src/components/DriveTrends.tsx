@@ -8,10 +8,10 @@ import { Pager, usePaged } from "./Pager";
 
 type Level = "ok" | "watch" | "act" | "urgent";
 const LEVEL: Record<Level, { tone: "ok" | "info" | "warn" | "crit"; label: string; advice: string }> = {
-  ok: { tone: "ok", label: "Fine", advice: "" },
-  watch: { tone: "info", label: "Watch", advice: "Nothing to do yet. Look at it again at the next visit." },
-  act: { tone: "warn", label: "Plan a replacement", advice: "Order a replacement drive and make sure backups are current." },
-  urgent: { tone: "crit", label: "Back up and replace now", advice: "Back up now and replace the drive as soon as possible." },
+  ok: { tone: "ok", label: "Healthy", advice: "" },
+  watch: { tone: "info", label: "Attention", advice: "Nothing to do yet. Look at it again at the next visit." },
+  act: { tone: "warn", label: "High risk", advice: "Plan a replacement: order a drive and make sure backups are current." },
+  urgent: { tone: "crit", label: "Critical", advice: "Back up now and replace the drive as soon as possible." },
 };
 export const levelBadge = (level: Level) => <Badge tone={LEVEL[level].tone}>{LEVEL[level].label}</Badge>;
 
@@ -83,7 +83,7 @@ export function DrivesAtRisk() {
         <tbody>{paged.rows.map((d, i) => (
           <tr key={`${d.cabinetId}-${i}`}>
             <th scope="row"><Link to={`/cabinets/${d.cabinetId}/drives`}>{d.cabinet}</Link></th>
-            <td>{d.client} · {d.site}</td><td>{d.model ?? "—"}</td><td>{levelBadge(d.level)}</td><td>{d.reasons.join(" ")}</td><td>{ago(d.assessedAt)}</td>
+            <td>{d.client} · {d.site}</td><td>{d.model ?? "—"}</td><td>{levelBadge(d.level)}<div className="muted small">{LEVEL[d.level].advice}</div></td><td>{d.reasons.join(" ")}</td><td>{ago(d.assessedAt)}</td>
           </tr>))}</tbody>
       </table></div>
       <Pager {...paged} label="drives to look at" />

@@ -1428,6 +1428,51 @@ export interface PlatformSettings {
      */
     eventsPaceMs?: number;
   };
+  /**
+   * The drive risk thresholds (Healthy, Attention, High risk, Critical). The server also refuses a set whose steps do not rise.
+   */
+  drives?: {
+    /**
+     * Percentage of rated life used at which a drive is Attention.
+     */
+    wearAttentionPct?: number;
+    /**
+     * Percentage of rated life used at which a drive is High risk.
+     */
+    wearHighRiskPct?: number;
+    /**
+     * Percentage of rated life used at which a drive is Critical.
+     */
+    wearCriticalPct?: number;
+    /**
+     * Projected days to 100% rated life at or under which a drive is High risk.
+     */
+    wearDaysHighRisk?: number;
+    /**
+     * Projected days to 100% rated life at or under which a drive is Critical.
+     */
+    wearDaysCritical?: number;
+    /**
+     * Temperature in °C at which a drive is Attention.
+     */
+    temperatureAttentionC?: number;
+    /**
+     * Temperature in °C at which a drive is High risk.
+     */
+    temperatureHighRiskC?: number;
+    /**
+     * Rise in °C over 30 days at which a drive is Attention.
+     */
+    temperatureRiseAttentionC?: number;
+    /**
+     * New reallocated sectors in 7 days that make a drive High risk.
+     */
+    reallocatedHighRiskPer7Days?: number;
+    /**
+     * New reallocated sectors in 30 days that make a drive Critical.
+     */
+    reallocatedCriticalPer30Days?: number;
+  };
 }
 
 /**

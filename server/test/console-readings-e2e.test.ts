@@ -80,12 +80,12 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     // Drives that are heading for trouble are listed on the Fleet page, worst first, and the cabinet's drive page shows why and how it got there.
     await page.getByRole("link", { name: "Fleet", exact: true }).click();
     const risk = page.getByRole("region", { name: "Drives to look at" }).or(page.locator("section", { has: page.getByRole("heading", { name: "Drives to look at" }) }));
-    await risk.getByRole("row", { name: /Surgery.*Back up and replace now.*reallocated sectors/ }).waitFor({ timeout: 30_000 });
-    await risk.getByRole("row", { name: /Lab.*Plan a replacement.*rated life/ }).waitFor();
-    await risk.getByRole("row", { name: /ICU.*Watch/ }).waitFor();
+    await risk.getByRole("row", { name: /Surgery.*Critical.*Back up now.*reallocated sectors/ }).waitFor({ timeout: 30_000 });
+    await risk.getByRole("row", { name: /Lab.*High risk.*Plan a replacement.*rated life/ }).waitFor();
+    await risk.getByRole("row", { name: /ICU.*Attention/ }).waitFor();
     await risk.getByRole("link", { name: "Surgery" }).click();
     const history = page.getByRole("article", { name: /^History of Samsung SSD/ });
-    await history.getByText("Back up and replace now", { exact: false }).first().waitFor({ timeout: 30_000 });
+    await history.getByText("Critical", { exact: true }).first().waitFor({ timeout: 30_000 });
     await history.getByRole("img", { name: /^Reallocated sectors: from 0 to \d+ over \d+ days$/ }).waitFor();
     assert.deepEqual(problems, []);
   } catch (e) {

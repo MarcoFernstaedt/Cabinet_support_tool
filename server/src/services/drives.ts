@@ -5,7 +5,8 @@ import type { DriveHealthReport } from "../contracts.js";
 import { audit, type Queryable } from "../db/db.js";
 import { upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
-import { assessDrive, daysUntilEmpty, higher, slopePerDay, type Assessment, type DriveSample, type Level } from "./trends.js";
+import { assessDrive, daysUntilEmpty, higher, riskClass, slopePerDay, type Assessment, type DriveSample, type Level, type RiskClass } from "./trends.js";
+import { driveThresholds } from "./settings.js";
 
 const DAY = 86_400_000;
 /** At most one sample per drive in this time, so a repeated report adds nothing. */
@@ -38,7 +39,8 @@ export async function recordDriveReport(db: Queryable, cabinetId: string, drives
 /** Judges one drive's stored history now, keeps the result, and raises or escalates the alert when the level rose. */
 export async function refreshDrive(db: Queryable, cabinetId: string, key: string): Promise<Assessment> {
   const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY [at]", [cabinetId, key])).rows;
-  const assessment = assessDrive(rows.map(toSample));
+  // Judged against the thresholds in force (an Admin can change them in Settings, D18); a drive is re-judged on its next report.
+  const assessment = assessDrive(rows.map(toSample), await driveThresholds(db));
   const newest = rows[rows.length - 1];
   const previous = (await db.query<{ level: Level }>("SELECT [level] FROM drive_status WHERE cabinet_id = $1 AND drive_key = $2", [cabinetId, key])).rows[0]?.level ?? "ok";
   // The alert comes before the stored level, so if raising it fails the next report still sees the level as not yet raised and tries again.
@@ -78,7 +80,7 @@ async function diskForecast(db: Queryable, cabinetId: string): Promise<void> {
 }
 
 export interface DriveReport {
-  key: string; model: string | null; serialNumber: string | null; level: Level; reasons: { code: string; level: Level; text: string }[];
+  key: string; model: string | null; serialNumber: string | null; level: Level; riskClass: RiskClass; reasons: { code: string; level: Level; text: string }[];
   projection: Assessment["projection"]; assessedAt: string;
   latest: { at: string; health: string; temperature: number | null; powerOnHours: number | null; reallocated: number | null; pending: number | null; uncorrectable: number | null; wear: number | null } | null;
   history: { at: string; reallocated: number | null; pending: number | null; wear: number | null; temperature: number | null }[];
@@ -93,7 +95,7 @@ export async function cabinetDrives(db: Queryable, cabinetId: string): Promise<D
     const rows = (await db.query<Row>("SELECT * FROM drive_samples WHERE cabinet_id = $1 AND drive_key = $2 ORDER BY [at]", [cabinetId, s.drive_key])).rows;
     const n = rows[rows.length - 1];
     out.push({
-      key: s.drive_key, model: s.model, serialNumber: n?.serial_number ?? null, level: s.level, reasons: s.reasons, projection: s.projection, assessedAt: s.assessed_at.toISOString(),
+      key: s.drive_key, model: s.model, serialNumber: n?.serial_number ?? null, level: s.level, riskClass: riskClass(s.level), reasons: s.reasons, projection: s.projection, assessedAt: s.assessed_at.toISOString(),
       latest: n ? { at: n.at.toISOString(), health: n.health, temperature: n.temperature_c, powerOnHours: num(n.power_on_hours), reallocated: num(n.reallocated), pending: num(n.pending),
         uncorrectable: num(n.uncorrectable), wear: n.wear_percent } : null,
       history: rows.map(r => ({ at: r.at.toISOString(), reallocated: num(r.reallocated), pending: num(r.pending), wear: r.wear_percent, temperature: r.temperature_c })),
@@ -102,7 +104,7 @@ export async function cabinetDrives(db: Queryable, cabinetId: string): Promise<D
   return out;
 }
 
-export interface AtRisk { cabinetId: string; cabinet: string; site: string; client: string; demo: boolean; model: string | null; level: Level; reasons: string[]; assessedAt: string }
+export interface AtRisk { cabinetId: string; cabinet: string; site: string; client: string; demo: boolean; model: string | null; level: Level; riskClass: RiskClass; reasons: string[]; assessedAt: string }
 
 /** Drives across the fleet that are a concern (anything but "ok"), the worst first, at most 500. */
 export async function drivesAtRisk(db: Queryable): Promise<AtRisk[]> {
@@ -111,5 +113,5 @@ export async function drivesAtRisk(db: Queryable): Promise<AtRisk[]> {
        FROM drive_status d JOIN cabinets k ON k.id = d.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE d.[level] <> 'ok' AND k.status = 'active'
       ORDER BY CASE d.[level] WHEN 'urgent' THEN 0 WHEN 'act' THEN 1 ELSE 2 END, c.name, s.name, k.name`)).rows;
-  return rows.map(r => ({ cabinetId: r.id, cabinet: r.name, site: r.site, client: r.client, demo: r.demo, model: r.model, level: r.level, reasons: r.reasons.map(x => x.text), assessedAt: r.assessed_at.toISOString() }));
+  return rows.map(r => ({ cabinetId: r.id, cabinet: r.name, site: r.site, client: r.client, demo: r.demo, model: r.model, level: r.level, riskClass: riskClass(r.level), reasons: r.reasons.map(x => x.text), assessedAt: r.assessed_at.toISOString() }));
 }
