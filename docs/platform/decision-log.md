@@ -34,7 +34,7 @@ than asserted, which is what the incident record was for (diagnostic-engine-audi
   share a running run per cabinet, so this needs two runs started more than a run's length apart and finishing together; not guarded
   further.
 - An incident awaiting approval or approved, with no repair run yet, is closed by a clean run: the problem went away by itself.
-- Nothing in the console shows the incidents beyond the cabinet's History tab yet; triage and the crash incident page are the next part.
+- Beyond a cabinet's History tab, Triage's **Open incidents** view lists every incident that is not closed (built 2026-11-03, PR #146, fleet-wide and per client); the crash incident page is the next part.
 
 **Proof.** `server/test/diagnosis-incidents.test.ts`: the outcome rules, open, add, close, reopen as a new incident, modules kept
 apart, the repair-then-verify path, and hostile titles. `demo.test.ts`: a real network diagnosis on a demo cabinet opens the incident,

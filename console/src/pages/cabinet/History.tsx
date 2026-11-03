@@ -3,6 +3,7 @@ import { fullTime } from "../../lib/time";
 import { Pager, usePaged } from "../../components/Pager";
 import { Badge, Empty } from "../../components/ui";
 import { useState } from "react";
+import { useRouter } from "../../lib/router";
 import { actorText, incidentLine, linkLabel, stateOf, stepLabel, type IncidentDetail, type IncidentSummary } from "../../lib/incidents";
 
 interface Row { id: string; operation: string; status: string; issuedAt: string; resultAt: string | null; issuedBy: string; errorCode: string | null; }
@@ -16,7 +17,9 @@ export function History({ cabinetId }: { cabinetId: string }) {
 /** The cabinet's incidents, newest first; each opens to show its steps in order and what it links to. */
 function Incidents({ cabinetId }: { cabinetId: string }) {
   const { data, problem, reload } = useLoad<IncidentSummary[]>(`/api/cabinets/${cabinetId}/incidents`);
-  const [open, setOpen] = useState<string | null>(null);
+  // Triage links here with ?incident=<id> so that incident opens at once; anything else in the query is ignored.
+  const { path } = useRouter();
+  const [open, setOpen] = useState<string | null>(() => new URLSearchParams(path.split("?")[1] ?? "").get("incident"));
   return (
     <section className="panel" aria-labelledby="incidents-heading">
       <div className="panel-head"><h2 id="incidents-heading">Incidents</h2><button className="btn" onClick={reload}>Refresh</button></div>

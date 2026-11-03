@@ -88,3 +88,40 @@ test("signed out is refused, hostile query strings are refused by the contract, 
   for (const [method, url] of [["POST", `/api/cabinets/${cab}/incidents`], ["POST", `/api/cabinets/${cab}/incidents/${id}`], ["PUT", `/api/cabinets/${cab}/incidents/${id}`]] as const)
     assert.equal((await h.call(method, url, { kind: "note", summary: "x" }, me)).status, 404, `${method} ${url}`);
 });
+
+test("the fleet's open incidents for triage: only open ones on active cabinets, most recently changed first, by client, with their last step", async () => {
+  const me = await h.account("tier1");
+  const engine = { kind: "system", name: "diagnosis" } as const;
+  const [a, b, gone] = [await cabinet("TRIAGE A"), await cabinet("TRIAGE B"), await cabinet("TRIAGE GONE")];
+  const older = await openIncident(db.app, { cabinetId: a, symptom: "The gateway does not answer", module: { id: "network-diagnosis", version: 1 }, by: engine });
+  const newer = await openIncident(db.app, { cabinetId: b, symptom: "Drive C: is failing", module: { id: "cabinet-storage", version: 1 }, by: engine });
+  await appendStep(db.app, newer, { kind: "evidence", summary: "The cabinet diagnosis found 1 problem: Drive C: is failing" }, engine);
+  const closed = await openIncident(db.app, { cabinetId: a, symptom: "Closed one", by: engine });
+  await appendStep(db.app, closed, { kind: "close", result: "resolved", summary: "Fixed" }, engine);
+  await openIncident(db.app, { cabinetId: gone, symptom: "On a removed cabinet", by: engine });
+  await db.app.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [gone]);
+
+  const all = await h.call("GET", "/api/incidents/open", undefined, me);
+  assert.equal(all.status, 200, JSON.stringify(all.body));
+  const mine = (all.body.incidents as { id: string }[]).filter(i => [older, newer, closed].includes(i.id));
+  assert.deepEqual(mine.map(i => i.id), [newer, older], "open ones only, the one changed last first");
+  assert.ok(!(all.body.incidents as { symptom: string }[]).some(i => i.symptom === "On a removed cabinet"), "a removed cabinet's incident is left out");
+  const top = all.body.incidents.find((i: { id: string }) => i.id === newer);
+  assert.equal(top.cabinet.name, "TRIAGE B");
+  assert.equal(top.site.name, "North");
+  assert.equal(top.steps, 2);
+  assert.equal(top.lastStep.kind, "evidence");
+  assert.deepEqual(top.module, { id: "cabinet-storage", version: 1 });
+
+  // One client: only that client's cabinets.
+  const clientOfB = (await db.app.query<{ client_id: string }>("SELECT s.client_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [b])).rows[0]!.client_id.toLowerCase();
+  const one = await h.call("GET", `/api/incidents/open?clientId=${clientOfB}`, undefined, me);
+  assert.deepEqual((one.body.incidents as { id: string }[]).map(i => i.id), [newer]);
+  assert.equal((await h.call("GET", "/api/incidents/open?limit=1", undefined, me)).body.incidents.length, 1);
+
+  // Signed out, hostile query strings, and writes.
+  assert.equal((await h.call("GET", "/api/incidents/open", undefined)).status, 401);
+  for (const q of ["limit=0", "limit=201", "clientId=1%20OR%201%3D1", "clientId=x", "cabinetId=x", "limit=1&limit=2", "clientId[]=a"])
+    assert.equal((await h.call("GET", `/api/incidents/open?${q}`, undefined, me)).status, 400, q);
+  assert.equal((await h.call("POST", "/api/incidents/open", {}, me)).status, 404);
+});

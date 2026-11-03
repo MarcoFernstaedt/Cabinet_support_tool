@@ -38,3 +38,28 @@ export function incidentLine(i: IncidentSummary): string {
   if (i.state === "repairing") return "The repair was sent; it is checked next.";
   return `Opened by ${actorText(i.openedBy)}.`;
 }
+
+/** An open incident as the fleet triage list shows it (GET /api/incidents/open). */
+export interface OpenIncident {
+  id: string; state: IncidentState; symptom: string; module: { id: string; version: number } | null; openedAt: string; updatedAt: string;
+  cabinet: { id: string; name: string }; site: { id: string; name: string }; client: { id: string; name: string };
+  steps: number; runs: number; lastStep: { kind: StepKind; summary: string; at: string };
+}
+
+const MODULE_AREA: Record<string, string> = {
+  "network-diagnosis": "Network", "sql-connectivity-ladder": "Sync database", "cabinet-system": "System", "cabinet-storage": "Storage",
+  "cabinet-performance": "Performance", "cabinet-scanner": "Scanner", "cabinet-devices": "Devices", "cabinet-services": "Services",
+  "cabinet-updates": "Updates", "cabinet-time": "Time", "cabinet-logs": "Logs",
+};
+/** The area an incident belongs to, from the module that opened it; a module the console does not know is shown by its id. */
+export const moduleArea = (m: { id: string } | null): string => (m === null ? "Opened by hand" : MODULE_AREA[m.id] ?? m.id);
+
+/** How often a problem has been looked at, in words: the first look, or how many runs since. */
+export function runsText(runs: number): string {
+  if (!Number.isFinite(runs) || runs <= 0) return "Not looked at by a diagnosis";
+  return runs === 1 ? "Found by one diagnosis" : `Seen in ${runs} diagnoses`;
+}
+
+/** Where to open one incident: its cabinet's History tab, with that incident open. */
+export const incidentHref = (i: { id: string; cabinet: { id: string } }): string =>
+  `/cabinets/${encodeURIComponent(i.cabinet.id)}/history?incident=${encodeURIComponent(i.id)}`;
