@@ -148,6 +148,8 @@ When the agent changes the firewall itself, the resulting firewall_changed event
 - Firewall change detector: watches the firewall log channel for rule and profile changes, plus a hash of the full configuration every 5 minutes as a backstop. Any change produces a firewall_changed event with what changed.
 - Firewall timer: turns profiles back on when their timer ends.
 - Drive health check: reads SMART data once a day and queues a smart_warning when failure is predicted or a counter crosses its threshold.
+- New crash dumps: every 5 minutes runs crash.list and queues a crash_dump event for each small dump not seen before, with its stop code and parameters (the first look after install sends only the last day's). Decision-log D20.
+- Short uptimes: every 5 minutes runs boot.history for 2 days and queues a short_uptime event for each new start that followed a run under 20 minutes, with how that run ended. Decision-log D20.
 
 ## Local storage
 

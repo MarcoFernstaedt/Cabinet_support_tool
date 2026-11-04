@@ -61,7 +61,6 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   parameters from its header, and the full dump's presence; the faulting module is not read, since a small dump's header does not
   hold it.) (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's
   crash page.)
-- Agent monitors for new dumps and short uptimes (repeated boots are caught on the server, not the agent).
 - Crash signatures (stop code plus faulting module) grouped across the fleet: needs `crash.list`.
 - Incident response mode.
 - **Engine foundation part 5b:** the incident record on the crash incident page. (Built: a network or cabinet diagnosis that finds a
@@ -93,7 +92,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Required ports: sync ports per client and site; no per-vendor endpoint list.
 
 **Not built:**
-- (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
+- (Agent monitors for new dumps and short uptimes are built (D20): `crash_dump` and `short_uptime` events, a dump joining its blue-screen alert, short runs feeding the reboot-loop count.) (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
   diagnosis on sync port 1433 (D15).)
 - Process signer and parent; service dependencies; application-crash correlation (Application Error and hang events are
   not mapped); the files installed by each driver.
@@ -196,13 +195,13 @@ platform-authored write attribution worked. Its findings:
 
 ## How many PRs are left (estimate)
 
-**About 59 to 64 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**About 58 to 63 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 
 | Where | PRs (estimate) | What they are |
 |---|---|---|
-| Phase 2 | ~10 | `storage.health`, the faulting module of a crash, dump and short-uptime monitors, crash signatures, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
+| Phase 2 | ~9 | `storage.health`, the faulting module of a crash, crash signatures, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
 | Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |

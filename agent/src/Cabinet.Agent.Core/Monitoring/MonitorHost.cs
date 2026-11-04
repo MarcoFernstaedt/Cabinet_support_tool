@@ -22,6 +22,10 @@ public sealed class MonitorSources
     public Func<IReadOnlyList<string>?, CancellationToken, Task<IReadOnlyList<WatchedServiceStatus>>>? Watch { get; init; }
     /// <summary>The configuration collector (docs/spec/15-baselines-and-config.md): every category, from the same read operations a technician would run.</summary>
     public Func<CancellationToken, Task<ConfigSnapshotOutput>>? Config { get; init; }
+    /// <summary>crash.list, for the new-dump monitor.</summary>
+    public Func<CancellationToken, Task<CrashListOutput>>? Dumps { get; init; }
+    /// <summary>boot.history over the last two days, for the short-uptime monitor.</summary>
+    public Func<CancellationToken, Task<BootHistoryOutput>>? Boots { get; init; }
 }
 
 public sealed class MonitorIntervals
@@ -37,6 +41,9 @@ public sealed class MonitorIntervals
     /// <summary>How often the configuration is collected; only categories that changed are sent (and every category once a day).</summary>
     public TimeSpan Config { get; init; } = TimeSpan.FromMinutes(15);
     public TimeSpan FirstConfigLook { get; init; } = TimeSpan.FromSeconds(90);
+    /// <summary>New crash dumps and short uptimes. The first look comes soon after start, when a crash that just happened is most useful.</summary>
+    public TimeSpan Crashes { get; init; } = TimeSpan.FromMinutes(5);
+    public TimeSpan FirstCrashLook { get; init; } = TimeSpan.FromSeconds(60);
 }
 
 /// <summary>
@@ -129,6 +136,16 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
                 if (queued > 0) log($"Configuration: {queued} categor{(queued == 1 ? "y" : "ies")} queued for the server.");
             }, token));
         }
+        if (sources.Dumps is not null)
+        {
+            var watch = new DumpWatch(new StateFile<DumpWatch.State>(State("crash-dumps-seen.json")));
+            loops.Add(Loop("crash dumps", _every.Crashes, _every.FirstCrashLook, t => DumpsOnceAsync(watch, t), token));
+        }
+        if (sources.Boots is not null)
+        {
+            var watch = new UptimeWatch(new StateFile<UptimeWatch.State>(State("short-uptime.json")));
+            loops.Add(Loop("short uptimes", _every.Crashes, _every.FirstCrashLook, t => BootsOnceAsync(watch, t), token));
+        }
         settings.Changed += () => log("New scanner settings from the console; the scanner watcher uses them from its next look.");
         return Task.WhenAll(loops);
     }
@@ -158,6 +175,26 @@ public sealed class MonitorHost(MonitorSources sources, MonitorSettings settings
         var output = await sources.Drives!(token).ConfigureAwait(false);
         lock (_drivesGate) _drivesToSend = output.Drives.Take(32).ToList();
         foreach (var e in watch.Check(output, clock.GetUtcNow())) Add(e);
+    }
+
+    /// <summary>One look for new crash dumps, for tests and the harness.</summary>
+    public async Task DumpsOnceAsync(DumpWatch watch, CancellationToken token)
+    {
+        foreach (var e in watch.Check(await sources.Dumps!(token).ConfigureAwait(false), clock.GetUtcNow()))
+        {
+            log($"New crash dump: {e.Detail.Fields!["dump"]}.");
+            Add(e);
+        }
+    }
+
+    /// <summary>One look for short uptimes, for tests and the harness.</summary>
+    public async Task BootsOnceAsync(UptimeWatch watch, CancellationToken token)
+    {
+        foreach (var e in watch.Check(await sources.Boots!(token).ConfigureAwait(false), clock.GetUtcNow()))
+        {
+            log($"Short uptime: {e.Detail.Fields!["ranSeconds"]} seconds before the start at {e.Detail.Fields["startedAt"]}.");
+            Add(e);
+        }
     }
 
     /// <summary>One look at the scanner, for tests and the harness.</summary>

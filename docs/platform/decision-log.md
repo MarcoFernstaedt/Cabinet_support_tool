@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D20. New crash dumps and short uptimes raise agent events; a short run is under 20 minutes (2026-11-04)
+
+**What the spec asks.** "New dumps, short uptimes and repeated boots raise events" (13-roadmap.md, phase 2, agent monitors). It does
+not say how short a short uptime is.
+
+**Decision.**
+- **New dumps.** Every 5 minutes (first look a minute after start) the agent runs `crash.list` in the broker. A small dump whose name
+  was not there last time is sent once as a `crash_dump` event (major) with its name, time, size, and the stop code and parameters its
+  header gave, or why the header could not be read. The first look after install sends only dumps written in the last day, so an old
+  Minidump folder is not a flood and a crash just before the agent started is not lost. At most 10 per look.
+- **Short uptimes.** Every 5 minutes the agent runs `boot.history` for 2 days. Each start newer than the last one looked at, whose run
+  before it lasted under **20 minutes**, is sent once as a `short_uptime` event (minor) with both starts, how long the run lasted, and
+  how it ended (and why, D19). A run's length is the uptime Windows logged at a clean or requested shutdown, else the time between its
+  start and the next. Starts dated more than 5 minutes ahead of the cabinet's clock are ignored.
+- **On the server.** A `crash_dump` raises the blue-screen issue on the same alert signature as the BugCheck 1001 event, so a dump and
+  its event are one alert (two occurrences), and a dump whose event was lost still raises it. A `short_uptime` raises nothing itself:
+  both its starts are recorded as boots (once each, inside the same-boot window), so the reboot-loop rule (3 starts within 60 minutes)
+  sees loops even when no heartbeat or start record arrived. Times that do not parse, more than 5 minutes ahead or older than 3 days
+  record nothing.
+
+**Why 20 minutes.** It is worked out from the server's existing reboot-loop rule, not measured: three starts in 60 minutes means runs
+of 20 minutes or less on average, so a run under 20 minutes is one step of what the platform already calls a loop. It is a constant
+(`UptimeWatch.ShortRunSeconds`); the spec does not set it, so it is noted in 09-open-decisions.md for the owner to change.
+
+**Considered.** Sending every start and letting the server judge: the server already gets starts from heartbeats and Kernel-General 12;
+what it misses is a cabinet that crashes before it reaches the server, which is exactly what the agent's own record covers. Raising a
+minor alert per short run: one bad restart would page people; the loop alert is the signal that matters.
+
+**Costs.** One `crash.list` and one `boot.history` read in the broker every 5 minutes (a directory listing with 4 KB per dump, and a
+filtered System-log query). An agent on this version needs a server that knows the two event kinds: deploy the server first.
+
+**Proof.** `CrashWatchTests` (13): first look bounded to a day, each dump once, survives an agent restart, header problems reported,
+at most 10, a future-dated dump; short runs once each, Windows' logged uptime before the gap, the limit's edge, the first look's day,
+a loop oldest first, a future start ignored. Red with each guard removed (1, 3, 1 and 1 failures). `crashes.test.ts`: a dump alone
+raises the blue screen; with its BugCheck event it is one alert with 2 occurrences; three short runs make 4 boots and a reboot-loop
+alert and no other alert; hostile times record no boot. Red with the dump handling removed, and with the time bounds removed.
+
+---
+
 ## D19. Unexpected restarts are classified: blue screen, power button, or power lost / frozen (2026-11-03)
 
 **What the spec asks.** Phase 2 "power-loss classification": tell a bug check from a power loss from a forced power-off

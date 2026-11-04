@@ -39,7 +39,7 @@ public sealed record Result
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public ResultError? Error { get; init; }
 }
 
-public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security, Scanner, Service, Change }
+public enum EventKind { Error, FirewallChanged, SmartWarning, AgentStatus, Security, Scanner, Service, Change, CrashDump, ShortUptime }
 
 public enum ScannerState { Disconnected, DeviceError, DriverMissing, Recovered }
 

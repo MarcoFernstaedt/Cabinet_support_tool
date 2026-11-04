@@ -252,3 +252,49 @@ test("the cabinet's crash view counts unexpected restarts by cause, from what th
   const titles = (d.timeline as { category: string; title: string }[]).filter(i => i.category === "unexpected_shutdown").map(i => i.title);
   assert.ok(titles.some(t => t.includes("power button was held")), JSON.stringify(titles));
 });
+
+test("the agent's crash monitors: a new dump is a blue screen on the same alert as its BugCheck event, and short runs count as boots toward a reboot loop", async () => {
+  const fresh = async (name: string) => {
+    const [client, site, k] = [randomUUID(), randomUUID(), randomUUID()];
+    await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Mon ${randomBytes(3).toString("hex")}`]);
+    await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
+    await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, $3, 'standalone', 'active')", [k, site, name]);
+    return k;
+  };
+  const iso = (minutesAgo: number) => new Date(Math.floor((Date.now() - minutesAgo * 60_000) / 1000) * 1000).toISOString().split(".")[0] + "Z";
+  const dump = (minutesAgo: number) => ({ eventId: randomUUID(), kind: "crash_dump" as const, occurredAt: iso(minutesAgo), severityHint: "major" as const,
+    detail: { message: "A new crash dump: 110326-9875-01.dmp, stop code 0x000000D1.", fields: { dump: "110326-9875-01.dmp", writtenAt: iso(minutesAgo), stopCode: "0x000000D1" } } });
+  const crashAlerts = async (k: string) => (await db.app.query<{ occurrences: number; severity: string }>(
+    "SELECT occurrences, severity FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.crash])).rows;
+
+  // A dump with no BugCheck event (the log was lost) still raises the blue screen.
+  const alone = await fresh("DUMP ONLY");
+  await storeEvents(db.app, alone, { events: [dump(5)] });
+  assert.equal((await crashAlerts(alone)).length, 1);
+  // With its BugCheck event, the two are one alert, not two.
+  const both = await fresh("DUMP AND EVENT");
+  await storeEvents(db.app, both, { events: [
+    { eventId: randomUUID(), kind: "error", occurredAt: iso(6), severityHint: "major", source: { log: "System", source: "BugCheck", eventId: 1001, level: "error", recordId: 7 },
+      detail: { message: "The computer has rebooted from a bugcheck.  The bugcheck was: 0x000000d1 (0x28, 0x2, 0x0, 0xfffff8063c41a2b0)." } },
+    dump(6),
+  ] });
+  const one = await crashAlerts(both);
+  assert.equal(one.length, 1, JSON.stringify(one));
+  assert.equal(Number(one[0]!.occurrences), 2);
+
+  // Three short runs the agent measured: four starts within the hour, a loop even though no heartbeat or start record came in.
+  const looping = await fresh("LOOPING");
+  const short = (startedAgo: number, previousAgo: number) => ({ eventId: randomUUID(), kind: "short_uptime" as const, occurredAt: iso(startedAgo), severityHint: "minor" as const,
+    detail: { message: "Windows started again after running for 4 minutes.", fields: { startedAt: iso(startedAgo), previousStartedAt: iso(previousAgo), ranSeconds: "240", previousEnd: "unexpected" } } });
+  await storeEvents(db.app, looping, { events: [short(10, 14), short(6, 10), short(2, 6)] });
+  assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [looping])).rows[0].n), 4, "each start once");
+  assert.equal((await loopAlert(looping))?.state, "open");
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM alerts WHERE cabinet_id = $1 AND signature <> 'reboot_loop'", [looping])).rows[0].n, 0,
+    "a short run raises no alert of its own");
+
+  // Times that are not times, far in the future or days old record no boot.
+  const hostile = await fresh("HOSTILE");
+  const odd = (startedAt: string, previousStartedAt: string) => ({ ...short(1, 2), detail: { fields: { startedAt, previousStartedAt, ranSeconds: "60", previousEnd: "unknown" } } });
+  await storeEvents(db.app, hostile, { events: [odd("yesterday", "'; DROP TABLE cabinet_boots; --"), odd(iso(-600), iso(-24 * 60 * 30)), odd(iso(5 * 24 * 60), iso(5 * 24 * 60 + 3))] });
+  assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [hostile])).rows[0].n), 0);
+});

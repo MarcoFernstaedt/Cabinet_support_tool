@@ -2407,9 +2407,29 @@ export interface DiagnosticModule {
      * @maxItems 8
      */
     events?: [
-      "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change",
+      (
+        | "error"
+        | "firewall_changed"
+        | "smart_warning"
+        | "agent_status"
+        | "security"
+        | "scanner"
+        | "service"
+        | "change"
+        | "crash_dump"
+        | "short_uptime"
+      ),
       ...(
-        "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change"
+        | "error"
+        | "firewall_changed"
+        | "smart_warning"
+        | "agent_status"
+        | "security"
+        | "scanner"
+        | "service"
+        | "change"
+        | "crash_dump"
+        | "short_uptime"
       )[]
     ];
     /**
@@ -2944,11 +2964,21 @@ export interface EventBatch {
 }
 
 /**
- * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode. kind change is a system change the agent records as it happens, so it is known even if the cabinet later cannot boot: an update installed, a driver or service installed, software installed or removed, Windows starting or shutting down, a restart and who asked for it. It carries its log record like error.
+ * Agent-originated event: detected errors and changes (docs/spec/03-protocol.md). kind scanner comes from the fingerprint scanner watcher and carries the device and its state instead of a log record. kind service comes from the broker's service watcher; detail.fields carries service (its name), change (restarted, failing, recovered, missing, disabled) and, when known, errorCode. kind change is a system change the agent records as it happens, so it is known even if the cabinet later cannot boot: an update installed, a driver or service installed, software installed or removed, Windows starting or shutting down, a restart and who asked for it. It carries its log record like error. kind crash_dump is a small crash dump that appeared in %SystemRoot%\Minidump since the agent last looked; detail.fields carries dump (its file name), writtenAt and, when its header could be read, stopCode (0x and eight hex digits) and parameter1 to parameter4. kind short_uptime is a start that followed a run shorter than the agent's short-uptime limit (decision-log D20); detail.fields carries startedAt (the new start), previousStartedAt, ranSeconds and how the run ended (clean, requested, unexpected or unknown) and, for an unexpected end, its cause.
  */
 export interface Event {
   eventId: string;
-  kind: "error" | "firewall_changed" | "smart_warning" | "agent_status" | "security" | "scanner" | "service" | "change";
+  kind:
+    | "error"
+    | "firewall_changed"
+    | "smart_warning"
+    | "agent_status"
+    | "security"
+    | "scanner"
+    | "service"
+    | "change"
+    | "crash_dump"
+    | "short_uptime";
   /**
    * UTC time, ISO 8601, always ending in Z.
    */

@@ -1,0 +1,16 @@
+{
+  "eventId": "8c3d4e5f-6071-4b82-9c93-d4e5f6071829",
+  "kind": "short_uptime",
+  "occurredAt": "2026-11-03T09:20:11Z",
+  "severityHint": "minor",
+  "detail": {
+    "message": "Windows started again after running for 4 minutes; the run before ended unexpectedly (bug check).",
+    "fields": {
+      "startedAt": "2026-11-03T09:20:11Z",
+      "previousStartedAt": "2026-11-03T09:15:58Z",
+      "ranSeconds": "253",
+      "previousEnd": "unexpected",
+      "cause": "bug_check"
+    }
+  }
+}
