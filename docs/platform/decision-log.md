@@ -24,8 +24,14 @@ overview". The same timeout is in the reviewer's logs from 23 and 27 October, an
   | Fleet checks | 0.4 s |
 - D17 gave the setup test 90 s for this step, but the shared helper used by every other browser test still waited 60 s.
 
-**Decision.** One limit, `DEMO_ON_LIMIT_MS` (90 s) in `test/browser-console.ts`, used by `startDemo` and by the setup test. Every test that
-calls `startDemo` allows 300 s or more overall, so the longer wait fits.
+**Decision.** One limit, `DEMO_ON_LIMIT_MS` (90 s) in `test/browser-console.ts`, used wherever a browser test waits for demo mode to turn on:
+- `startDemo`, the shared helper;
+- the setup test ("Turn demo mode on");
+- the guided demo test, both for its first tour step and for the wait after it resets the demo. Its other tour steps keep 60 s, since they
+  do not wait on the seed.
+
+(`console-demo-e2e` turns the demo on through the server before the browser opens, so it has no such wait.) Every one of these tests allows
+300 s or more overall, so the longer wait fits.
 
 **Tried and rejected: seeding sites side by side.** Running four sites at once, with each site's cabinets still one at a time, made
 things worse when measured:

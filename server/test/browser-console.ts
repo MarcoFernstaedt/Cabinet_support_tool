@@ -30,8 +30,8 @@ export interface Console {
 }
 
 /**
- * How long turning demo mode on may take before the tour shows (D17, D27): measured at 16.6 to 18.6 s on an idle machine, two test files run
- * at once, and a loaded machine stretches it further. One limit for every test that turns the demo on.
+ * How long turning demo mode on may take before the tour shows (D17, D27): enableDemo measured alone at 16.6 and 18.5 s on an idle machine;
+ * the suite runs two test files at once and a loaded machine stretches it further. One limit for every test that turns the demo on.
  */
 export const DEMO_ON_LIMIT_MS = 90_000;
 
