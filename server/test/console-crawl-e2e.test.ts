@@ -53,6 +53,14 @@ test("every page and cabinet section loads cleanly and its read buttons answer",
       await page.locator("h1, h2").first().waitFor({ timeout: 30_000 });
       await page.waitForTimeout(700);
       await readPage(page, note);
+      // The demo fleet's crashes are fleet-wide on purpose: when the platform holds an open fleet pattern, the alarm shows on the page.
+      if (path === pages[0]) {
+        const open = await page.evaluate(async () => {
+          const r = await fetch("/api/fleet-patterns");
+          return r.ok ? ((await r.json()) as { patterns: { resolvedAt: string | null }[] }).patterns.filter(p => !p.resolvedAt).length : -1;
+        });
+        if (open > 0 && (await page.locator(".fleet-alarm:visible").count()) === 0) note("an open fleet pattern but no fleet alarm on the page");
+      }
       if (path.startsWith("/cabinets/")) {
         const buttons = page.locator("main button:visible").filter({ hasText: READS });
         const count = Math.min(await buttons.count(), 6);
@@ -87,7 +95,8 @@ test("every page and cabinet section loads cleanly and its read buttons answer",
 
 /** What a person would see go wrong on the page as it is now. */
 async function readPage(page: Page, note: (m: string) => void): Promise<void> {
-  for (const text of await page.locator("[role=alert]:visible").allTextContents()) note(`alert: ${text.slice(0, 200)}`);
+  // The fleet alarm (D23) is an alert by design, not a page error: it is left out here and checked on its own in the crawl.
+  for (const text of await page.locator("[role=alert]:visible:not(.fleet-alarm)").allTextContents()) note(`alert: ${text.slice(0, 200)}`);
   if (await page.getByText(/Something went wrong|Unexpected Application Error/i).count()) note("the error screen is showing");
   if (await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1)) note("the page scrolls sideways");
 }

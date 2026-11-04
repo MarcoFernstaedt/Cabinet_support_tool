@@ -140,7 +140,7 @@ export function SecurityAlerts() {
 }
 
 interface Settings {
-  offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number;
+  offlineAlertDays: number; sessionIdleMinutes: number; sessionAbsoluteHours: number; fleetPatternSites: number; fleetPatternHours: number;
   retention: { eventsDays: number; commandsDays: number; alertsDays: number; firewallDays: number; diagnosesDays: number; bootsDays: number; jobsDays: number };
   agents: { heartbeatSeconds: number; pollSeconds: number; eventsPaceMs: number };
   drives: DriveThresholds;
@@ -165,7 +165,7 @@ export function PlatformSettings() {
       <input type="number" min={min} max={max} required value={value} onChange={e => set(Number(e.target.value))} /></label>);
   const changes = (): Record<string, unknown> => {
     const c: Record<string, unknown> = {};
-    for (const k of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours"] as const) if (form[k] !== data[k]) c[k] = form[k];
+    for (const k of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours", "fleetPatternSites", "fleetPatternHours"] as const) if (form[k] !== data[k]) c[k] = form[k];
     const r: Record<string, number> = {};
     for (const k of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const) if (form.retention[k] !== data.retention[k]) r[k] = form.retention[k];
     if (Object.keys(r).length) c.retention = r;
@@ -194,7 +194,12 @@ export function PlatformSettings() {
       {done && <p className="notice ok" role="status">{done}</p>}
       <form className="form" onSubmit={e => { e.preventDefault(); save(); }}>
         <section className="panel" aria-labelledby="s-alerts"><h2 id="s-alerts">Alerts</h2>
-          {num("Offline alert after", form.offlineAlertDays, 1, 90, n => set({ offlineAlertDays: n }), "days")}</section>
+          {num("Offline alert after", form.offlineAlertDays, 1, 90, n => set({ offlineAlertDays: n }), "days")}
+          {/* D22: the same problem at this many sites within this many hours is one fleet alert with a report. */}
+          <div className="row gap wrap">
+            {num("Fleet alert at", form.fleetPatternSites, 2, 1000, n => set({ fleetPatternSites: n }), "sites")}
+            {num("within", form.fleetPatternHours, 1, 168, n => set({ fleetPatternHours: n }), "hours")}
+          </div></section>
         <section className="panel" aria-labelledby="s-sessions"><h2 id="s-sessions">Sign-in</h2>
           <div className="row gap wrap">
             {num("Sign out after idle", form.sessionIdleMinutes, 5, 240, n => set({ sessionIdleMinutes: n }), "minutes")}

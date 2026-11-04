@@ -929,3 +929,11 @@ The roadmap's agent monitors raise an event on a "short uptime" without saying h
 ## What opens and closes a crash incident (2026-11-04)
 
 Engine part 5b needs crashes to open incidents, which the spec does not define. Answered by the owner (2026-11-04): a blue-screen or reboot-loop alert opens one incident per cabinet, later crash alerts join it, and it closes when all its crash alerts are resolved; the same alert is shown once with how many times it occurred, never once per occurrence. Built; details in docs/platform/decision-log.md, D21.
+
+## Fleet-wide patterns (2026-11-04)
+
+The spec flags the same issue at one site within an hour; it does not say when a problem across many sites becomes one alert. Answered by the owner (2026-11-04): the same problem at 5 or more sites within 24 hours raises one fleet alert, with a report of the clients, sites and cabinets affected and what they have in common; it must cover reboot loops across many sites; both numbers are Admin settings. Built; details in docs/platform/decision-log.md, D22.
+
+## How people hear about a fleet-wide problem (2026-11-04)
+
+Answered by the owner (2026-11-04): console only. Every signed-in console gets a red banner, a sound and a desktop notification within seconds of a fleet pattern opening; nothing is sent outside the platform, keeping the October no-email decision. Built; details in docs/platform/decision-log.md, D23.

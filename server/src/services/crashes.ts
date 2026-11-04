@@ -374,44 +374,8 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
   }
   for (const l of loops) touch(l.cabinet_id, l.first_seen).loop = true;
 
-  // What changed: on each affected cabinet in the 72 hours before its first crash; on the others, in the same span around the window.
-  const lookFrom = new Date(f.from.getTime() - BEFORE_HOURS * 3_600_000);
-  // Aggregated in SQL: only the event types the comparison uses, only inside each cabinet's span, one row per distinct change.
-  // An error message is dropped (its key is fixed), so a flood of disk errors is one row per cabinet, not thousands.
-  const spans = [...affected.values()];
-  const changeRows = (await db.query<{ cabinet_id: string; kind: string; has_source: number; src: string | null; event_id: number | null; message: string }>(
-    `SELECT DISTINCT TOP (100000) e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN 0 ELSE 1 END AS has_source,
-            JSON_VALUE(e.source, '$.source') AS src, TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) AS event_id,
-            CASE WHEN e.kind = 'change' AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($5)) THEN ${messageOf("e")} ELSE '' END AS message
-       FROM events e LEFT JOIN OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt') f ON f.id = e.cabinet_id
-      WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND e.occurred_at BETWEEN $1 AND $2
-        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
-        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))))`,
-    [lookFrom, f.to, ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_KEYS])).rows;
-  const changes = changeRows.map(r => ({ cabinet_id: r.cabinet_id, kind: r.kind, message: r.message,
-    source: r.has_source === 1 ? { log: "", source: r.src ?? "", eventId: r.event_id ?? 0 } : null as Row["source"] }));
-  const keyed = new Map<string, { category: Category; key: string; affected: Set<string>; unaffected: Set<string> }>();
-  for (const ch of changes) {
-    const c = categorize({ kind: ch.kind, source: ch.source, message: ch.message, fields: null });
-    if (!c) continue;
-    const a = affected.get(ch.cabinet_id);
-    let k: string | null = null;
-    if (CHANGE_CATEGORIES.has(c.category)) k = `${c.label}: ${changeKey(c.category, ch.message)}`;
-    else if (c.category === "storage") k = "Storage errors (disk, file system or controller)";
-    else if (c.category === "hardware") k = "Hardware errors (WHEA)";
-    else if (c.category === "update_failed") k = "A Windows update failed";
-    else if (c.category === "driver_failed") k = "A driver failed to load";
-    if (!k) continue;
-    const entry = keyed.get(k) ?? keyed.set(k, { category: c.category, key: k, affected: new Set(), unaffected: new Set() }).get(k)!;
-    (a ? entry.affected : entry.unaffected).add(ch.cabinet_id);
-  }
   const affectedCount = affected.size, unaffectedCount = population.length - affectedCount;
-  const share = (n: number, of: number) => of === 0 ? 0 : Math.round((n / of) * 1000) / 10;
-  const comparisons = [...keyed.values()].map(e => {
-    const as = share(e.affected.size, affectedCount), us = share(e.unaffected.size, unaffectedCount);
-    return { category: e.category, change: e.key, affected: e.affected.size, affectedShare: as, unaffected: e.unaffected.size, unaffectedShare: us,
-      standsOut: affectedCount >= 2 && as >= 50 && as - us >= 40 };
-  }).filter(c => c.affected > 0).sort((a, b) => Number(b.standsOut) - Number(a.standsOut) || (b.affectedShare - b.unaffectedShare) - (a.affectedShare - a.unaffectedShare)).slice(0, 40);
+  const comparisons = await compareChanges(db, { ids, affected: new Map([...affected.values()].map(a => [a.id, a.firstAt])), from: f.from, to: f.to });
 
   const byId = new Map(population.map(p => [p.id, p]));
   const rows = [...affected.values()].sort((a, b) => a.firstAt.getTime() - b.firstAt.getTime()).map(a => {
@@ -439,4 +403,53 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
     byClient: groups(p => p.client), bySite: groups(p => `${p.client} / ${p.site}`), byAgentVersion: groups(p => p.agent_version ?? "unknown"),
     comparisons, cabinetsAffected: rows,
   };
+}
+
+/** One change or error compared between the affected cabinets and the others: how many of each had it, and whether it stands out. */
+export interface ChangeComparison { category: Category; change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }
+
+/**
+ * What changed: on each affected cabinet in the 72 hours before its problem began; on the others, in the same span around the window.
+ * A change that at least half the affected cabinets had, and at least 40 points more of them than the others, stands out. Shared by
+ * the fleet crash incident and fleet patterns (decision-log D22).
+ */
+export async function compareChanges(db: Queryable, o: { ids: readonly string[]; affected: ReadonlyMap<string, Date>; from: Date; to: Date }): Promise<ChangeComparison[]> {
+  const lookFrom = new Date(o.from.getTime() - BEFORE_HOURS * 3_600_000);
+  // Aggregated in SQL: only the event types the comparison uses, only inside each cabinet's span, one row per distinct change.
+  // An error message is dropped (its key is fixed), so a flood of disk errors is one row per cabinet, not thousands.
+  const spans = [...o.affected.entries()].map(([id, firstAt]) => ({ id, firstAt }));
+  const changeRows = (await db.query<{ cabinet_id: string; kind: string; has_source: number; src: string | null; event_id: number | null; message: string }>(
+    `SELECT DISTINCT TOP (100000) e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN 0 ELSE 1 END AS has_source,
+            JSON_VALUE(e.source, '$.source') AS src, TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) AS event_id,
+            CASE WHEN e.kind = 'change' AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($5)) THEN ${messageOf("e")} ELSE '' END AS message
+       FROM events e LEFT JOIN OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt') f ON f.id = e.cabinet_id
+      WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND e.occurred_at BETWEEN $1 AND $2
+        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
+        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))))`,
+    [lookFrom, o.to, o.ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_KEYS])).rows;
+  const changes = changeRows.map(r => ({ cabinet_id: r.cabinet_id, kind: r.kind, message: r.message,
+    source: r.has_source === 1 ? { log: "", source: r.src ?? "", eventId: r.event_id ?? 0 } : null as Row["source"] }));
+  const keyed = new Map<string, { category: Category; key: string; affected: Set<string>; unaffected: Set<string> }>();
+  for (const ch of changes) {
+    const c = categorize({ kind: ch.kind, source: ch.source, message: ch.message, fields: null });
+    if (!c) continue;
+    const a = o.affected.has(ch.cabinet_id);
+    let k: string | null = null;
+    if (CHANGE_CATEGORIES.has(c.category)) k = `${c.label}: ${changeKey(c.category, ch.message)}`;
+    else if (c.category === "storage") k = "Storage errors (disk, file system or controller)";
+    else if (c.category === "hardware") k = "Hardware errors (WHEA)";
+    else if (c.category === "update_failed") k = "A Windows update failed";
+    else if (c.category === "driver_failed") k = "A driver failed to load";
+    if (!k) continue;
+    const entry = keyed.get(k) ?? keyed.set(k, { category: c.category, key: k, affected: new Set(), unaffected: new Set() }).get(k)!;
+    (a ? entry.affected : entry.unaffected).add(ch.cabinet_id);
+  }
+  const affectedCount = o.affected.size, unaffectedCount = o.ids.length - affectedCount;
+  const share = (n: number, of: number) => of === 0 ? 0 : Math.round((n / of) * 1000) / 10;
+  return [...keyed.values()].map(e => {
+    const as = share(e.affected.size, affectedCount), us = share(e.unaffected.size, unaffectedCount);
+    return { category: e.category, change: e.key, affected: e.affected.size, affectedShare: as, unaffected: e.unaffected.size, unaffectedShare: us,
+      standsOut: affectedCount >= 2 && as >= 50 && as - us >= 40 };
+  }).filter(c => c.affected > 0).sort((a, b) => Number(b.standsOut) - Number(a.standsOut) || (b.affectedShare - b.unaffectedShare) - (a.affectedShare - a.unaffectedShare)).slice(0, 40);
+
 }

@@ -1,6 +1,7 @@
 // The live stream (Server-Sent Events): one per signed-in tab. It carries the results of
 // commands that user issued, every new major alert (to everyone signed in), and each
 // alert's claim and resolution, so every console shows who has what. Security alerts go to Admins only.
+import { FLEET_CHANNEL, fleetPatternById } from "../services/fleet-patterns.js";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { SessionUser } from "../auth/sessions.js";
 import type { Queryable } from "../db/db.js";
@@ -25,6 +26,7 @@ export class ResultStream {
       this.feed.on("command_results", payload => { void this.deliver(payload).catch(() => undefined); }),
       this.feed.on("alerts", payload => { void this.deliverAlert(payload).catch(() => undefined); }),
       this.feed.on("security_alerts", payload => this.deliverSecurity(payload)),
+      this.feed.on(FLEET_CHANNEL, payload => { void this.deliverFleet(payload).catch(() => undefined); }),
     ];
   }
 
@@ -45,6 +47,16 @@ export class ResultStream {
     if (typeof p.id !== "string" || typeof p.title !== "string") return;
     const data = JSON.stringify({ id: p.id, created: p.created === true, kind: p.kind, title: p.title });
     for (const s of this.subscribers) if (s.role === "admin") s.reply.raw.write(`event: security\ndata: ${data}\n\n`);
+  }
+
+  /** A fleet pattern opening or resolving goes to everyone signed in, whatever their role (D23): it is the fleet-wide alarm. */
+  private async deliverFleet(payload: string): Promise<void> {
+    const [id, change] = payload.split(" ");
+    if (!id || (change !== "opened" && change !== "resolved") || this.subscribers.size === 0) return;
+    const p = await fleetPatternById(this.pool, id).catch(() => null);
+    if (!p) return;
+    const data = JSON.stringify({ change, id: p.id, title: p.title, severity: p.severity, sites: p.sites, cabinets: p.cabinets, clients: p.clients, firstSeen: p.firstSeen });
+    for (const s of this.subscribers) s.reply.raw.write(`event: fleet\ndata: ${data}\n\n`);
   }
 
   /** New major alerts go to everyone; claims and resolutions of any alert too, so lists and the badge stay current. */

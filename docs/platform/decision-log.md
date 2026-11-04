@@ -6,6 +6,69 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D23. Fleet alarm: in every open console within seconds; nothing sent outside (2026-11-04)
+
+**Owner's request and decision.** "We need to know as soon as possible when something like the reboot loops happen, or other things
+affecting fleet error logs." Asked how to reach people: **console only**, keeping the October decision that the platform sends nothing
+outside (no email, SMS, chat or webhooks).
+
+**What is built.**
+- **Detection within seconds.** An event batch that raises a new alert asks for a fleet check, which runs about 2 seconds later instead
+  of at the next one-minute sweep; a burst of batches shares one check (`checkFleetSoon`). The one-minute sweep stays as the safety net
+  (and catches reboot loops and outages, which are raised outside event batches).
+- **Everyone signed in hears it.** Opening or resolving a fleet pattern is announced on the live stream to every signed-in console,
+  whatever the role (`event: fleet`). The console shows a **red banner on every page** naming the problem and its reach (sites,
+  cabinets, clients) with a link to the report, plays a short sound, and shows a **desktop notification** where the browser allows it
+  (a button asks for that permission). A console opened later shows the open patterns at once; the tab title counts them.
+- **Acknowledge** hides the banner in that browser only; the pattern stays open until no cabinet has the problem.
+
+**Limits.** Nobody hears about it until a console is open: that is what console only means. Browsers can hold the sound until the page
+has been used once, and a desktop notification needs the browser's permission; the banner shows either way.
+
+**Proof.** `alerts.test.ts`: a tier1 console's stream hears a fleet pattern open within 15 seconds when the same error arrives from 5
+sites through ingest alone, with no sweep run by hand; red with the ingest check removed. Console: the alarm's choice of what to show
+(open and unacknowledged, widest first), its text, and acknowledgements read safely from browser storage.
+
+---
+
+## D22. Fleet patterns: the same problem at 5 sites within 24 hours is one fleet alert, with a report (2026-11-04)
+
+**Owner's request and decision.** "100 sites get a new installed driver, 50 get the same error message: that should be detected as a
+common thing the cabinets have; and if, say, 60 sites have an outage, a blue screen or something else, it should raise that as an alert
+and report what is happening, which clients, sites and cabinets are affected, and any common factors." Asked when: the same problem at
+**5 or more sites within 24 hours** (the recommendation), and it must also cover the case a few weeks ago of **60 sites in reboot loops**.
+Both numbers are Admin settings (Settings, Alerts: "Fleet alert at N sites within H hours").
+
+**What is built.**
+- **A problem is the alerts' own grouping:** one issue type (blue screen, reboot loop, offline, a mapped error...) or, for an error no
+  rule recognizes, one alert signature (the same log, source and event ID). Repeats on a cabinet already fold into one alert; two cabinets
+  at one site count as one site.
+- **The one-minute sweep** (`sweepFleetPatterns`, `server/src/services/fleet-patterns.ts`) counts the sites per problem among alerts
+  seen within the window. At the threshold it opens **one fleet pattern** (migration 0022, one open per problem by a unique index),
+  audited; later sweeps count it up (sites, cabinets, clients, occurrences only grow while it is open); it resolves itself once no
+  cabinet has the problem unresolved, audited. Demo cabinets are counted apart from real ones.
+- **The report** (`GET /api/fleet-patterns/:id`, Tier 1 and up, read only): clients, sites and cabinets affected with their counts and
+  first and latest times, agent versions, and **what they have in common**: the changes (drivers, updates, software) each affected
+  cabinet recorded in the 72 hours before its problem began, compared with the rest of the fleet; a change at least half of them had,
+  and 40 points more than the others, stands out. This is the comparison the crash incident view already used (`compareChanges`, now
+  shared).
+- **Console:** the Incidents page lists fleet patterns (open first, widest first) with the report beside each.
+
+**Considered.** A share of the fleet (10% of sites): scales, but a small fleet trips on very few sites and a large one waits long. A
+fixed number caught early, adjustable, was chosen. One fleet alert per issue per client: a bad driver crosses clients, and that is the
+signal.
+
+**Limits.** "The same error message" is the same log, source and event ID; two different messages under one event ID group together.
+Outages are counted through the offline and site-outage alerts that already exist. The sweep reads alerts seen in the window only.
+
+**Proof.** `fleet-patterns.test.ts`: 50 of 100 sites with one error after the same driver install give one pattern (50 sites, 51
+occurrences), counted up to 55, and the driver stands out in the report; 60 sites in reboot loops (two cabinets each) give one pattern of
+60 sites and 120 cabinets, major; four sites do not, until an Admin lowers the threshold to three; resolving every loop alert resolves
+the pattern, with open and resolve audited; alerts outside the window and a mix of 3 real and 3 demo sites make none. Red with the demo
+split removed, with the self-resolve removed, and with the window removed. `crashes.test.ts`: the routes (Tier 1, 401, 404).
+
+---
+
 ## D21. Crash incidents: an alert opens one, repeats count on the alert, all resolved closes it (2026-11-04)
 
 **Owner's decision.** Asked what opens and closes a crash incident (engine part 5b): a blue-screen or reboot-loop alert opens one

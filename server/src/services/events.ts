@@ -1,6 +1,7 @@
 // Agent-originated events: stored, then run through the alerts engine in the same transaction,
 // so an event is never stored without its alert or alerted without being stored.
 import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
+import { checkFleetSoon } from "./fleet-patterns.js";
 import { raiseSecurityAlert } from "./security.js";
 import type { Event, EventBatch } from "../contracts.js";
 import { isUniqueViolation, safeJson, transaction, type Pool } from "../db/db.js";
@@ -82,6 +83,8 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
   // brings the incident in line if this does not.
   if (result.outcomes.some(o => o.kind === "issue" && CRASH_ISSUES.includes(o.issueTypeId.toLowerCase())) || batch.events.some(e => e.kind === "short_uptime" || e.kind === "change"))
     await syncCrashIncident(pool, cabinetId).catch(() => undefined);
+  // A new alert may be the one that makes a problem fleet-wide: check within seconds, not at the next minute (D23).
+  if (result.outcomes.some(o => (o.kind === "issue" || o.kind === "unrecognized") && o.created)) void checkFleetSoon(pool);
   return { stored: result.stored, outcomes: result.outcomes };
 }
 
