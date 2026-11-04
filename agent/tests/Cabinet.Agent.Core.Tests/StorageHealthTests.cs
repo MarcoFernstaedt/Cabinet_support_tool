@@ -194,20 +194,17 @@ public sealed class StorageHealthTests
     [InlineData(-5L, StorageBus.Other)]
     public void Bus_types_map_from_storage_management(long? busType, StorageBus bus) => Assert.Equal(bus, StorageHealth.BusOf(busType));
 
-    [Fact]
-    public void A_volume_s_repair_state_is_the_worst_its_status_asks_for()
-    {
-        Assert.Equal(VolumeRepair.Unknown, StorageHealth.RepairOf([]));
-        Assert.Equal(VolumeRepair.None, StorageHealth.RepairOf([2]));
-        Assert.Equal(VolumeRepair.ScanNeeded, StorageHealth.RepairOf([2, 0xD00D]));
-        Assert.Equal(VolumeRepair.SpotFixNeeded, StorageHealth.RepairOf([0xD00D, 0xD00E]));
-        Assert.Equal(VolumeRepair.FullRepairNeeded, StorageHealth.RepairOf([0xD00E, 0xD00F, 0xD00D]));
-        Assert.Equal(VolumeHealth.Healthy, StorageHealth.VolumeHealthOf(0));
-        Assert.Equal(VolumeHealth.Warning, StorageHealth.VolumeHealthOf(1));
-        Assert.Equal(VolumeHealth.Unhealthy, StorageHealth.VolumeHealthOf(2));
-        Assert.Equal(VolumeHealth.Unknown, StorageHealth.VolumeHealthOf(5));
-        Assert.Equal(VolumeHealth.Unknown, StorageHealth.VolumeHealthOf(null));
-    }
+    [Theory]
+    [InlineData(0L, VolumeRepair.None)]
+    [InlineData(1L, VolumeRepair.ScanNeeded)]
+    [InlineData(2L, VolumeRepair.SpotFixNeeded)]
+    [InlineData(3L, VolumeRepair.FullRepairNeeded)]
+    [InlineData(4L, VolumeRepair.Unknown)]
+    [InlineData(5L, VolumeRepair.Unknown)]
+    [InlineData(-1L, VolumeRepair.Unknown)]
+    [InlineData(null, VolumeRepair.Unknown)]
+    public void A_volume_s_repair_state_is_its_documented_health_status(long? healthStatus, VolumeRepair repair) =>
+        Assert.Equal(repair, StorageHealth.RepairOf(healthStatus));
 
     [Theory]
     [InlineData("C", "C")]
@@ -247,9 +244,9 @@ public sealed class StorageHealthTests
             Volumes =
             [
                 new StorageVolume { Letter = "C", Label = "Windows", FileSystem = VolumeFileSystem.Ntfs, SizeBytes = 511_000_000_000, FreeBytes = 3_000_000_000,
-                                    Health = VolumeHealth.Warning, Repair = VolumeRepair.SpotFixNeeded, Dirty = true },
+                                    Repair = VolumeRepair.SpotFixNeeded, Dirty = true },
                 new StorageVolume { Letter = null, Label = null, FileSystem = VolumeFileSystem.Unknown, SizeBytes = 0, FreeBytes = 0,
-                                    Health = VolumeHealth.Unknown, Repair = VolumeRepair.Unknown, Dirty = null },
+                                    Repair = VolumeRepair.Unknown, Dirty = null },
             ],
         };
         Assert.Empty(ContractSchemas.Instance.Validate(ContractSchemas.Output(Catalog.StorageHealth), JsonSerializer.SerializeToElement(output, ContractJson.Options)));

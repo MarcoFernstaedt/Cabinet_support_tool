@@ -46,7 +46,6 @@
       "fileSystem": "ntfs",
       "sizeBytes": 510770802688,
       "freeBytes": 301000000000,
-      "health": "healthy",
       "repair": "none",
       "dirty": false
     },
@@ -56,7 +55,6 @@
       "fileSystem": "ntfs",
       "sizeBytes": 700000000,
       "freeBytes": 100000000,
-      "health": "unknown",
       "repair": "unknown",
       "dirty": null
     }

@@ -3679,9 +3679,8 @@ export interface StorageHealthOutput {
     fileSystem: "ntfs" | "refs" | "fat32" | "exfat" | "fat" | "other" | "unknown";
     sizeBytes: number;
     freeBytes: number;
-    health: "healthy" | "warning" | "unhealthy" | "unknown";
     /**
-     * The worst repair the file system's own status asks for (scan, spot fix, or full repair with chkdsk).
+     * The volume's HealthStatus, which for a volume is the file system's own repair state: none (Healthy), scan_needed, spot_fix_needed or full_repair_needed (chkdsk /scan, /spotfix or /f); unknown for any other value.
      */
     repair: "none" | "scan_needed" | "spot_fix_needed" | "full_repair_needed" | "unknown";
     /**

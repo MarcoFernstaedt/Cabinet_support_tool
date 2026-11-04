@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/storage.health.schema.json",
   "title": "storage.health",
-  "description": "Each physical drive's bus and, for an NVMe drive, its own health log (critical warnings, spare, wear, media errors, unsafe shutdowns, temperature); and each fixed volume's health, repair state, dirty bit and space. SATA drives' SMART counters are in disk.smart. The drive is only queried: no command that changes it is sent. A read in the broker; nothing is changed.",
+  "description": "Each physical drive's bus and, for an NVMe drive, its own health log (critical warnings, spare, wear, media errors, unsafe shutdowns, temperature); and each fixed volume's repair state (MSFT_Volume HealthStatus), dirty bit and space. SATA drives' SMART counters are in disk.smart. The drive is only queried: no command that changes it is sent. A read in the broker; nothing is changed.",
   "$defs": {
     "params": {
       "type": "object",
@@ -246,7 +246,6 @@
               "fileSystem",
               "sizeBytes",
               "freeBytes",
-              "health",
               "repair",
               "dirty"
             ],
@@ -283,17 +282,8 @@
               "freeBytes": {
                 "$ref": "../common.schema.json#/$defs/count"
               },
-              "health": {
-                "type": "string",
-                "enum": [
-                  "healthy",
-                  "warning",
-                  "unhealthy",
-                  "unknown"
-                ]
-              },
               "repair": {
-                "description": "The worst repair the file system's own status asks for (scan, spot fix, or full repair with chkdsk).",
+                "description": "The volume's HealthStatus, which for a volume is the file system's own repair state: none (Healthy), scan_needed, spot_fix_needed or full_repair_needed (chkdsk /scan, /spotfix or /f); unknown for any other value.",
                 "type": "string",
                 "enum": [
                   "none",

@@ -10,7 +10,7 @@ namespace Cabinet.Agent.Windows;
 
 /// <summary>
 /// storage.health on Windows: each physical drive from Storage Management, with an NVMe drive's own health log asked for through
-/// IOCTL_STORAGE_QUERY_PROPERTY (a query: no command that changes the drive is ever sent), and each fixed volume's health, repair state and
+/// IOCTL_STORAGE_QUERY_PROPERTY (a query: no command that changes the drive is ever sent), and each fixed volume's repair state (its HealthStatus) and
 /// dirty bit. Drives are opened by number (\\.\PhysicalDriveN) and volumes by letter (\\.\C:), both taken from what Windows reported and
 /// checked, never from a command; they are opened with no read or write access, which these two queries do not need. Runs in the broker
 /// (opening a drive needs administrator rights). Nothing is changed.
@@ -38,7 +38,7 @@ public static class StorageOperations
         }
 
         var volumes = new List<StorageVolume>();
-        foreach (var v in Wmi.Query(Wmi.Storage, "SELECT DriveLetter, FileSystemLabel, FileSystem, Size, SizeRemaining, HealthStatus, OperationalStatus, DriveType FROM MSFT_Volume", 256))
+        foreach (var v in Wmi.Query(Wmi.Storage, "SELECT DriveLetter, FileSystemLabel, FileSystem, Size, SizeRemaining, HealthStatus, DriveType FROM MSFT_Volume", 256))
         {
             token.ThrowIfCancellationRequested();
             if (v.Long("DriveType") != 3) continue; // fixed volumes only: not removable media, network or optical drives
@@ -51,8 +51,7 @@ public static class StorageOperations
                 FileSystem = StorageHealth.FileSystemOf(v.Text("FileSystem")),
                 SizeBytes = StorageHealth.Count(v.Long("Size")),
                 FreeBytes = StorageHealth.Count(v.Long("SizeRemaining")),
-                Health = StorageHealth.VolumeHealthOf(v.Long("HealthStatus")),
-                Repair = StorageHealth.RepairOf(Numbers(v, "OperationalStatus")),
+                Repair = StorageHealth.RepairOf(v.Long("HealthStatus")),
                 Dirty = letter is null ? null : IsDirty(letter),
             });
         }
@@ -79,15 +78,6 @@ public static class StorageOperations
         byte[] answer = new byte[4];
         if (!DeviceIoControl(h, FsctlIsVolumeDirty, null, 0, answer, answer.Length, out int returned, IntPtr.Zero) || returned < 4) return null;
         return (BitConverter.ToUInt32(answer, 0) & 0x1) != 0; // VOLUME_IS_DIRTY
-    }
-
-    private static List<long> Numbers(Dictionary<string, object?> row, string name)
-    {
-        var list = new List<long>();
-        if (row.TryGetValue(name, out object? v) && v is Array a)
-            foreach (object? item in a)
-                if (item is IConvertible) list.Add(Convert.ToInt64(item, CultureInfo.InvariantCulture));
-        return list;
     }
 
     private static string? Short(string? text) => text is null ? null : EventText.ShortText(text);

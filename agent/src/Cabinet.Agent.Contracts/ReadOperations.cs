@@ -157,7 +157,6 @@ public sealed record StorageDrive
     public required NvmeProblem? NvmeProblem { get; init; }
 }
 
-public enum VolumeHealth { Healthy, Warning, Unhealthy, Unknown }
 public enum VolumeRepair { None, ScanNeeded, SpotFixNeeded, FullRepairNeeded, Unknown }
 public enum VolumeFileSystem { Ntfs, Refs, Fat32, Exfat, Fat, Other, Unknown }
 
@@ -168,7 +167,6 @@ public sealed record StorageVolume
     public required VolumeFileSystem FileSystem { get; init; }
     public required long SizeBytes { get; init; }
     public required long FreeBytes { get; init; }
-    public required VolumeHealth Health { get; init; }
     public required VolumeRepair Repair { get; init; }
     public required bool? Dirty { get; init; }
 }

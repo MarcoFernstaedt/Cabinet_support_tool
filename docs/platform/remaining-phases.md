@@ -57,7 +57,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Evidence preservation: hashed bundles built; resumable uploads not.
 
 **Not built:**
-- (`storage.health` is built: the NVMe health log and each fixed volume's health, repair state and dirty bit. Feeding its counters
+- (`storage.health` is built: the NVMe health log and each fixed volume's repair state (its HealthStatus) and dirty bit. Feeding its counters
   into the drive risk class and trends is part of the dump and short-uptime monitors item below.) (`crash.list` is built: each small dump's stop code and
   parameters from its header, and the full dump's presence; the faulting module is not read, since a small dump's header does not
   hold it.) (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's

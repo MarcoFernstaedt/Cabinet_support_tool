@@ -23,6 +23,17 @@ export function nvmeVerdict(log: NvmeLog): { tone: "ok" | "warn" | "crit"; lines
   return { tone: hard ? "crit" : lines.length > 0 ? "warn" : "ok", lines };
 }
 
+/** A volume's state as a badge, from its repair state (MSFT_Volume HealthStatus): a full repair is urgent, a scan or spot fix is not. */
+export function repairBadge(repair: string): ["ok" | "warn" | "crit" | "off", string] {
+  switch (repair) {
+    case "none": return ["ok", "Healthy"];
+    case "scan_needed": return ["warn", "Scan needed"];
+    case "spot_fix_needed": return ["warn", "Spot fix needed"];
+    case "full_repair_needed": return ["crit", "Full repair needed"];
+    default: return ["off", "Unknown"];
+  }
+}
+
 /** A volume's repair state in words; null when nothing is asked for. */
 export function repairText(repair: string, dirty: boolean | null): string | null {
   const ask = repair === "full_repair_needed" ? "Needs a full repair (chkdsk /f)"

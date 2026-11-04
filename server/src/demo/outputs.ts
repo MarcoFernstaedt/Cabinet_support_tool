@@ -461,7 +461,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
     }
     case "storage.health": {
       // An NVMe system drive on every cabinet, worn a little more on each; the failing-drive cabinet's is near the end of its life (spare
-      // below threshold, media errors, wear past 90%) and its C: volume asks for a spot fix; the low-space cabinet's C: is nearly full; the
+      // below threshold, media errors, wear past 90%) and its C: volume reports Spot Fix Needed; the low-space cabinet's C: is nearly full; the
       // blue-screen cabinet's last start counts as one more unsafe shutdown.
       const gb = 1024 ** 3, failing = ctx.scenario === "disk_failing";
       const warnings = { spareBelowThreshold: failing, temperatureOutOfRange: false, reliabilityDegraded: failing, readOnly: false, volatileBackupFailed: false, persistentMemoryReadOnly: false };
@@ -474,7 +474,7 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
       return { takenAt: iso(ctx.now),
         drives: [{ number: 0, model: "NVMe SSD 512GB", bus: "nvme", nvme, nvmeProblem: null }],
         volumes: [{ letter: "C", label: "Windows", fileSystem: "ntfs", sizeBytes: size, freeBytes: free,
-          health: failing ? "warning" : "healthy", repair: failing ? "spot_fix_needed" : "none", dirty: failing }] };
+          repair: failing ? "spot_fix_needed" : "none", dirty: failing }] };
     }
     case "boot.history": {
       // The cabinet's starts, newest first: the blue-screen cabinet's last one ended in a bug check 21 minutes ago (its system.info uptime);

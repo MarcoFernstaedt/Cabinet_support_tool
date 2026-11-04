@@ -11,7 +11,7 @@ import { Pager, usePaged } from "../../components/Pager";
 import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
   NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput, DatabaseConnectivityOutput, StorageHealthOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
-import { noLogText, nvmeVerdict, repairText } from "../../lib/storage-health";
+import { noLogText, nvmeVerdict, repairBadge, repairText } from "../../lib/storage-health";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
@@ -137,10 +137,6 @@ export function DriveHealth({ cabinetId }: { cabinetId: string }) {
   </>);
 }
 
-const VOLUME_HEALTH: Record<string, ["ok" | "warn" | "crit" | "off", string]> = {
-  healthy: ["ok", "Healthy"], warning: ["warn", "Warning"], unhealthy: ["crit", "Unhealthy"], unknown: ["off", "Unknown"],
-};
-
 /** storage.health: each NVMe drive's own health log and each fixed volume's state. Run on request: it opens the drives in the broker. */
 function StorageHealth({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<StorageHealthOutput>(cabinetId, "storage.health");
@@ -167,9 +163,9 @@ function StorageHealth({ cabinetId }: { cabinetId: string }) {
           })}</div>)}
         {out.volumes.length > 0 && (
           <table className="table compact"><caption>Fixed volumes</caption>
-            <thead><tr><th scope="col">Volume</th><th scope="col">File system</th><th scope="col">Free</th><th scope="col">Health</th><th scope="col">Repair</th></tr></thead>
+            <thead><tr><th scope="col">Volume</th><th scope="col">File system</th><th scope="col">Free</th><th scope="col">State</th><th scope="col">What it needs</th></tr></thead>
             <tbody>{out.volumes.map((v, i) => {
-              const [tone, label] = VOLUME_HEALTH[v.health] ?? VOLUME_HEALTH.unknown!;
+              const [tone, label] = repairBadge(v.repair);
               return (<tr key={i}>
                 <td>{v.letter ? `${v.letter}:` : "(no letter)"}{v.label ? ` ${v.label}` : ""}</td>
                 <td>{v.fileSystem.toUpperCase()}</td>

@@ -102,22 +102,15 @@ public static class StorageHealth
         null or 0 => StorageBus.Unknown, _ => StorageBus.Other,
     };
 
-    /// <summary>MSFT_Volume.HealthStatus.</summary>
-    public static VolumeHealth VolumeHealthOf(long? status) => status switch
+    /// <summary>
+    /// MSFT_Volume.HealthStatus, which for a volume is the file system's own repair state: Healthy (0), Scan Needed (1), Spot Fix
+    /// Needed (2), Full Repair Needed (3) (Microsoft's MSFT_Volume class reference). Anything else is unknown, not guessed.
+    /// </summary>
+    public static VolumeRepair RepairOf(long? healthStatus) => healthStatus switch
     {
-        0 => VolumeHealth.Healthy, 1 => VolumeHealth.Warning, 2 => VolumeHealth.Unhealthy, _ => VolumeHealth.Unknown,
+        0 => VolumeRepair.None, 1 => VolumeRepair.ScanNeeded, 2 => VolumeRepair.SpotFixNeeded, 3 => VolumeRepair.FullRepairNeeded,
+        _ => VolumeRepair.Unknown,
     };
-
-    // MSFT_Volume.OperationalStatus values for the file system's own repair state.
-    private const long ScanNeeded = 0xD00D, SpotFixNeeded = 0xD00E, FullRepairNeeded = 0xD00F;
-
-    /// <summary>The worst repair the volume's operational status asks for; Unknown when it reported none.</summary>
-    public static VolumeRepair RepairOf(IReadOnlyCollection<long> operationalStatus) =>
-        operationalStatus.Count == 0 ? VolumeRepair.Unknown
-        : operationalStatus.Contains(FullRepairNeeded) ? VolumeRepair.FullRepairNeeded
-        : operationalStatus.Contains(SpotFixNeeded) ? VolumeRepair.SpotFixNeeded
-        : operationalStatus.Contains(ScanNeeded) ? VolumeRepair.ScanNeeded
-        : VolumeRepair.None;
 
     public static VolumeFileSystem FileSystemOf(string? name) => name?.Trim().ToUpperInvariant() switch
     {
