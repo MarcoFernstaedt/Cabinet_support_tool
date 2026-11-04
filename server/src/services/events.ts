@@ -1,5 +1,6 @@
 // Agent-originated events: stored, then run through the alerts engine in the same transaction,
 // so an event is never stored without its alert or alerted without being stored.
+import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
 import { raiseSecurityAlert } from "./security.js";
 import type { Event, EventBatch } from "../contracts.js";
 import { isUniqueViolation, safeJson, transaction, type Pool } from "../db/db.js";
@@ -77,6 +78,10 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
     return { stored: stored.length, outcomes: processed.outcomes, ruleHits: processed.ruleHits };
   });
   countRuleHits(pool, result.ruleHits);
+  // A crash alert this batch raised opens or extends the cabinet's crash incident (D21). It never fails the batch: the one-minute sweep
+  // brings the incident in line if this does not.
+  if (result.outcomes.some(o => o.kind === "issue" && CRASH_ISSUES.includes(o.issueTypeId.toLowerCase())) || batch.events.some(e => e.kind === "short_uptime" || e.kind === "change"))
+    await syncCrashIncident(pool, cabinetId).catch(() => undefined);
   return { stored: result.stored, outcomes: result.outcomes };
 }
 

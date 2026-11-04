@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D21. Crash incidents: an alert opens one, repeats count on the alert, all resolved closes it (2026-11-04)
+
+**Owner's decision.** Asked what opens and closes a crash incident (engine part 5b): a blue-screen or reboot-loop alert opens one
+incident per cabinet, later crash alerts join it, and it closes when all its crash alerts are resolved. In the owner's words, a site
+must not "show 20 alerts if the same kind": the same alert is shown **once with the number of times it occurs**, and incidents have
+to be built for that.
+
+**What is built.**
+- **Module `crash-incidents` v1** (`contracts/diagnostics/modules/crash-incidents.json`, registered as built, phase 2). Its rule
+  `crash.incident` (`planCrashIncident`, `server/src/services/crash-incidents.ts`) decides from the cabinet's crash alerts: open,
+  add the alerts not yet linked, close when none is unresolved, or nothing.
+- **Repeats never multiply.** Alerts already fold every repeat of one kind into one alert with a count (`occurrences`). The incident
+  links each alert once, with one evidence step when it joins; a repeat adds no step and no row. Fifteen blue screens are one alert
+  counted 15 times on one incident.
+- **Kept in line from the alerts**, not followed through the ~20 places an alert can be raised or resolved: after every event batch
+  that raised a crash alert or reported a start, after a person resolves a crash alert, and in the one-minute sweep (which also
+  catches the reboot loop's own 2-hour recovery). A failure there never fails the event batch.
+- **One open crash incident per cabinet**, enforced by a unique filtered index (migration 0021). Two runs at once: the second open
+  fails and adds to the first one's incident instead.
+- **The crash page** shows the incident with each of its alerts once: how often, first and latest, open or resolved
+  (`GET /api/cabinets/:id/crash-incident`, Tier 1 and up, read only).
+
+**Considered.** Closing after quiet days (the owner chose the alerts' own resolution). Opening only on repeated crashes (a single blue
+screen matters to a cabinet that runs a pharmacy). Following every resolve path directly: about twenty places, each a chance to miss
+one; reconciling from the alerts cannot drift.
+
+**Costs.** One extra query per event batch that touches crashes or starts; the sweep reads only cabinets with an unresolved crash
+alert or an open crash incident, at most 500 a minute.
+
+**Proof.** `crashes.test.ts`: the rule on its own (opening, a blue screen naming the incident before a loop, joining, a repeat adding
+nothing, one open alert keeping it open, closing); fifteen BugCheck events through the real ingest give one incident, one alert with
+15 occurrences, two steps; a reboot loop joins it; resolving one keeps it open, resolving both closes it on the sweep; the next blue
+screen opens a new incident; three runs at once open one incident with one link and one evidence step; the route's 404s and 401.
+Red: without the unique index (two incidents), without the ingest hook (no incident until the sweep), and without the close rule.
+
+---
+
 ## D20. New crash dumps and short uptimes raise agent events; a short run is under 20 minutes (2026-11-04)
 
 **What the spec asks.** "New dumps, short uptimes and repeated boots raise events" (13-roadmap.md, phase 2, agent monitors). It does

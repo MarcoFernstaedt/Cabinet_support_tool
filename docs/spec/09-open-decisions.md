@@ -925,3 +925,7 @@ The roadmap asks for Healthy, Attention, High risk, Critical and Unknown "from c
 ## How short is a short uptime (2026-11-04)
 
 The roadmap's agent monitors raise an event on a "short uptime" without saying how short. Set to under 20 minutes, worked out from the existing reboot-loop rule (3 starts within 60 minutes), not measured; a constant the owner can change. Built; details in docs/platform/decision-log.md, D20.
+
+## What opens and closes a crash incident (2026-11-04)
+
+Engine part 5b needs crashes to open incidents, which the spec does not define. Answered by the owner (2026-11-04): a blue-screen or reboot-loop alert opens one incident per cabinet, later crash alerts join it, and it closes when all its crash alerts are resolved; the same alert is shown once with how many times it occurred, never once per occurrence. Built; details in docs/platform/decision-log.md, D21.

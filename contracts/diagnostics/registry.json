@@ -119,6 +119,16 @@
       "provides": [
         "diagnose"
       ]
+    },
+    {
+      "id": "crash-incidents",
+      "status": "built",
+      "moduleVersion": 1,
+      "phase": 2,
+      "title": "Blue screens and reboot loops, as one incident per cabinet",
+      "provides": [
+        "diagnose"
+      ]
     }
   ]
 }

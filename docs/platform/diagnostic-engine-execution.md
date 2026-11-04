@@ -95,7 +95,7 @@ twice.
 6. **Console.** (Cabinet half built 2026-10-31: the History tab lists a cabinet's incidents and opens each to its steps and links, read
    through `GET /api/cabinets/:id/incidents` and `/api/cabinets/:id/incidents/:incidentId`, Tier 1 and up, read only. Triage's **Open incidents** view, built
    2026-11-03, lists every incident not yet closed across the fleet through `GET /api/incidents/open`, Tier 1 and up, read only, each
-   opening on its cabinet's History tab. The crash incident page follows once a crash module opens incidents.) The incident record appears where a person already looks — the cabinet's history and triage views and the
+   opening on its cabinet's History tab. The crash incident page is built (D21): the `crash-incidents` module opens one incident per cabinet from its blue-screen and reboot-loop alerts, and the cabinet's crash page shows it, each alert once with its count.) The incident record appears where a person already looks — the cabinet's history and triage views and the
    crash incident page. No new page in this session.
 
 ## The first module: the SQL connectivity ladder

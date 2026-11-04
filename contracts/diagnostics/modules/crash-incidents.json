@@ -1,0 +1,78 @@
+{
+  "id": "crash-incidents",
+  "version": 1,
+  "title": "Blue screens and reboot loops, as one incident per cabinet",
+  "area": "system",
+  "applicability": {},
+  "signals": {
+    "reads": [
+      {
+        "id": "dumps",
+        "operation": "crash.list",
+        "params": {}
+      },
+      {
+        "id": "boots",
+        "operation": "boot.history",
+        "params": {
+          "days": 7
+        }
+      }
+    ],
+    "events": [
+      "error",
+      "crash_dump",
+      "short_uptime",
+      "change"
+    ]
+  },
+  "procedure": [
+    {
+      "id": "read_dumps",
+      "kind": "read",
+      "read": "dumps"
+    },
+    {
+      "id": "read_boots",
+      "kind": "read",
+      "read": "boots"
+    },
+    {
+      "id": "incident",
+      "kind": "rule",
+      "rule": "crash.incident"
+    }
+  ],
+  "evidence": {
+    "keep": [
+      "dumps",
+      "boots"
+    ],
+    "retentionDays": 30
+  },
+  "hypotheses": [
+    {
+      "id": "blue_screen",
+      "findingKey": "crash-blue-screen",
+      "statement": "Windows stopped with a blue screen",
+      "severity": "problem",
+      "certainty": "confirmed"
+    },
+    {
+      "id": "reboot_loop",
+      "findingKey": "crash-reboot-loop",
+      "statement": "The cabinet keeps restarting",
+      "severity": "problem",
+      "certainty": "confirmed"
+    }
+  ],
+  "remediation": [],
+  "limits": [
+    "Opened, added to and closed from the blue-screen and reboot-loop alerts; it offers no repair",
+    "The faulting module of a blue screen is not read yet"
+  ],
+  "escalation": {
+    "to": "tier2",
+    "when": "The cabinet blue-screens or loops again after its crash alerts were resolved"
+  }
+}
