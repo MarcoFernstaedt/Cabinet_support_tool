@@ -328,7 +328,9 @@ test("a major alert reaches every signed-in console and only one person can clai
   await app.listen({ host: "127.0.0.1", port: 0 });
   const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
   const people = await Promise.all([account("tier1"), account("tier2"), account("admin")]);
-  const cookies = await Promise.all(people.map(signIn));
+  // One at a time: each sign-in's code moves the shared clock the API reads, so codes made together can fall outside the window.
+  const cookies: string[] = [];
+  for (const person of people) cookies.push(await signIn(person));
   const aborts = cookies.map(() => new AbortController());
   const received = cookies.map(async (cookie, i) => {
     const r = await fetch(`${base}/api/stream`, { headers: { cookie }, signal: aborts[i]!.signal });
