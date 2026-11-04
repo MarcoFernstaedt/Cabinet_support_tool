@@ -1,0 +1,313 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/storage.health.schema.json",
+  "title": "storage.health",
+  "description": "Each physical drive's bus and, for an NVMe drive, its own health log (critical warnings, spare, wear, media errors, unsafe shutdowns, temperature); and each fixed volume's repair state (MSFT_Volume HealthStatus), dirty bit and space. SATA drives' SMART counters are in disk.smart. The drive is only queried: no command that changes it is sent. A read in the broker; nothing is changed.",
+  "$defs": {
+    "params": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {}
+    },
+    "output": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "takenAt",
+        "drives",
+        "volumes"
+      ],
+      "properties": {
+        "takenAt": {
+          "$ref": "../common.schema.json#/$defs/timestamp"
+        },
+        "drives": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "number",
+              "model",
+              "bus",
+              "nvme",
+              "nvmeProblem"
+            ],
+            "properties": {
+              "number": {
+                "description": "The Windows disk number.",
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 255
+              },
+              "model": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "bus": {
+                "type": "string",
+                "enum": [
+                  "nvme",
+                  "sata",
+                  "sas",
+                  "usb",
+                  "raid",
+                  "other",
+                  "unknown"
+                ]
+              },
+              "nvme": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "description": "The drive's SMART / Health Information log (NVMe log page 02h), as the drive reported it.",
+                    "required": [
+                      "criticalWarnings",
+                      "temperatureCelsius",
+                      "availableSparePercent",
+                      "spareThresholdPercent",
+                      "percentageUsed",
+                      "dataReadBytes",
+                      "dataWrittenBytes",
+                      "powerCycles",
+                      "powerOnHours",
+                      "unsafeShutdowns",
+                      "mediaErrors",
+                      "errorLogEntries",
+                      "warningTemperatureMinutes",
+                      "criticalTemperatureMinutes"
+                    ],
+                    "properties": {
+                      "criticalWarnings": {
+                        "type": "object",
+                        "additionalProperties": false,
+                        "required": [
+                          "spareBelowThreshold",
+                          "temperatureOutOfRange",
+                          "reliabilityDegraded",
+                          "readOnly",
+                          "volatileBackupFailed",
+                          "persistentMemoryReadOnly"
+                        ],
+                        "properties": {
+                          "spareBelowThreshold": {
+                            "type": "boolean"
+                          },
+                          "temperatureOutOfRange": {
+                            "type": "boolean"
+                          },
+                          "reliabilityDegraded": {
+                            "type": "boolean"
+                          },
+                          "readOnly": {
+                            "type": "boolean"
+                          },
+                          "volatileBackupFailed": {
+                            "type": "boolean"
+                          },
+                          "persistentMemoryReadOnly": {
+                            "type": "boolean"
+                          }
+                        }
+                      },
+                      "temperatureCelsius": {
+                        "description": "The composite temperature; null when the drive did not report one or reported one no drive can be.",
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -40,
+                            "maximum": 150
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "availableSparePercent": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "spareThresholdPercent": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": 0,
+                            "maximum": 100
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "percentageUsed": {
+                        "description": "How much of the drive's rated endurance is used; it may pass 100.",
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 255
+                      },
+                      "dataReadBytes": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "dataWrittenBytes": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "powerCycles": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "powerOnHours": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "unsafeShutdowns": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "mediaErrors": {
+                        "description": "Unrecovered data integrity errors.",
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "errorLogEntries": {
+                        "$ref": "../common.schema.json#/$defs/count"
+                      },
+                      "warningTemperatureMinutes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      },
+                      "criticalTemperatureMinutes": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 4294967295
+                      }
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "nvmeProblem": {
+                "description": "Why there is no health log: the drive is not NVMe, its driver does not pass the query on, or the answer could not be read.",
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "not_nvme",
+                      "not_supported",
+                      "unreadable"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "nvme": {
+                  "type": "null"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "nvmeProblem": {
+                  "type": "string"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "nvmeProblem": {
+                  "type": "null"
+                }
+              }
+            },
+            "description": "One physical drive: its health log when it is NVMe and answered, otherwise why there is none (exactly one of the two)."
+          }
+        },
+        "volumes": {
+          "type": "array",
+          "maxItems": 32,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "letter",
+              "label",
+              "fileSystem",
+              "sizeBytes",
+              "freeBytes",
+              "repair",
+              "dirty"
+            ],
+            "properties": {
+              "letter": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "pattern": "^[A-Z]$"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "label": {
+                "$ref": "../common.schema.json#/$defs/nullableShortText"
+              },
+              "fileSystem": {
+                "type": "string",
+                "enum": [
+                  "ntfs",
+                  "refs",
+                  "fat32",
+                  "exfat",
+                  "fat",
+                  "other",
+                  "unknown"
+                ]
+              },
+              "sizeBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "freeBytes": {
+                "$ref": "../common.schema.json#/$defs/count"
+              },
+              "repair": {
+                "description": "The volume's HealthStatus, which for a volume is the file system's own repair state: none (Healthy), scan_needed, spot_fix_needed or full_repair_needed (chkdsk /scan, /spotfix or /f); unknown for any other value.",
+                "type": "string",
+                "enum": [
+                  "none",
+                  "scan_needed",
+                  "spot_fix_needed",
+                  "full_repair_needed",
+                  "unknown"
+                ]
+              },
+              "dirty": {
+                "description": "The volume's dirty bit: Windows will check the file system at the next start. Null when it could not be read.",
+                "anyOf": [
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

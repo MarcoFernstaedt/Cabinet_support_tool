@@ -90,6 +90,7 @@ public static class CommandFile
             [Catalog.EventlogGet] = new { log = "System", recordId = 1 },
             [Catalog.BootHistory] = new { days = 30 },
             [Catalog.CrashList] = new { },
+            [Catalog.StorageHealth] = new { },
             [Catalog.DevicesList] = new { problemsOnly = false },
             [Catalog.FilesList] = new { path = "C:\\ProgramData", pageSize = 50 },
             [Catalog.NetworkTest] = new { target = "gateway", method = "ping" },

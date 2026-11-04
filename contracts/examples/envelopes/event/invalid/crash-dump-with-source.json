@@ -1,0 +1,18 @@
+{
+  "eventId": "7b2c3d4e-5f60-4a71-8b82-c3d4e5f60719",
+  "kind": "crash_dump",
+  "occurredAt": "2026-11-03T09:14:02Z",
+  "severityHint": "major",
+  "source": {
+    "log": "System",
+    "source": "BugCheck",
+    "eventId": 1001,
+    "level": "error",
+    "recordId": 5
+  },
+  "detail": {
+    "fields": {
+      "dump": "a.dmp"
+    }
+  }
+}

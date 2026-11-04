@@ -22,6 +22,7 @@ public static class Catalog
     public const string EventlogQuery = "eventlog.query";
     public const string BootHistory = "boot.history";
     public const string CrashList = "crash.list";
+    public const string StorageHealth = "storage.health";
     public const string EventlogGet = "eventlog.get";
     public const string DevicesList = "devices.list";
     public const string DriversList = "drivers.list";
@@ -86,6 +87,7 @@ public static class Catalog
         Read<EventlogQueryParams, EventlogQueryOutput>(EventlogQuery),
         Read<BootHistoryParams, BootHistoryOutput>(BootHistory),
         Read<EmptyParams, CrashListOutput>(CrashList),
+        Read<EmptyParams, StorageHealthOutput>(StorageHealth),
         Read<EventlogGetParams, EventlogGetOutput>(EventlogGet),
         Read<DevicesListParams, DevicesListOutput>(DevicesList),
         Read<EmptyParams, DriversListOutput>(DriversList),
