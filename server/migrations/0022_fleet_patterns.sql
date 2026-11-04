@@ -1,9 +1,10 @@
 -- Fleet patterns (decision-log D22): the same problem on cabinets at many sites within a window is one fleet alert, with how many
 -- clients, sites and cabinets it reaches. The key is the alerts' own grouping: issue:<issue type> for a known issue, else the alert
--- signature (an unrecognized error from one log, source and event ID). One open pattern per key.
+-- signature (an unrecognized error from one log, source and event ID), with demo| in front for demo cabinets, so the demo fleet is a
+-- pattern of its own. One open pattern per key.
 CREATE TABLE fleet_patterns (
   [id] uniqueidentifier NOT NULL DEFAULT NEWID(),
-  [pattern_key] nvarchar(450) NOT NULL,
+  [pattern_key] nvarchar(460) NOT NULL,
   [issue_type_id] uniqueidentifier NULL,
   [title] nvarchar(300) NOT NULL,
   [severity] nvarchar(16) NOT NULL,

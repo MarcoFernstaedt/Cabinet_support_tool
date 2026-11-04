@@ -122,3 +122,37 @@ test("alerts older than the window and demo cabinets never make a real fleet pat
   assert.equal((await patternsFor("Mixed error")).length, 0);
   assert.equal(await fleetPatternReport(db.app, randomUUID()), null);
 });
+
+test("5 real sites and 5 demo sites with one error are two patterns, each with its own counts, report and resolution", async () => {
+  const real = await fleet(5), demo = await fleet(5);
+  for (const ks of demo.cabinets) await db.app.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE id = $1", [ks[0]]);
+  const sig = `unrecognized:System|split probe ${randomBytes(3).toString("hex")}|9`;
+  const raise = (k: string) => db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
+      VALUES ($1, NULL, 'minor', $2, 'Split probe error', SYSUTCDATETIME(), SYSUTCDATETIME(), 2, 'fleet')`, [k, sig]);
+  for (const ks of [...real.cabinets, ...demo.cabinets]) await raise(ks[0]!);
+  await sweepFleetPatterns(db.app);
+  const found = await patternsFor("Split probe error");
+  assert.equal(found.length, 2, "the demo fleet is a pattern of its own");
+  for (const p of found) {
+    assert.deepEqual([p.sites, p.cabinets, p.clients, p.occurrences], [5, 5, 1, 10]);
+    const r = (await fleetPatternReport(db.app, p.id))!;
+    assert.equal(r.cabinets.length, 5, "the report holds the pattern's own cabinets");
+    assert.equal(r.bySite.length, 5);
+    assert.equal(r.byClient.length, 1);
+  }
+  const reports = await Promise.all(found.map(p => fleetPatternReport(db.app, p.id)));
+  const realIds = new Set(real.cabinets.map(k => k[0]!.toLowerCase()));
+  const sides = reports.map(r => r!.cabinets.every(c => realIds.has(c.id)) ? "real" : r!.cabinets.every(c => !realIds.has(c.id)) ? "demo" : "mixed");
+  assert.deepEqual(sides.sort(), ["demo", "real"], "no report mixes real and demo cabinets");
+
+  // Resolving the real alerts resolves the real pattern only; the demo one stays open while its alerts are.
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1 AND cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2))",
+    [sig, JSON.stringify([...realIds])]);
+  await sweepFleetPatterns(db.app);
+  const after = await patternsFor("Split probe error");
+  const byId = new Map(after.map(p => [p.id, p]));
+  const realId = found[reports.findIndex(r => r!.cabinets.every(c => realIds.has(c.id)))]!.id;
+  const demoId = found.find(p => p.id !== realId)!.id;
+  assert.ok(byId.get(realId)!.resolvedAt, "the real pattern resolved");
+  assert.equal(byId.get(demoId)!.resolvedAt, null, "the demo pattern is still open");
+});

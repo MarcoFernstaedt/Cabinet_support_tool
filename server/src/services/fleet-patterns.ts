@@ -14,7 +14,14 @@ import { platformSettings } from "./settings.js";
 
 export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date }
 
-const KEY = "CASE WHEN a.issue_type_id IS NOT NULL THEN N'issue:' + LOWER(CAST(a.issue_type_id AS nvarchar(36))) ELSE a.signature END";
+/**
+ * A problem's key, on an alert row `a` joined to its cabinet `k`: issue:<issue type> for a known issue, else the alert signature, with
+ * demo| in front for a demo cabinet. The demo fleet is a pattern of its own, never folded into a real one: the count, the update, the
+ * resolve check and the report all read this one expression.
+ */
+const KEY = "CASE WHEN k.demo_scenario IS NULL THEN N'' ELSE N'demo|' END + CASE WHEN a.issue_type_id IS NOT NULL THEN N'issue:' + LOWER(CAST(a.issue_type_id AS nvarchar(36))) ELSE a.signature END";
+/** Whether a pattern key is the demo fleet's. */
+export const isDemoKey = (key: string) => key.startsWith("demo|");
 
 /** The notification channel the live stream listens on: "<pattern id> opened|resolved". */
 export const FLEET_CHANNEL = "fleet_patterns";
@@ -53,7 +60,7 @@ export async function countPatterns(db: Queryable, o: { minSites: number; hours:
             SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
       WHERE a.last_seen > DATEADD(hour, -$1, SYSUTCDATETIME()) AND k.status = 'active'
-      GROUP BY ${KEY}, CASE WHEN k.demo_scenario IS NULL THEN 0 ELSE 1 END
+      GROUP BY ${KEY}
      HAVING COUNT(DISTINCT k.site_id) >= $2`, [o.hours, o.minSites])).rows;
   return rows.map(r => ({ key: r.k, issueTypeId: r.issue_type_id?.toLowerCase() ?? null, title: r.title, severity: r.major ? "major" : "minor",
     clients: Number(r.clients), sites: Number(r.sites), cabinets: Number(r.cabinets), occurrences: Number(r.occurrences), firstSeen: r.first_seen, lastSeen: r.last_seen }));
@@ -89,7 +96,7 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
   // Resolved: no cabinet still has the problem unresolved.
   const gone = (await pool.query<{ id: string }>(`DECLARE @o TABLE (id uniqueidentifier);
       UPDATE p SET resolved_at = SYSUTCDATETIME() OUTPUT inserted.id INTO @o FROM fleet_patterns p
-       WHERE p.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.state <> 'resolved' AND ${KEY} = p.pattern_key);
+       WHERE p.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.state <> 'resolved' AND ${KEY} = p.pattern_key);
       SELECT id FROM @o;`)).rows;
   for (const g of gone) {
     await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.resolve", targetKind: "fleet_pattern", targetId: g.id.toLowerCase(), outcome: "succeeded", details: {} });
@@ -136,7 +143,8 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE ${KEY} = $1 AND a.last_seen >= $2
       GROUP BY a.cabinet_id, k.name, c.name, s.name, k.agent_version, k.demo_scenario ORDER BY MIN(a.first_seen), k.name`, [row.pattern_key, from])).rows;
-  const demo = affected.length > 0 && affected.every(a => a.demo === 1);
+  // The pattern's own kind decides, so its report holds only cabinets of that kind (the key already filtered them).
+  const demo = isDemoKey(row.pattern_key);
   // The comparison group: the active cabinets of the same kind (real or demo), so a demo fleet never dilutes a real one.
   const population = (await db.query<{ id: string; agent_version: string | null }>(
     `SELECT id, agent_version FROM cabinets WHERE status = 'active' AND ${demo ? "demo_scenario IS NOT NULL" : "demo_scenario IS NULL"}`)).rows;

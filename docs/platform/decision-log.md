@@ -66,6 +66,9 @@ occurrences), counted up to 55, and the driver stands out in the report; 60 site
 60 sites and 120 cabinets, major; four sites do not, until an Admin lowers the threshold to three; resolving every loop alert resolves
 the pattern, with open and resolve audited; alerts outside the window and a mix of 3 real and 3 demo sites make none. Red with the demo
 split removed, with the self-resolve removed, and with the window removed. `crashes.test.ts`: the routes (Tier 1, 401, 404).
+
+---
+
 ## D21. Crash incidents: an alert opens one, repeats count on the alert, all resolved closes it (2026-11-04)
 
 **Owner's decision.** Asked what opens and closes a crash incident (engine part 5b): a blue-screen or reboot-loop alert opens one

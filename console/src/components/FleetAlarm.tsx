@@ -36,7 +36,13 @@ function desktop(p: OpenPattern): void {
 }
 
 export function FleetAlarm() {
-  const { data, reload } = useLoad<{ patterns: (OpenPattern & { resolvedAt: string | null })[] }>("/api/fleet-patterns");
+  const { data, problem, reload } = useLoad<{ patterns: (OpenPattern & { resolvedAt: string | null })[] }>("/api/fleet-patterns");
+  // A failed load is said, and tried again every minute, so a console never sits silent believing all is well.
+  useEffect(() => {
+    if (!problem) return;
+    const t = setInterval(reload, 60_000);
+    return () => clearInterval(t);
+  }, [problem, reload]);
   const [ack, setAck] = useState<Set<string>>(readAck);
   const [live, setLive] = useState<OpenPattern[]>([]);
   const [permission, setPermission] = useState(() => (typeof Notification === "undefined" ? "unsupported" : Notification.permission));
@@ -55,7 +61,18 @@ export function FleetAlarm() {
   for (const p of live) if (!known.has(p.id)) known.set(p.id, p);
   const shown = unacknowledged([...known.values()], ack);
   const acknowledge = useCallback((id: string) => setAck(a => { const next = new Set(a); next.add(id); writeAck(next); return next; }), []);
-  useEffect(() => { if (shown.length > 0) document.title = `(${shown.length}) Fleet alert`; return () => { document.title = document.title.replace(/^\(\d+\) Fleet alert$/, "Cabinet Diagnostics"); }; }, [shown.length]);
+  // The tab counts open alarms; the title it had before comes back when none is left.
+  useEffect(() => {
+    if (shown.length === 0) return;
+    const before = document.title;
+    document.title = `(${shown.length}) Fleet alert`;
+    return () => { if (document.title === `(${shown.length}) Fleet alert`) document.title = before; };
+  }, [shown.length]);
+  if (problem && shown.length === 0)
+    return (
+      <div className="banner warn fleet-alarm" role="status">
+        <p>Could not check for fleet alerts ({problem}). Trying again every minute. <button className="btn small" onClick={reload}>Try now</button></p>
+      </div>);
   if (shown.length === 0) return null;
   return (
     <div className="banner crit fleet-alarm" role="alert" aria-live="assertive">
