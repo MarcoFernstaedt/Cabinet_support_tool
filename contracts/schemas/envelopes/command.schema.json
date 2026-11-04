@@ -132,6 +132,24 @@
       "if": {
         "properties": {
           "operation": {
+            "const": "storage.health"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "params": {
+            "$ref": "../operations/storage.health.schema.json#/$defs/params"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "operation": {
             "const": "eventlog.get"
           }
         },

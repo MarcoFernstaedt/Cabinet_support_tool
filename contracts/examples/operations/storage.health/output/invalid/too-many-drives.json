@@ -1,0 +1,256 @@
+{
+  "takenAt": "2026-11-03T09:00:00Z",
+  "drives": [
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    },
+    {
+      "number": 1,
+      "model": "ST1000DM010",
+      "bus": "sata",
+      "nvme": null,
+      "nvmeProblem": "not_nvme"
+    }
+  ],
+  "volumes": [
+    {
+      "letter": "C",
+      "label": "Windows",
+      "fileSystem": "ntfs",
+      "sizeBytes": 510770802688,
+      "freeBytes": 301000000000,
+      "repair": "none",
+      "dirty": false
+    },
+    {
+      "letter": null,
+      "label": "Recovery",
+      "fileSystem": "ntfs",
+      "sizeBytes": 700000000,
+      "freeBytes": 100000000,
+      "repair": "unknown",
+      "dirty": null
+    }
+  ]
+}
