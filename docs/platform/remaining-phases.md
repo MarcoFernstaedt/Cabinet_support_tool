@@ -17,7 +17,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 
 - **Milestone phases 0 to 12** of the build spec, including the demo (roadmap phase 1), the console, enrollment,
   signed upgrades, the alerting engine, the troubleshooting workflow, baselines, trends and triage.
-- **The catalog: 52 operations, 34 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
+- **The catalog: 56 operations, 38 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
 - **Both Windows builds** of the same agent code (`windows-x64`, `windows-x86`), with the cross-architecture refusal
   proven live.
 - **A live platform** (VPS, SQL Server 2022) serving both archives.
