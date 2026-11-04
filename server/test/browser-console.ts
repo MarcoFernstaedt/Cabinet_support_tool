@@ -29,6 +29,12 @@ export interface Console {
   close(): Promise<void>;
 }
 
+/**
+ * How long turning demo mode on may take before the tour shows (D17, D27): enableDemo measured alone at 16.6 and 18.5 s on an idle machine;
+ * the suite runs two test files at once and a loaded machine stretches it further. One limit for every test that turns the demo on.
+ */
+export const DEMO_ON_LIMIT_MS = 90_000;
+
 /** A fresh install with one Admin (username ada.admin) who has not yet seen the getting-started tour. */
 export async function startConsole(staticDir: string): Promise<Console> {
   const db = await createTestDatabase();
@@ -79,7 +85,7 @@ export async function startConsole(staticDir: string): Promise<Console> {
       await page.locator("ul.tiles").getByRole("link", { name: /Setup/ }).click();
       await page.getByRole("button", { name: "Start the guided demo" }).click();
       await confirmWithCode(page);
-      await page.locator("aside.demo-tour").getByRole("heading", { name: "Site overview" }).waitFor({ timeout: 60_000 });
+      await page.locator("aside.demo-tour").getByRole("heading", { name: "Site overview" }).waitFor({ timeout: DEMO_ON_LIMIT_MS });
       await page.locator("aside.demo-tour").getByRole("button", { name: "Stop" }).click();
     },
     async close() { await app.close(); await stream.stop(); await db.drop(); },

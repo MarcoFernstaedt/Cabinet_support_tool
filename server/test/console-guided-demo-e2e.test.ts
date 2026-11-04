@@ -20,6 +20,7 @@ import { createBootstrapToken, submitEnrollment } from "../src/services/enrollme
 import { createTestDatabase, startFeed } from "./database.js";
 import { agentDownloads, csrFor, ecKey, tempDir } from "./helpers.js";
 import { launchChromium } from "./browser-launch.js";
+import { DEMO_ON_LIMIT_MS } from "./browser-console.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
@@ -80,15 +81,16 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     let shots = 0;
     const panel = page.locator("aside.demo-tour");
     const outlined = (selector: string, text?: string) => page.locator(`${selector}.tour-target`, text ? { hasText: text } : {}).first();
-    const arrive = async (title: string, selector?: string, text?: string) => {
-      await panel.getByRole("heading", { name: title }).waitFor({ timeout: 60_000 });
+    // A step's heading shows within 60 s, except the first, which waits for demo mode to turn on (DEMO_ON_LIMIT_MS, D27).
+    const arrive = async (title: string, selector?: string, text?: string, headingMs = 60_000) => {
+      await panel.getByRole("heading", { name: title }).waitFor({ timeout: headingMs });
       if (selector) await outlined(selector, text).waitFor({ timeout: 90_000 });
       if (process.env.SHOTS) { await page.waitForTimeout(1500); await page.screenshot({ path: `${process.env.SHOTS}/fresh-${String(++shots).padStart(2, "0")}.png` }); }
     };
     const next = () => panel.getByRole("button", { name: "Next" }).click();
     const clickOutlined = (selector: string, text?: string) => outlined(selector, text).click();
 
-    await arrive("Site overview");
+    await arrive("Site overview", undefined, undefined, DEMO_ON_LIMIT_MS);
     assert.equal(await storyReady(db.app), true, "starting the demo set the whole environment up");
     // The panel shows the step at once; the tour moves to its first page once the scenarios are read, so wait for that page.
     await page.waitForURL(/\/sites\//);
@@ -225,7 +227,7 @@ test("the guided demo from a fresh install: it sets itself up, every step goes t
     resetting = true;
     await page.getByRole("dialog").getByText(/it has been used\. This deletes the simulated fleet and builds it again/).waitFor();
     await confirmWithCode();
-    await panel.getByRole("heading", { name: "Site overview" }).waitFor({ timeout: 90_000 })
+    await panel.getByRole("heading", { name: "Site overview" }).waitFor({ timeout: DEMO_ON_LIMIT_MS })
       .catch(async e => { throw new Error(`${e.message}\nalerts on the page: ${JSON.stringify(await page.locator("[role=alert]").allTextContents())}`); });
     assert.equal(await storyReady(db.app), true, "the reset put the story back at its start, with the mapped rule switched off");
     assert.deepEqual(simulatorProblems, []);

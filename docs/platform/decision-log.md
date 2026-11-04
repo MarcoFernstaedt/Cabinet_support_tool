@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D27. Every test that turns the demo on waits the same 90 s; the seed stays one cabinet at a time (2026-11-04)
+
+**The failure.** A review run of #161 (on a machine where another job held both cores, load 9 to 11) had three browser tests time out:
+`console-actions-e2e`, `console-crawl-e2e` and `console-readings-e2e`. Each waited 60 s in the shared `startDemo` for the demo tour's "Site
+overview". The same timeout is in the reviewer's logs from 23 and 27 October, and the three passed alone on a quiet machine.
+
+**Cause.** Turning demo mode on is slow, and the shared helper gave it less time than D17 had settled on.
+- **Measured** (`enableDemo` alone on a fresh test database, this container, two runs): 18.5 and 16.6 s in all.
+- By phase (first run):
+
+  | Phase | Time |
+  |---|---|
+  | Each cabinet's heartbeat, drift and time checks and events, one cabinet at a time | 9.0 s |
+  | History | 4.5 s (inserts 1.5 s, drive refresh 1.2 s, stored readings 1.4 s) |
+  | Configuration snapshots | 4.1 s |
+  | Fleet checks | 0.4 s |
+- D17 gave the setup test 90 s for this step, but the shared helper used by every other browser test still waited 60 s.
+
+**Decision.** One limit, `DEMO_ON_LIMIT_MS` (90 s) in `test/browser-console.ts`, used wherever a browser test waits for demo mode to turn on:
+- `startDemo`, the shared helper;
+- the setup test ("Turn demo mode on");
+- the guided demo test, both for its first tour step and for the wait after it resets the demo. Its other tour steps keep 60 s, since they
+  do not wait on the seed.
+
+(`console-demo-e2e` turns the demo on through the server before the browser opens, so it has no such wait.) Every one of these tests allows
+300 s or more overall, so the longer wait fits.
+
+**Tried and rejected: seeding sites side by side.** Running four sites at once, with each site's cabinets still one at a time, made
+things worse when measured:
+- the per-cabinet phase went from 9.0 s to 13.2 s;
+- the second run hung for over nine minutes and was stopped.
+
+The cabinets wait on each other across sites too, on the alert and fleet-pattern writes, not only within a site as D17 found. Making that
+safe means reworking the locking on those paths, which a demo seed does not justify.
+
+**Still open.** Writing the history and snapshots in fewer statements would save a few seconds. It stays listed under the open fixes.
+
+---
+
 ## D26. Crash signatures: the stop code, and the exception or subtype that names the failure; the faulting driver waits on a sample dump (2026-11-04)
 
 **Spec.** Roadmap Phase 2: "A crash signature (stop code plus faulting module) groups crashes across the fleet."
