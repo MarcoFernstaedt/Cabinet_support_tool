@@ -6,6 +6,50 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D24. Incident response mode: recovered and still-affected counts, an hourly timeline, and recovery staged site by site (2026-11-04)
+
+**Spec.** Roadmap module 42: "Incident page: affected and recovered counts, groupings, comparisons, staged recovery." Groupings (by
+client, site and agent version) and comparisons (what affected cabinets have in common against the rest) came with fleet patterns (D22).
+This adds the rest to the fleet alert's report. No owner question was needed: each choice below follows from the spec or an earlier
+decision.
+
+**What is built.**
+- **Recovered and still affected.** A cabinet has recovered when every one of its alerts in the pattern is resolved. One resolved alert
+  beside an open one does not count, because the problem is still showing there. It recovered when the last of those alerts was resolved.
+- **How it went.** A table by hour of how many cabinets began to show the problem and how many recovered, so the people handling it can
+  see whether it is still spreading and whether fixes are working.
+- **Staged recovery, site by site.** The report lists the sites with cabinets still affected, those with the most first. "Stage" opens
+  Fleet operations on that site with exactly its still-affected cabinets chosen. From there the fix runs the way every bulk change does:
+  pick the operation, preview it, confirm with the password, and it runs in the batches you set, with each cabinet's result recorded and
+  verified.
+
+**Why one site at a time.** A fleet operation covers the cabinets of one site, and the server refuses anything wider (`one_site_only`).
+That rule is there so a mistake can only reach one place. Staging the whole fleet in one go would have meant loosening it during an
+incident, the moment a wrong choice costs most. Site by site keeps the rule, and is also what "staged" asks for: fix one site, watch it
+recover in the report, then do the next.
+
+**Alternatives.**
+- One button for every still-affected cabinet. Built first, then dropped: the server refused it at preview, because it spans sites.
+- A new multi-site recovery job. Rejected for the same reason: it would be a second way to bypass the one-site rule.
+
+**Limits.**
+- The hand-off travels through the browser tab's own storage, the same way Fleet operations keeps its selection. If storage is blocked,
+  Fleet operations opens with no site chosen.
+- Fleet operations runs its own fixed operations (time zone, clock sync, firewall policy). A recovery needing another kind of fix (a driver
+  roll-back, say) still goes through that fix's own page.
+- The report lists up to 500 sites, as it did before.
+
+**Proof.**
+- `fleet-patterns.test.ts` checks:
+  - the counts (12 affected; after 5 recover, 5 and 7);
+  - that a cabinet with one resolved and one open alert is not recovered;
+  - that the hourly totals match the counts;
+  - that each site lists exactly its still-affected cabinets.
+- `console-incident-response-e2e.test.ts` drives a real browser through it. The report shows 6 still affected and 2 recovered, and lists 5
+  sites (not the one that recovered). Staging the three-cabinet site opens Fleet operations with "2 of 3 selected", the two still affected.
+
+---
+
 ## D23. Fleet alarm: in every open console within seconds; nothing sent outside (2026-11-04)
 
 **Owner's request and decision.** "We need to know as soon as possible when something like the reboot loops happen, or other things

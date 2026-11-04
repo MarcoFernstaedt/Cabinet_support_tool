@@ -156,3 +156,36 @@ test("5 real sites and 5 demo sites with one error are two patterns, each with i
   assert.ok(byId.get(realId)!.resolvedAt, "the real pattern resolved");
   assert.equal(byId.get(demoId)!.resolvedAt, null, "the demo pattern is still open");
 });
+
+test("incident response: the report counts who has recovered and who has not, and when each began and recovered", async () => {
+  const f = await fleet(6, 2);
+  const sig = `unrecognized:System|recovery probe ${randomBytes(3).toString("hex")}|3`;
+  for (const ks of f.cabinets) for (const k of ks) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
+      VALUES ($1, NULL, 'major', $2, 'Recovery probe', DATEADD(hour, -3, SYSUTCDATETIME()), SYSUTCDATETIME(), 1, 'fleet')`, [k, sig]);
+  await sweepFleetPatterns(db.app);
+  const p = (await patternsFor("Recovery probe"))[0]!;
+  let r = (await fleetPatternReport(db.app, p.id))!;
+  assert.deepEqual([r.recovered, r.stillAffected], [0, 12]);
+  // Two sites recover in full; at a third, one of its two cabinets recovers (the other keeps the site affected).
+  const done = [...f.cabinets[0]!, ...f.cabinets[1]!, f.cabinets[2]![0]!];
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1 AND cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2))", [sig, JSON.stringify(done)]);
+  r = (await fleetPatternReport(db.app, p.id))!;
+  assert.deepEqual([r.recovered, r.stillAffected], [5, 7]);
+  assert.equal(r.timeline.reduce((n, t) => n + t.began, 0), 12, "every cabinet began once");
+  assert.equal(r.timeline.reduce((n, t) => n + t.recovered, 0), 5, "every recovered cabinet recovered once");
+  assert.ok(r.timeline.every((t, i, all) => i === 0 || all[i - 1]!.hour < t.hour), "hours in order");
+  // Recovery is staged site by site: each site lists exactly its cabinets still affected, and those sites come first.
+  const still = (s: number) => r.bySite.find(x => x.site === `Site ${s}` && x.client === r.byClient[0]!.client)!;
+  assert.deepEqual(still(0).stillAffected, []);
+  assert.deepEqual(still(2).stillAffected.map(c => c.id), [f.cabinets[2]![1]!.toLowerCase()]);
+  assert.deepEqual(still(4).stillAffected.map(c => c.id).sort(), f.cabinets[4]!.map(k => k.toLowerCase()).sort());
+  assert.equal(r.bySite.reduce((n, s) => n + s.stillAffected.length, 0), r.stillAffected);
+  assert.ok(r.bySite.every((s, i, all) => i === 0 || all[i - 1]!.stillAffected.length >= s.stillAffected.length), "sites with most still affected first");
+  assert.ok(r.cabinets.every(c => r.bySite.some(s => s.siteId === c.siteId && s.site === c.site)), "each cabinet names its site's id");
+  // A cabinet with one alert still open is not recovered, even if another alert of its in the pattern is resolved.
+  const k = f.cabinets[3]![0]!;
+  await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope, state, resolved_at)
+      VALUES ($1, NULL, 'major', $2, 'Recovery probe', DATEADD(hour, -2, SYSUTCDATETIME()), DATEADD(hour, -2, SYSUTCDATETIME()), 1, 'fleet', 'resolved', DATEADD(hour, -1, SYSUTCDATETIME()))`, [k, sig]);
+  r = (await fleetPatternReport(db.app, p.id))!;
+  assert.deepEqual([r.recovered, r.stillAffected], [5, 7]);
+});

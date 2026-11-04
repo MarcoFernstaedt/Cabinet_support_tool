@@ -124,11 +124,17 @@ export async function listFleetPatterns(db: Queryable): Promise<FleetPattern[]> 
 export interface FleetPatternReport {
   pattern: FleetPattern;
   byClient: { client: string; sites: number; cabinets: number }[];
-  bySite: { client: string; site: string; cabinets: number; occurrences: number }[];
-  cabinets: { id: string; name: string; client: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
+  /** Each site's affected cabinets, and the ones still affected there: a recovery is staged one site at a time, as fleet operations cover one site. */
+  bySite: { client: string; siteId: string; site: string; cabinets: number; occurrences: number; stillAffected: { id: string; name: string }[] }[];
+  cabinets: { id: string; name: string; client: string; siteId: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
   byAgentVersion: { version: string; affected: number; total: number }[];
   /** What the affected cabinets have in common that the others do not: changes in the 72 hours before each one's problem began. */
   commonFactors: ChangeComparison[];
+  /** Incident response (roadmap module 42): how many have recovered (every alert of theirs in this pattern resolved) and how many have not. */
+  recovered: number;
+  stillAffected: number;
+  /** By hour: cabinets whose problem began, and cabinets that recovered. */
+  timeline: { hour: string; began: number; recovered: number }[];
 }
 
 /** The report a person reads: who has it, since when, and what they have in common. */
@@ -137,12 +143,12 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
   if (!row) return null;
   const pattern = toPattern(row);
   const from = new Date(new Date(pattern.firstSeen).getTime() - 3_600_000), to = new Date(Math.max(Date.now(), new Date(pattern.lastSeen).getTime()));
-  const affected = (await db.query<{ cabinet_id: string; name: string; client: string; site: string; occurrences: number; first_seen: Date; last_seen: Date; state: string; agent_version: string | null; demo: number }>(
-    `SELECT a.cabinet_id, k.name, c.name AS client, s.name AS site, SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen,
+  const affected = (await db.query<{ cabinet_id: string; name: string; client: string; site_id: string; site: string; occurrences: number; first_seen: Date; last_seen: Date; state: string; agent_version: string | null; demo: number; resolved_at: Date | null }>(
+    `SELECT a.cabinet_id, k.name, c.name AS client, k.site_id, s.name AS site, SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen, MAX(a.resolved_at) AS resolved_at,
             MIN(CASE WHEN a.state <> 'resolved' THEN 'open' ELSE 'resolved' END) AS state, k.agent_version, CASE WHEN k.demo_scenario IS NULL THEN 0 ELSE 1 END AS demo
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE ${KEY} = $1 AND a.last_seen >= $2
-      GROUP BY a.cabinet_id, k.name, c.name, s.name, k.agent_version, k.demo_scenario ORDER BY MIN(a.first_seen), k.name`, [row.pattern_key, from])).rows;
+      GROUP BY a.cabinet_id, k.name, c.name, k.site_id, s.name, k.agent_version, k.demo_scenario ORDER BY MIN(a.first_seen), k.name`, [row.pattern_key, from])).rows;
   // The pattern's own kind decides, so its report holds only cabinets of that kind (the key already filtered them).
   const demo = isDemoKey(row.pattern_key);
   // The comparison group: the active cabinets of the same kind (real or demo), so a demo fleet never dilutes a real one.
@@ -152,21 +158,35 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
   const ids = [...new Set([...population.map(p => p.id.toLowerCase()), ...firstAt.keys()])];
   const commonFactors = (await compareChanges(db, { ids, affected: firstAt, from, to })).filter(c => c.category !== "error" || c.standsOut);
   const clients = new Map<string, { sites: Set<string>; cabinets: number }>();
-  const sites = new Map<string, { client: string; site: string; cabinets: number; occurrences: number }>();
+  const sites = new Map<string, { client: string; siteId: string; site: string; cabinets: number; occurrences: number; stillAffected: { id: string; name: string }[] }>();
   for (const a of affected) {
     const c = clients.get(a.client) ?? clients.set(a.client, { sites: new Set(), cabinets: 0 }).get(a.client)!;
     c.sites.add(a.site); c.cabinets++;
-    const key = `${a.client}\u0000${a.site}`;
-    const s = sites.get(key) ?? sites.set(key, { client: a.client, site: a.site, cabinets: 0, occurrences: 0 }).get(key)!;
+    // Keyed by the site's id: two sites of the same name (at different clients) stay apart.
+    const key = a.site_id.toLowerCase();
+    const s = sites.get(key) ?? sites.set(key, { client: a.client, siteId: key, site: a.site, cabinets: 0, occurrences: 0, stillAffected: [] }).get(key)!;
     s.cabinets++; s.occurrences += Number(a.occurrences);
+    if (a.state === "open") s.stillAffected.push({ id: a.cabinet_id.toLowerCase(), name: a.name });
   }
   const versions = new Map<string, { affected: number; total: number }>();
   for (const p of population) { const v = p.agent_version ?? "unknown"; const e = versions.get(v) ?? { affected: 0, total: 0 }; e.total++; if (firstAt.has(p.id.toLowerCase())) e.affected++; versions.set(v, e); }
+  // A cabinet has recovered when every alert of its in this pattern is resolved; it recovered when the last of them was.
+  const hour = (d: Date) => d.toISOString().slice(0, 13) + ":00:00Z";
+  const timeline = new Map<string, { began: number; recovered: number }>();
+  const at = (h: string) => timeline.get(h) ?? timeline.set(h, { began: 0, recovered: 0 }).get(h)!;
+  let recovered = 0;
+  for (const a of affected) {
+    at(hour(a.first_seen)).began++;
+    if (a.state === "resolved") { recovered++; if (a.resolved_at) at(hour(a.resolved_at)).recovered++; }
+  }
   return {
     pattern,
+    recovered, stillAffected: affected.length - recovered,
+    timeline: [...timeline.entries()].sort(([x], [y]) => x.localeCompare(y)).map(([h, v]) => ({ hour: h, ...v })),
     byClient: [...clients.entries()].map(([client, v]) => ({ client, sites: v.sites.size, cabinets: v.cabinets })).sort((a, b) => b.cabinets - a.cabinets),
-    bySite: [...sites.values()].sort((a, b) => b.cabinets - a.cabinets || b.occurrences - a.occurrences).slice(0, 500),
-    cabinets: affected.slice(0, 2000).map(a => ({ id: a.cabinet_id.toLowerCase(), name: a.name, client: a.client, site: a.site, occurrences: Number(a.occurrences),
+    // Sites still affected first, so the ones with recovery left to stage lead.
+    bySite: [...sites.values()].sort((a, b) => b.stillAffected.length - a.stillAffected.length || b.cabinets - a.cabinets || b.occurrences - a.occurrences).slice(0, 500),
+    cabinets: affected.slice(0, 2000).map(a => ({ id: a.cabinet_id.toLowerCase(), name: a.name, client: a.client, siteId: a.site_id.toLowerCase(), site: a.site, occurrences: Number(a.occurrences),
       firstSeen: a.first_seen.toISOString(), lastSeen: a.last_seen.toISOString(), state: a.state, agentVersion: a.agent_version })),
     byAgentVersion: [...versions.entries()].map(([version, v]) => ({ version, ...v })).filter(v => v.affected > 0).sort((a, b) => b.affected - a.affected),
     commonFactors,
