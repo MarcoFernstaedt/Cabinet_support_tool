@@ -6,6 +6,7 @@ import { durationText, endText, type BootRecord } from "../lib/boot-history";
 import { sizeText, stopCodeText, type Minidump } from "../lib/crash-dumps";
 import { incidentBadge, timesText, totalCrashes, type CrashIncident } from "../lib/crash-incident";
 import { orderPatterns, reachText, type FleetPattern } from "../lib/fleet-patterns";
+import { trendText } from "../lib/crash-signatures";
 import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
@@ -307,6 +308,67 @@ function FleetPatternReportView({ id }: { id: string }) {
     </div>);
 }
 
+interface SignatureRow {
+  key: string; title: string; demo: boolean; crashes: number; cabinets: number; sites: number; clients: number; firstSeen: string; lastSeen: string; lastDay: number; dayBefore: number;
+  stopCode: { hint: string | null }; detail: { kind: string; value: string; meaning: string | null } | null;
+}
+interface SignatureReport {
+  signature: SignatureRow;
+  cabinets: { id: string; name: string; site: string; client: string; crashes: number; firstAt: string; lastAt: string; agentVersion: string | null }[];
+  commonFactors: { change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }[];
+}
+
+/**
+ * Crash signatures (D26): the kinds of blue screen across the fleet, widest first. A signature is the stop code and, where Windows documents
+ * it, the exception or subtype that names the failure; the faulting driver joins it once a real sample dump confirms how to read it.
+ */
+function CrashSignaturesPanel({ days, clientId }: { days: string; clientId: string }) {
+  const q = `days=${days}${clientId ? `&clientId=${clientId}` : ""}`;
+  const { data, problem } = useLoad<{ signatures: SignatureRow[] }>(`/api/crash-signatures?${q}`);
+  const [open, setOpen] = useState<SignatureRow | null>(null);
+  const rows = usePaged(data?.signatures ?? []);
+  return (
+    <section className="panel" aria-labelledby="signatures-heading">
+      <h2 id="signatures-heading">Kinds of blue screen</h2>
+      <p className="muted">Each blue screen grouped by what kind it was (its stop code, and the exception or subtype where Windows records one), across the fleet. The same kind on many cabinets usually has one cause.</p>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {data && data.signatures.length === 0 && <Empty>No blue screens in this period.</Empty>}
+      {rows.rows.length > 0 && (<>
+        <table className="table compact"><caption className="sr-only">Kinds of blue screen across the fleet</caption>
+          <thead><tr><th scope="col">Kind</th><th scope="col">Cabinets</th><th scope="col">Sites</th><th scope="col">Crashes</th><th scope="col">Trend</th><th scope="col">Last</th><th scope="col"><span className="sr-only">Report</span></th></tr></thead>
+          <tbody>{rows.rows.map(r => (
+            <tr key={`${r.demo}|${r.key}`}><td>{r.title}{r.demo && <> <DemoTag /></>}{r.stopCode.hint && <div className="muted small">{r.stopCode.hint}</div>}</td>
+              <td>{r.cabinets}</td><td>{r.sites}</td><td>{r.crashes}</td><td>{trendText(r)}</td><td>{fullTime(r.lastSeen)}</td>
+              <td><button className="btn small" aria-expanded={open?.key === r.key && open.demo === r.demo} onClick={() => setOpen(open?.key === r.key && open.demo === r.demo ? null : r)}>
+                {open?.key === r.key && open.demo === r.demo ? "Hide" : "Who and why"}</button></td></tr>))}</tbody>
+        </table>
+        <Pager {...rows} label="kinds" /></>)}
+      {open && <CrashSignatureReportView q={q} row={open} />}
+    </section>);
+}
+
+function CrashSignatureReportView({ q, row }: { q: string; row: SignatureRow }) {
+  const { data, problem } = useLoad<SignatureReport>(`/api/crash-signatures/report?${q}&demo=${row.demo}&key=${encodeURIComponent(row.key)}`);
+  const cabinets = usePaged(data?.cabinets ?? []);
+  if (problem) return <p className="error" role="alert">{problem}</p>;
+  if (!data) return <p className="muted" role="status">Loading…</p>;
+  const standing = data.commonFactors.filter(c => c.standsOut);
+  return (
+    <div className="report" aria-label={`Report: ${row.title}`}>
+      <h3>{row.title}</h3>
+      <p>{row.cabinets} cabinet{row.cabinets === 1 ? "" : "s"} at {row.sites} site{row.sites === 1 ? "" : "s"}, {row.crashes} crash{row.crashes === 1 ? "" : "es"} since {fullTime(row.firstSeen)}.</p>
+      <h4>What they have in common</h4>
+      {standing.length === 0 ? <p>Nothing stands out among the changes recorded before each cabinet's first crash of this kind.</p> : (
+        <ul>{standing.map(c => <li key={c.change}><strong>{c.change}</strong>: {c.affectedShare}% of these cabinets ({c.affected}), {c.unaffectedShare}% of the others ({c.unaffected})</li>)}</ul>)}
+      <table className="table compact"><caption className="sr-only">Cabinets with this kind of blue screen</caption>
+        <thead><tr><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">Crashes</th><th scope="col">First</th><th scope="col">Last</th><th scope="col">Agent</th></tr></thead>
+        <tbody>{cabinets.rows.map(c => (
+          <tr key={c.id}><td><Link to={`/cabinets/${c.id}`}>{c.name}</Link></td><td>{c.client} / {c.site}</td><td>{c.crashes}</td><td>{fullTime(c.firstAt)}</td><td>{fullTime(c.lastAt)}</td><td>{c.agentVersion ?? "—"}</td></tr>))}</tbody>
+      </table>
+      <Pager {...cabinets} label="cabinets" />
+    </div>);
+}
+
 export function IncidentsPage() {
   const [range, setRange] = useState("3");
   const [clientId, setClientId] = useState("");
@@ -327,6 +389,7 @@ export function IncidentsPage() {
           <option value="">All clients</option>{clients.data?.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
         {data && data.affected > 0 && <button className="btn" onClick={() => { void navigator.clipboard?.writeText(summaryText(data)); setCopied(true); }}>{copied ? "Copied" : "Copy case notes"}</button>}
       </div>
+      <CrashSignaturesPanel days={range} clientId={clientId} />
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && data.affected === 0 && <Empty>No blue screens, unexpected restarts or reboot loops in this period.</Empty>}
       {data && data.affected > 0 && (<>

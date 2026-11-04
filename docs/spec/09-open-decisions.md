@@ -937,3 +937,8 @@ The spec flags the same issue at one site within an hour; it does not say when a
 ## How people hear about a fleet-wide problem (2026-11-04)
 
 Answered by the owner (2026-11-04): console only. Every signed-in console gets a red banner, a sound and a desktop notification within seconds of a fleet pattern opening; nothing is sent outside the platform, keeping the October no-email decision. Built; details in docs/platform/decision-log.md, D23.
+
+## How the faulting driver of a blue screen is found (2026-11-04, waiting on a sample)
+
+A small dump's header holds the stop code and parameters but not the faulting driver. The loaded-driver list that follows it in the file is not published by Microsoft, and reading it from memory of its layout, untested, risks naming the wrong driver. Answered by the owner (2026-11-04): build the reader against one or two real small dumps (C:\Windows\Minidump on any machine that has blue-screened), kept as test fixtures. **Waiting on:** those sample files. Until then, crash signatures group by stop code and the exception or subtype Windows records (D26).
+
