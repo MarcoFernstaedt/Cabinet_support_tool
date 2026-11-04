@@ -1,7 +1,9 @@
 // Fleet patterns (decision-log D22) as the console shows them. Kept free of React so it is tested on its own.
 
 export interface FleetPattern { id: string; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number;
-  firstSeen: string; lastSeen: string; openedAt: string; resolvedAt: string | null }
+  firstSeen: string; lastSeen: string; openedAt: string; resolvedAt: string | null;
+  /** When it first rang the alarm; null while a minor one is listed quietly (D25). */
+  alarmedAt: string | null; issueTypeId?: string | null }
 
 /** "50 sites, 50 cabinets, 1 client": the reach of a pattern in one line. */
 export function reachText(p: Pick<FleetPattern, "sites" | "cabinets" | "clients">): string {

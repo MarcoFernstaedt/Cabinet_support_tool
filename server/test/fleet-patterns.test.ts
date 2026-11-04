@@ -84,6 +84,7 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   assert.equal(loops.length, 1);
   assert.deepEqual([loops[0]!.sites, loops[0]!.cabinets], [60, 120], "two cabinets at a site are one site");
   assert.equal(loops[0]!.severity, "major");
+  assert.ok(loops[0]!.alarmedAt, "60 sites in reboot loops ring the alarm at once");
 
   // Four sites with a new problem: below the threshold.
   for (let s = 60; s < 64; s++) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
@@ -94,6 +95,7 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   await transaction(db.app, c => upsertSetting(c, "alerts.fleetPatternSites", 3, null));
   await sweepFleetPatterns(db.app);
   assert.equal((await patternsFor("Clock out of step")).length, 1);
+  assert.equal((await patternsFor("Clock out of step"))[0]!.alarmedAt, null, "a minor one at 3 sites is listed, not rung");
   await transaction(db.app, c => upsertSetting(c, "alerts.fleetPatternSites", 5, null));
 
   // Once every loop alert is resolved, the pattern resolves itself and stays in the list as recently resolved.
@@ -104,7 +106,8 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   assert.equal(after.length, 1);
   assert.ok(after[0]!.resolvedAt);
   const audits = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_kind = 'fleet_pattern' AND target_id = $1 ORDER BY seq", [after[0]!.id])).rows.map(a => a.action);
-  assert.deepEqual(audits, ["fleet_pattern.open", "fleet_pattern.resolve"]);
+  // A major pattern rings when it opens (D25), so its trail is open, alarm, resolve.
+  assert.deepEqual(audits, ["fleet_pattern.open", "fleet_pattern.alarm", "fleet_pattern.resolve"]);
 });
 
 test("alerts older than the window and demo cabinets never make a real fleet pattern; a report for no such pattern is null", async () => {
@@ -188,4 +191,42 @@ test("incident response: the report counts who has recovered and who has not, an
       VALUES ($1, NULL, 'major', $2, 'Recovery probe', DATEADD(hour, -2, SYSUTCDATETIME()), DATEADD(hour, -2, SYSUTCDATETIME()), 1, 'fleet', 'resolved', DATEADD(hour, -1, SYSUTCDATETIME()))`, [k, sig]);
   r = (await fleetPatternReport(db.app, p.id))!;
   assert.deepEqual([r.recovered, r.stillAffected], [5, 7]);
+});
+
+test("alarm level (D25): a major pattern rings when it opens; a minor one is listed quietly until it reaches the Admin's number of sites", async () => {
+  const tag = randomBytes(3).toString("hex");
+  const raise = async (sites: number, severity: "major" | "minor", title: string) => {
+    const f = await fleet(sites);
+    for (const ks of f.cabinets) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
+        VALUES ($1, NULL, $2, $3, $4, DATEADD(minute, -30, SYSUTCDATETIME()), SYSUTCDATETIME(), 1, 'fleet')`, [ks[0], severity, `unrecognized:Application|${title.toLowerCase()}|7`, title]);
+  };
+  const rang = async (id: string) => (await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'fleet_pattern.alarm' AND target_id = $1", [id])).rows[0]!.n;
+  await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 8, null));
+  try {
+    await raise(5, "major", `Major ${tag}`);
+    await raise(5, "minor", `Minor ${tag}`);
+    await sweepFleetPatterns(db.app);
+    const major = (await patternsFor(`Major ${tag}`))[0]!, minor = (await patternsFor(`Minor ${tag}`))[0]!;
+    assert.ok(major.alarmedAt, "a major one rings at once");
+    assert.equal(minor.alarmedAt, null, "a minor one at 5 sites is listed, not rung");
+    assert.equal(Number(await rang(minor.id)), 0);
+    // It spreads to 7 sites: still quiet. Then to 8: it rings, once.
+    await raise(2, "minor", `Minor ${tag}`);
+    await sweepFleetPatterns(db.app);
+    assert.equal((await patternsFor(`Minor ${tag}`))[0]!.alarmedAt, null);
+    await raise(1, "minor", `Minor ${tag}`);
+    await sweepFleetPatterns(db.app);
+    await sweepFleetPatterns(db.app);
+    const now = (await patternsFor(`Minor ${tag}`))[0]!;
+    assert.equal(now.id, minor.id, "the same pattern, now ringing");
+    assert.ok(now.alarmedAt);
+    assert.equal(Number(await rang(minor.id)), 1, "it rings once, not at every sweep");
+    // Raising the level afterwards does not silence an alarm already rung.
+    await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 500, null));
+    await sweepFleetPatterns(db.app);
+    assert.equal((await patternsFor(`Minor ${tag}`))[0]!.alarmedAt, now.alarmedAt);
+    assert.equal(Number(await rang(major.id)), 1);
+  } finally {
+    await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 20, null));
+  }
 });

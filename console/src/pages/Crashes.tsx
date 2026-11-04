@@ -10,6 +10,7 @@ import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
 import { EncryptedExport } from "../components/EncryptedExport";
+import { RunbookPanel } from "../components/Runbook";
 import { Link, useRouter } from "../lib/router";
 import { fullTime, ago } from "../lib/time";
 import { useLoad } from "../lib/useLoad";
@@ -230,7 +231,8 @@ function FleetPatternsPanel() {
   return (
     <section className="panel" aria-labelledby="fleet-patterns-heading">
       <h2 id="fleet-patterns-heading">Fleet patterns</h2>
-      <p className="muted">The same problem at many sites at once: one alert each, counted up as it spreads.</p>
+      <p className="muted">The same problem at many sites at once: one alert each, counted up as it spreads. Major ones ring the alarm in every
+        open console; minor ones are listed here and ring only once they spread to the number of sites an Admin sets.</p>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && list.length === 0 && <Empty>No problem is showing up across sites.</Empty>}
       {list.length > 0 && (
@@ -238,7 +240,7 @@ function FleetPatternsPanel() {
           <thead><tr><th scope="col">Problem</th><th scope="col">Reach</th><th scope="col">Times</th><th scope="col">Since</th><th scope="col">State</th><th scope="col"><span className="sr-only">Report</span></th></tr></thead>
           <tbody>{list.map(p => (
             <tr key={p.id}><td>{p.title}</td><td>{reachText(p)}</td><td>{p.occurrences.toLocaleString("en-US")}</td><td>{fullTime(p.firstSeen)}</td>
-              <td>{p.resolvedAt ? "Resolved" : <Badge tone={p.severity === "major" ? "crit" : "warn"}>Open</Badge>}</td>
+              <td>{p.resolvedAt ? "Resolved" : p.alarmedAt ? <Badge tone="crit">Open, alarm</Badge> : <Badge tone="warn">Open, listed</Badge>}</td>
               <td><button className="btn small" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>{open === p.id ? "Hide report" : "Report"}</button></td></tr>))}</tbody>
         </table>)}
       {open && <FleetPatternReportView id={open} />}
@@ -255,6 +257,29 @@ function stageRecovery(siteId: string, cabinets: readonly { id: string; name: st
   const selected: Record<string, string> = {};
   for (const c of cabinets.slice(0, RECOVERY_LIMIT)) selected[c.id] = c.name;
   try { sessionStorage.setItem("fleet-ops-selection", JSON.stringify({ siteId, selected })); } catch { /* storage unavailable: the page opens on no site */ }
+}
+
+/**
+ * What to do about a fleet problem: the runbook in force for its issue (each check and fix run on the cabinet chosen, one at a time, with
+ * the same roles and confirmations as anywhere else), or, for an error no rule knows yet, how to give it an issue type a runbook can follow.
+ */
+function FleetPatternHelp({ pattern, still }: { pattern: FleetPattern; still: { id: string; name: string; site: string }[] }) {
+  const [chosen, setChosen] = useState("");
+  const cabinet = still.find(c => c.id === chosen) ?? still[0];
+  if (!cabinet) return null;
+  return (
+    <section aria-label="What to do">
+      <h4>What to do</h4>
+      {pattern.issueTypeId ? (<>
+        <label className="field inline"><span>Work on</span>
+          <select value={cabinet.id} onChange={e => setChosen(e.target.value)}>
+            {still.slice(0, 500).map(c => <option key={c.id} value={c.id}>{c.name} ({c.site})</option>)}</select></label>
+        <RunbookPanel key={cabinet.id} target={{ issueTypeId: pattern.issueTypeId }} cabinetId={cabinet.id} cabinetName={cabinet.name} label="The runbook for this problem" />
+        <p className="muted small">Once a fix works on one cabinet, stage it for the rest with "Recovery, site by site" above, where Fleet operations offers that fix.</p>
+      </>) : (
+        <p>No rule knows this error yet. A Tier 2 can open an affected cabinet (for example <Link to={`/cabinets/${cabinet.id}`}>{cabinet.name}</Link>) and use
+          {" "}<strong>Map to issue</strong> on its alert. That names the problem for the whole fleet, and a runbook with its checks and fixes can then be written for it on the Issues page.</p>)}
+    </section>);
 }
 
 function FleetPatternReportView({ id }: { id: string }) {
@@ -283,6 +308,7 @@ function FleetPatternReportView({ id }: { id: string }) {
               <td><button className="btn small" aria-label={`Stage the recovery of ${s.site}`} onClick={() => { stageRecovery(s.siteId, s.stillAffected); navigate("/fleet-operations"); }}>
                 Stage {Math.min(s.stillAffected.length, RECOVERY_LIMIT)}</button></td></tr>))}</tbody>
         </table></>)}
+      <FleetPatternHelp pattern={data.pattern} still={data.cabinets.filter(c => c.state === "open")} />
       {data.timeline.length > 1 && (<>
         <h4>How it went</h4>
         <table className="table compact"><caption className="sr-only">Cabinets whose problem began and that recovered, by hour</caption>
