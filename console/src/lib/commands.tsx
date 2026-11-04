@@ -28,7 +28,8 @@ export interface SecurityNews { id: string; created: boolean; kind: string; titl
 type SecurityListener = (news: SecurityNews) => void;
 
 /** A fleet pattern opening or resolving (D23), announced to everyone signed in. */
-export interface FleetNews { change: "opened" | "resolved"; id: string; title: string; severity: string; sites: number; cabinets: number; clients: number; firstSeen: string }
+/** "alarm": a pattern listed quietly has just started to ring (D25). alarmedAt null: it opened quietly. */
+export interface FleetNews { change: "opened" | "resolved" | "alarm"; id: string; title: string; severity: string; sites: number; cabinets: number; clients: number; firstSeen: string; alarmedAt?: string | null; resolvedAt?: string | null }
 type FleetListener = (news: FleetNews) => void;
 
 const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener>; security: Set<SecurityListener>; fleet: Set<FleetListener> }>({ wake: new Map(), alerts: new Set(), security: new Set(), fleet: new Set() });

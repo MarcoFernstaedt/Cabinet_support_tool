@@ -1,10 +1,11 @@
 // The fleet alarm (decision-log D23) without React: what is shown, what was already acknowledged, and the desktop notification text.
 
-export interface OpenPattern { id: string; title: string; sites: number; cabinets: number; clients: number; resolvedAt?: string | null }
+/** alarmedAt: when it first rang; null or missing means it is listed quietly (a minor pattern below the alarm level, D25). */
+export interface OpenPattern { id: string; title: string; sites: number; cabinets: number; clients: number; resolvedAt?: string | null; alarmedAt?: string | null }
 
-/** The open patterns not yet acknowledged in this browser, widest first. */
+/** The open patterns that ring and are not yet acknowledged in this browser, widest first. */
 export function unacknowledged<T extends OpenPattern>(open: readonly T[], acknowledged: ReadonlySet<string>): T[] {
-  return open.filter(p => !p.resolvedAt && !acknowledged.has(p.id)).sort((a, b) => b.sites - a.sites);
+  return open.filter(p => !p.resolvedAt && !!p.alarmedAt && !acknowledged.has(p.id)).sort((a, b) => b.sites - a.sites);
 }
 
 /** The line in the banner and the desktop notification. */

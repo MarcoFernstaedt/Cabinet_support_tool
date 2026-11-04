@@ -49,13 +49,13 @@ export class ResultStream {
     for (const s of this.subscribers) if (s.role === "admin") s.reply.raw.write(`event: security\ndata: ${data}\n\n`);
   }
 
-  /** A fleet pattern opening or resolving goes to everyone signed in, whatever their role (D23): it is the fleet-wide alarm. */
+  /** A fleet pattern opening, starting to ring, or resolving goes to everyone signed in, whatever their role (D23); alarmedAt says whether it rings (D25). */
   private async deliverFleet(payload: string): Promise<void> {
     const [id, change] = payload.split(" ");
-    if (!id || (change !== "opened" && change !== "resolved") || this.subscribers.size === 0) return;
+    if (!id || (change !== "opened" && change !== "resolved" && change !== "alarm") || this.subscribers.size === 0) return;
     const p = await fleetPatternById(this.pool, id).catch(() => null);
     if (!p) return;
-    const data = JSON.stringify({ change, id: p.id, title: p.title, severity: p.severity, sites: p.sites, cabinets: p.cabinets, clients: p.clients, firstSeen: p.firstSeen });
+    const data = JSON.stringify({ change, id: p.id, title: p.title, severity: p.severity, sites: p.sites, cabinets: p.cabinets, clients: p.clients, firstSeen: p.firstSeen, alarmedAt: p.alarmedAt, resolvedAt: p.resolvedAt });
     for (const s of this.subscribers) s.reply.raw.write(`event: fleet\ndata: ${data}\n\n`);
   }
 
