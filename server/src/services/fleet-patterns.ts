@@ -79,14 +79,22 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
         cabinets = CASE WHEN $7 > cabinets THEN $7 ELSE cabinets END, occurrences = CASE WHEN $8 > occurrences THEN $8 ELSE occurrences END,
         severity = CASE WHEN $4 = 'major' THEN 'major' ELSE severity END, last_seen = CASE WHEN $10 > last_seen THEN $10 ELSE last_seen END
       WHERE pattern_key = $1 AND resolved_at IS NULL`, [p.key, null, null, p.severity, p.clients, p.sites, p.cabinets, p.occurrences, null, p.lastSeen]);
-    if ((up.rowCount ?? 0) > 0) { updated++; continue; }
+    if ((up.rowCount ?? 0) > 0) {
+      updated++;
+      // A minor pattern that has spread to the alarm level rings now (D25); it was listed quietly until here.
+      const rang = await ring(pool, p.key, s.fleetMinorAlarmSites);
+      if (rang) await notify(pool, FLEET_CHANNEL, `${rang} alarm`);
+      continue;
+    }
     try {
       const r = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
         OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, args);
       const id = r.rows[0]!.id.toLowerCase();
       await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
-        outcome: "succeeded", details: { key: p.key, sites: p.sites, cabinets: p.cabinets, clients: p.clients } });
-      // Every signed-in console hears it within seconds: a red banner, a sound and a desktop notification (D23).
+        outcome: "succeeded", details: { key: p.key, sites: p.sites, cabinets: p.cabinets, clients: p.clients, severity: p.severity } });
+      // A major one rings at once; a minor one only from the alarm level (D25). Either way every console's list hears it within seconds,
+      // and a ringing one is a red banner, a sound and a desktop notification (D23).
+      await ring(pool, p.key, s.fleetMinorAlarmSites);
       await notify(pool, FLEET_CHANNEL, `${id} opened`);
       opened++;
     } catch (e) {
@@ -105,14 +113,30 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
   return { opened, updated, resolved: gone.length };
 }
 
+/**
+ * Rings the open pattern for this key if it has not rung yet and deserves it: major, or minor at minorSites or more (D25). Returns its id when
+ * it rang just now, else null. Once rung it stays rung, so the alarm never flickers when counts or the setting change.
+ */
+async function ring(pool: Pool, key: string, minorSites: number): Promise<string | null> {
+  const r = (await pool.query<{ id: string; severity: string; sites: number }>(`UPDATE fleet_patterns SET alarmed_at = SYSUTCDATETIME() OUTPUT inserted.id, inserted.severity, inserted.sites
+      WHERE pattern_key = $1 AND resolved_at IS NULL AND alarmed_at IS NULL AND (severity = 'major' OR sites >= $2)`, [key, minorSites])).rows[0];
+  if (!r) return null;
+  const id = r.id.toLowerCase();
+  await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.alarm", targetKind: "fleet_pattern", targetId: id,
+    outcome: "succeeded", details: { severity: r.severity, sites: Number(r.sites), minorAlarmSites: minorSites } });
+  return id;
+}
+
 export interface FleetPattern { id: string; title: string; severity: string; issueTypeId: string | null; clients: number; sites: number; cabinets: number;
-  occurrences: number; firstSeen: string; lastSeen: string; openedAt: string; resolvedAt: string | null }
+  occurrences: number; firstSeen: string; lastSeen: string; openedAt: string; resolvedAt: string | null;
+  /** When it first rang the alarm; null while a minor pattern is listed quietly (D25). */
+  alarmedAt: string | null }
 const toPattern = (r: { id: string; title: string; severity: string; issue_type_id: string | null; clients: number; sites: number; cabinets: number; occurrences: number;
-  first_seen: Date; last_seen: Date; opened_at: Date; resolved_at: Date | null }): FleetPattern => ({
+  first_seen: Date; last_seen: Date; opened_at: Date; resolved_at: Date | null; alarmed_at: Date | null }): FleetPattern => ({
   id: r.id.toLowerCase(), title: r.title, severity: r.severity, issueTypeId: r.issue_type_id?.toLowerCase() ?? null, clients: Number(r.clients), sites: Number(r.sites),
   cabinets: Number(r.cabinets), occurrences: Number(r.occurrences), firstSeen: r.first_seen.toISOString(), lastSeen: r.last_seen.toISOString(),
-  openedAt: r.opened_at.toISOString(), resolvedAt: r.resolved_at?.toISOString() ?? null });
-const COLUMNS = "id, title, severity, issue_type_id, clients, sites, cabinets, occurrences, first_seen, last_seen, opened_at, resolved_at";
+  openedAt: r.opened_at.toISOString(), resolvedAt: r.resolved_at?.toISOString() ?? null, alarmedAt: r.alarmed_at?.toISOString() ?? null });
+const COLUMNS = "id, title, severity, issue_type_id, clients, sites, cabinets, occurrences, first_seen, last_seen, opened_at, resolved_at, alarmed_at";
 
 /** Open fleet patterns, then those resolved in the last 30 days. */
 export async function listFleetPatterns(db: Queryable): Promise<FleetPattern[]> {

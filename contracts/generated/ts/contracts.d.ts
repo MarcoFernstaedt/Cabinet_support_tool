@@ -1494,6 +1494,10 @@ export interface PlatformSettings {
    * The window, in hours, in which those sites must have the problem.
    */
   fleetPatternHours?: number;
+  /**
+   * Fleet alarm level (decision-log D25): a major fleet pattern rings the alarm when it opens; a minor one only once it reaches this many sites.
+   */
+  fleetMinorAlarmSites?: number;
 }
 
 /**

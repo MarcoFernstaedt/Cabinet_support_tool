@@ -176,6 +176,12 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 168
+    },
+    "fleetMinorAlarmSites": {
+      "description": "Fleet alarm level (decision-log D25): a major fleet pattern rings the alarm when it opens; a minor one only once it reaches this many sites.",
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 1000
     }
   },
   "required": [

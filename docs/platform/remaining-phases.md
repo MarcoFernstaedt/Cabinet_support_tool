@@ -65,6 +65,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   crash page.)
 - (**Crash signatures are built (D26)** by stop code and the exception or subtype Windows records, across the fleet with a report per kind.)
   The faulting module waits on a real sample dump (09-open-decisions).
+- (**Fleet alarm level is built (D25):** major fleet problems ring at once, minor ones only once they spread; each fleet report has the
+  runbook for its issue, or how to name an unknown error.)
 - (**Incident response mode is built (D24):** the fleet alert's report counts who has recovered and who is still affected, shows how it went
   hour by hour, and stages recovery site by site through Fleet operations.)
 - (**Engine foundation part 5b is built (D21):** a blue-screen or reboot-loop alert opens one crash incident per cabinet (module

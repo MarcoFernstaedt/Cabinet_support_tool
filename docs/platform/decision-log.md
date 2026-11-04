@@ -56,6 +56,52 @@ signatures group by stop code and parameters. This is recorded in 09-open-decisi
 
 ---
 
+## D25. Fleet alarm level: major problems ring at once, minor ones only when they spread; each report says what to do (2026-11-04)
+
+**Owner's request and decision.** "Any event log, system log and other such things happening across the fleet should be raised: not small
+issues but issues that deserve attention, along with the tools for the job. The goal is a fleet management tool that can help diagnose
+and resolve issues." Asked which fleet problems should ring the alarm (banner, sound, desktop notification): **major ones at once; a
+minor one only once it has spread**, to 20 sites by default (the recommendation).
+
+**What was already there.** The agent sends every Critical and Error entry from the System and Application logs (warnings too from the
+hardware and WHEA logs). An entry no rule knows becomes an "unrecognized" alert of its own, and any alert seen at 5 or more sites within
+24 hours becomes a fleet pattern (D22). What was missing was the line between noise and attention: every fleet pattern rang the alarm,
+including a minor warning.
+
+**What is built.**
+- **Alarm level.** A fleet pattern rings when it is major (blue screens, reboot loops, disk, power and hardware errors, or anything a rule
+  marks major) as soon as it opens. A minor one is listed on the Incidents page as "Open, listed" and rings only once it reaches the
+  Admin's number of sites (Settings, Alerts: "A minor one rings the alarm at", 2 to 1000, default 20). When it starts to ring, every console
+  hears it within seconds, as for a new one.
+- **Once rung, it stays rung.** The time it first rang is kept (`alarmed_at`, migration 0023, audited as `fleet_pattern.alarm`). Raising the
+  number afterwards does not silence a problem that people were already told about. Patterns that opened before this change rang under
+  D23, so they keep their alarm.
+- **What to do, in the report.**
+  - For a known issue, the report has its runbook, with every check and one-click fix run on a still-affected cabinet you choose. The
+    roles, confirmations and limits are the same as anywhere else.
+  - Once a fix works on one cabinet, "Recovery, site by site" (D24) stages it for the rest.
+  - For an error no rule knows yet, the report says how to name it for the whole fleet ("Map to issue" on an affected cabinet's alert, Tier
+    2), after which a runbook can be written for it.
+
+**Why stored rather than worked out on each read.** The alarm must reach consoles at the moment a minor pattern crosses the line, which
+needs the sweep to notice the crossing. Keeping the time also shows afterwards when people were told.
+
+**Limits.**
+- What counts as major comes from the rules and issue types. An error no rule knows is minor until someone maps it, and so it rings only
+  once it is widespread. Mapping it to a major issue type makes the next one ring at once.
+- Nothing is sent outside the platform (D23).
+
+**Proof.** `fleet-patterns.test.ts`:
+- a major pattern at 5 sites rings at once;
+- a minor one at 5 and then 7 sites stays listed, and rings at 8 (the test's setting), once across repeated sweeps;
+- raising the number afterwards keeps it rung;
+- 60 sites in reboot loops ring, while a minor clock problem at 3 sites does not.
+
+The minor-pattern test fails when every pattern rings, as before this change. Console: a pattern never rung does not sound the alarm,
+however wide.
+
+---
+
 ## D24. Incident response mode: recovered and still-affected counts, an hourly timeline, and recovery staged site by site (2026-11-04)
 
 **Spec.** Roadmap module 42: "Incident page: affected and recovered counts, groupings, comparisons, staged recovery." Groupings (by

@@ -47,12 +47,13 @@ export function FleetAlarm() {
   const [live, setLive] = useState<OpenPattern[]>([]);
   const [permission, setPermission] = useState(() => (typeof Notification === "undefined" ? "unsupported" : Notification.permission));
   useFleetNews((n: FleetNews) => {
-    if (n.change === "opened") {
-      const p = { id: n.id, title: n.title, sites: n.sites, cabinets: n.cabinets, clients: n.clients };
+    // It rings when it opened ringing (major) or has just started to (a minor one that spread); a quiet one only refreshes the lists.
+    if ((n.change === "opened" || n.change === "alarm") && n.alarmedAt) {
+      const p = { id: n.id, title: n.title, sites: n.sites, cabinets: n.cabinets, clients: n.clients, alarmedAt: n.alarmedAt };
       setLive(l => [p, ...l.filter(x => x.id !== n.id)]);
       beep();
       desktop(p);
-    } else setLive(l => l.filter(x => x.id !== n.id));
+    } else if (n.change === "resolved") setLive(l => l.filter(x => x.id !== n.id));
     reload();
   });
   // Open patterns from the server, plus any just announced that the list has not caught up with.
