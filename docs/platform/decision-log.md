@@ -6,6 +6,44 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D29. Application crashes and hangs are known by their program, so different programs never fold together (2026-11-04)
+
+**Spec.** Roadmap Phase 3 lists "application-crash correlation (Application Error and hang events are not mapped)". This follows the
+owner's 4 November request that problems from the event logs across the fleet be raised as things that deserve attention (D25).
+
+**What was wrong.** An unrecognized error was known only by its log, source and event ID. So every Application Error 1000, whatever
+program crashed, was one alert per cabinet. Across the fleet it was one pattern: CabinetUI.exe crashing at 5 sites and a reader tool
+crashing at 5 others read as "Application Error 1000 at 10 sites".
+
+**What is built.**
+- **What the signature carries.** For an Application Error 1000, the signature also holds the program, the faulting module and the
+  exception code. For an Application Hang 1002, it holds the program.
+  - These are read from the message by their labels ("Faulting application name:", "Faulting module name:", "Exception code:", and "The
+    program … version"), in any letter case, without regular expressions.
+  - They are appended after a `~`, with `|` and `~` removed from each value and each value cut at 80 characters.
+- **How it shows.** The alert title names the problem: "CabinetUI.exe crashed in ucrtbase.dll (0xc0000409)", or "CabinetUI.exe stopped
+  responding".
+- **Folding.** Repeats of the same program and fault fold into one alert with its count. A different program or fault is its own alert,
+  and so its own fleet pattern (D22), with its own alarm level (D25).
+- **Still unrecognized.** The alert can still be mapped to an issue type, which then takes over as before.
+- **Triage** reads the signature by splitting on `|` and `~`, so its counts and samples are unchanged.
+
+**Limits.**
+- Alerts opened before this change keep their old signature and resolve as usual. The next crash of a program opens an alert under the
+  new signature.
+- A message without the labels (another language, say) falls back to the plain signature: one alert per source, as before, never a wrong
+  program.
+
+**Proof.** `app-crash-signatures.test.ts`:
+- the parsing;
+- hostile input: separators in names, a 10,000-character module name, other logs and IDs, a hang with no version;
+- one cabinet: the same program twice is one alert with 2 occurrences, and another program is its own alert;
+- across the fleet: two programs at five sites each are two fleet patterns.
+
+All four fail with the parsing switched off, and all pass with it on.
+
+---
+
 ## D28. Anyone may restart a cabinet; shutdown stays Admin; the authenticator code stays (2026-11-04)
 
 **Owner's decision.** Asked about the device-restart operation approved on 25 October, the owner answered about restarting the

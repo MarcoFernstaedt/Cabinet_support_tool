@@ -99,8 +99,9 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 **Not built:**
 - (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
   diagnosis on sync port 1433 (D15).)
-- Process signer and parent; service dependencies; application-crash correlation (Application Error and hang events are
-  not mapped); the files installed by each driver.
+- Process signer and parent; service dependencies; the files installed by each driver. (**Application-crash correlation is built (D29):**
+  Application Error 1000 and Application Hang 1002 are known by program, faulting module and exception code, so each program is its own
+  alert and fleet pattern.)
 - Boot and recovery: boot configuration, WinRE status, boot-critical services.
 - Installing updates, and update compliance across the fleet.
 - Profiles for the three scanner types and their vendor middleware services.
@@ -207,7 +208,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Where | PRs (estimate) | What they are |
 |---|---|---|
 | Phase 2 | ~6 | the faulting module of a crash, crash signatures, power-loss classification, resumable evidence, the drivers and services engine half |
-| Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
+| Phase 3 | ~18 | Process signer and parent, service dependencies, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
