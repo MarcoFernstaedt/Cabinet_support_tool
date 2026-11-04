@@ -17,7 +17,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 
 - **Milestone phases 0 to 12** of the build spec, including the demo (roadmap phase 1), the console, enrollment,
   signed upgrades, the alerting engine, the troubleshooting workflow, baselines, trends and triage.
-- **The catalog: 52 operations, 34 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
+- **The catalog: 56 operations, 38 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
 - **Both Windows builds** of the same agent code (`windows-x64`, `windows-x86`), with the cross-architecture refusal
   proven live.
 - **A live platform** (VPS, SQL Server 2022) serving both archives.
@@ -57,7 +57,9 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Evidence preservation: hashed bundles built; resumable uploads not.
 
 **Not built:**
-- Agent operation `storage.health` (the NVMe health log, volume state). (`crash.list` is built: each small dump's stop code and
+- (Agent monitors for new dumps and short uptimes are built (D20): `crash_dump` and `short_uptime` events, a dump joining its blue-screen alert, short runs feeding the reboot-loop count.)
+- (`storage.health` is built: the NVMe health log and each fixed volume's repair state (its HealthStatus) and dirty bit. Feeding its counters
+  into the drive risk class and trends is not built yet.) (`crash.list` is built: each small dump's stop code and
   parameters from its header, and the full dump's presence; the faulting module is not read, since a small dump's header does not
   hold it.) (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's
   crash page.)
@@ -91,7 +93,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Required ports: sync ports per client and site; no per-vendor endpoint list.
 
 **Not built:**
-- (Agent monitors for new dumps and short uptimes are built (D20): `crash_dump` and `short_uptime` events, a dump joining its blue-screen alert, short runs feeding the reboot-loop count.) (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
+- (Built since: the SQL connectivity ladder, as the operation `database.connectivity` (D13) and as its own module in the network
   diagnosis on sync port 1433 (D15).)
 - Process signer and parent; service dependencies; application-crash correlation (Application Error and hang events are
   not mapped); the files installed by each driver.
@@ -194,13 +196,13 @@ platform-authored write attribution worked. Its findings:
 
 ## How many PRs are left (estimate)
 
-**About 57 to 62 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**About 56 to 61 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 
 | Where | PRs (estimate) | What they are |
 |---|---|---|
-| Phase 2 | ~8 | `storage.health`, the faulting module of a crash, crash signatures, power-loss classification, resumable evidence, incident response mode, the drivers and services engine half |
+| Phase 2 | ~7 | the faulting module of a crash, crash signatures, power-loss classification, resumable evidence, incident response mode, the drivers and services engine half |
 | Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |

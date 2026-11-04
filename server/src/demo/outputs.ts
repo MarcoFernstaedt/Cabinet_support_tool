@@ -459,6 +459,23 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
           parameters: ["0x0000000000000028", "0x0000000000000002", "0x0000000000000000", "0xFFFFF8063C41A2B0"] }],
         memoryDump: { writtenAt: iso(new Date(crashedAt.getTime() + 1000)), sizeBytes: 805_306_368 } };
     }
+    case "storage.health": {
+      // An NVMe system drive on every cabinet, worn a little more on each; the failing-drive cabinet's is near the end of its life (spare
+      // below threshold, media errors, wear past 90%) and its C: volume reports Spot Fix Needed; the low-space cabinet's C: is nearly full; the
+      // blue-screen cabinet's last start counts as one more unsafe shutdown.
+      const gb = 1024 ** 3, failing = ctx.scenario === "disk_failing";
+      const warnings = { spareBelowThreshold: failing, temperatureOutOfRange: false, reliabilityDegraded: failing, readOnly: false, volatileBackupFailed: false, persistentMemoryReadOnly: false };
+      const hours = 9000 + ctx.index * 811;
+      const nvme = { criticalWarnings: warnings, temperatureCelsius: failing ? 51 : 36 + (ctx.index % 4), availableSparePercent: failing ? 6 : 100, spareThresholdPercent: 10,
+        percentageUsed: failing ? 91 : 3 + (ctx.index % 6), dataReadBytes: (hours * 2_100) * 512_000, dataWrittenBytes: (hours * 1_300) * 512_000,
+        powerCycles: 300 + ctx.index * 7, powerOnHours: hours, unsafeShutdowns: 11 + (ctx.index % 5) + (ctx.scenario === "bsod" ? 1 : 0),
+        mediaErrors: failing ? 3 : 0, errorLogEntries: failing ? 214 : 0, warningTemperatureMinutes: failing ? 37 : 0, criticalTemperatureMinutes: 0 };
+      const size = 476 * gb, free = ctx.scenario === "disk_space_low" ? Math.round(0.6 * gb) : Math.round((210 - (ctx.index % 7) * 9) * gb);
+      return { takenAt: iso(ctx.now),
+        drives: [{ number: 0, model: "NVMe SSD 512GB", bus: "nvme", nvme, nvmeProblem: null }],
+        volumes: [{ letter: "C", label: "Windows", fileSystem: "ntfs", sizeBytes: size, freeBytes: free,
+          repair: failing ? "spot_fix_needed" : "none", dirty: failing }] };
+    }
     case "boot.history": {
       // The cabinet's starts, newest first: the blue-screen cabinet's last one ended in a bug check 21 minutes ago (its system.info uptime);
       // every other cabinet restarted cleanly for its updates, and the oldest start in the log says nothing about the run before it.
