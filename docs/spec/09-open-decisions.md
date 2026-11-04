@@ -921,3 +921,7 @@ that finds a problem opens it; later runs add to it and a clean run closes it. B
 ## Drive risk classes: what is configurable (2026-11-03)
 
 The roadmap asks for Healthy, Attention, High risk, Critical and Unknown "from configurable rules" without saying what is configurable. Answered by the owner (2026-11-03): an Admin sets the thresholds, with defaults that follow the common drive-maker and field-study metrics. Built; details in docs/platform/decision-log.md, D18.
+
+## How short is a short uptime (2026-11-04)
+
+The roadmap's agent monitors raise an event on a "short uptime" without saying how short. Set to under 20 minutes, worked out from the existing reboot-loop rule (3 starts within 60 minutes), not measured; a constant the owner can change. Built; details in docs/platform/decision-log.md, D20.

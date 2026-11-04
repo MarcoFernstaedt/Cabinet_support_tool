@@ -180,7 +180,9 @@
               "security",
               "scanner",
               "service",
-              "change"
+              "change",
+              "crash_dump",
+              "short_uptime"
             ]
           }
         },

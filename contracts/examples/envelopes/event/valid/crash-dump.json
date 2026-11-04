@@ -1,0 +1,18 @@
+{
+  "eventId": "7b2c3d4e-5f60-4a71-8b82-c3d4e5f60718",
+  "kind": "crash_dump",
+  "occurredAt": "2026-11-03T09:14:02Z",
+  "severityHint": "major",
+  "detail": {
+    "message": "A new crash dump: 110326-9875-01.dmp, stop code 0x000000D1.",
+    "fields": {
+      "dump": "110326-9875-01.dmp",
+      "writtenAt": "2026-11-03T09:13:40Z",
+      "stopCode": "0x000000D1",
+      "parameter1": "0x0000000000000028",
+      "parameter2": "0x0000000000000002",
+      "parameter3": "0x0000000000000000",
+      "parameter4": "0xFFFFF8063C41A2B0"
+    }
+  }
+}

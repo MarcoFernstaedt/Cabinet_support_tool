@@ -98,6 +98,25 @@ export async function processBatch(c: Tx, cabinetId: string, events: readonly Ev
         signature: `service:${kind.key}:${service}`, title: `${issue.name}: ${service}`, seenAt: seenAt(e), ruleId: null, eventId: e.eventId } });
       continue;
     }
+    // A short run the agent measured (decision-log D20): both of its starts are boots, so a reboot loop is seen even when the heartbeats
+    // and the start records were missed. The event itself raises no alert; the reboot-loop alert speaks for repeated short runs.
+    if (e.kind === "short_uptime") {
+      for (const key of ["previousStartedAt", "startedAt"]) {
+        const t = Date.parse(e.detail?.fields?.[key] ?? "");
+        if (Number.isFinite(t) && t <= now + 5 * 60_000 && t >= now - 3 * 86_400_000) await recordBoot(c, cabinetId, new Date(t), "event");
+      }
+      outcomes[index] = { kind: "stored" };
+      continue;
+    }
+    // A new crash dump is a blue screen: it joins the alert the BugCheck event usually raises (the same signature), and raises one
+    // when that event never arrived.
+    if (e.kind === "crash_dump") {
+      const issue = config.issues.get(ISSUE.crash);
+      if (!issue) { outcomes[index] = { kind: "stored" }; continue; }
+      steps.push({ kind: "write", index, outcome: "issue", issueTypeId: issue.id, sitePattern: true, write: { cabinetId, issueTypeId: issue.id, severity: issue.severity,
+        signature: `issue:${issue.id}`, title: issue.name, seenAt: seenAt(e), ruleId: null, eventId: e.eventId } });
+      continue;
+    }
     // A system change is kept for the crash timeline and the fleet comparison; it never raises an alert. Windows starting is a boot.
     if (e.kind === "change") {
       if (e.source && isBootRecord(e.source.source, e.source.eventId)) await recordBoot(c, cabinetId, new Date(e.occurredAt), "event");
