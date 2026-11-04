@@ -6,9 +6,10 @@ using Cabinet.Agent.Core.Helpers;
 namespace Cabinet.Agent.Core.Monitoring;
 
 /// <summary>
-/// New crash dumps (docs/spec/13-roadmap.md phase 2, agent monitors). Each look is a crash.list read; a dump whose name was not there
-/// last time is reported once, with the stop code and parameters its header gave. The first look after install reports only dumps written
-/// in the last day, so an old Minidump folder does not arrive as a flood, while a crash just before the agent started is not lost.
+/// New crash dumps (docs/spec/13-roadmap.md phase 2, agent monitors). Each look is a crash.list read; every dump not yet sent is reported
+/// once, with the stop code and parameters its header gave, at most <see cref="MaxEventsPerLook"/> a look, oldest first: the rest wait for
+/// the next look, so none is lost. The first look after install leaves out dumps written before the last day, so an old Minidump folder
+/// does not arrive as a flood, while a crash just before the agent started is not lost.
 /// </summary>
 public sealed class DumpWatch(StateFile<DumpWatch.State> store)
 {
@@ -25,12 +26,17 @@ public sealed class DumpWatch(StateFile<DumpWatch.State> store)
     {
         State state = store.Load();
         var seen = new HashSet<string>(state.Seen, StringComparer.OrdinalIgnoreCase);
-        var fresh = output.Minidumps
-            .Where(d => !seen.Contains(d.Name) && (state.Primed || d.WrittenAt >= now - FirstLookWindow))
-            .OrderBy(d => d.WrittenAt).ToList();
-        // Windows removes old dumps itself, so the names it holds now are all that is kept; a removed name never comes back.
-        store.Save(new State { Primed = true, Seen = output.Minidumps.Select(d => d.Name).ToList() });
-        return fresh.TakeLast(MaxEventsPerLook).Select(d => Build(d, now)).ToList();
+        // The first look counts dumps from before the last day as already seen: they are history, not news.
+        if (!state.Primed)
+            foreach (var d in output.Minidumps.Where(d => d.WrittenAt < now - FirstLookWindow)) seen.Add(d.Name);
+        var send = output.Minidumps.Where(d => !seen.Contains(d.Name))
+            .OrderBy(d => d.WrittenAt).ThenBy(d => d.Name, StringComparer.Ordinal).Take(MaxEventsPerLook).ToList();
+        foreach (var d in send) seen.Add(d.Name);
+        // A name is seen only once it was sent (or left out by the first look). Windows removes old dumps itself, so only names still in the
+        // folder are kept; a removed name never comes back.
+        var present = new HashSet<string>(output.Minidumps.Select(d => d.Name), StringComparer.OrdinalIgnoreCase);
+        store.Save(new State { Primed = true, Seen = seen.Where(present.Contains).ToList() });
+        return send.Select(d => Build(d, now)).ToList();
     }
 
     private static AgentEvent Build(MinidumpInfo d, DateTimeOffset now)
@@ -63,7 +69,8 @@ public sealed class DumpWatch(StateFile<DumpWatch.State> store)
 
 /// <summary>
 /// Short uptimes (decision-log D20): a start that followed a run shorter than <see cref="ShortRunSeconds"/>. Each look is a boot.history
-/// read of the last two days; every start newer than the last one looked at is checked once. A run's length is the uptime Windows
+/// read of the last two days; every start newer than the last one looked at is checked once, at most <see cref="MaxEventsPerLook"/>
+/// short runs a look, oldest first: when more are waiting, the bookmark stops at the last one sent and the rest go on the next look. A run's length is the uptime Windows
 /// logged at a clean or requested shutdown, or else the time between its start and the next (all an unexpected end leaves).
 /// The first look after install checks only the last day's starts.
 /// </summary>
@@ -92,10 +99,12 @@ public sealed class UptimeWatch(StateFile<UptimeWatch.State> store)
             if (ran < 0 || ran >= ShortRunSeconds) continue;
             events.Add(Build(start, previous, ran));
         }
-        if (boots.Count > 0 && (state.LastStart is null || boots[0].StartedAt > state.LastStart))
-            store.Save(new State { LastStart = boots[0].StartedAt });
         events.Reverse(); // oldest first, as they happened
-        return events.TakeLast(MaxEventsPerLook).ToList();
+        var send = events.Take(MaxEventsPerLook).ToList();
+        // Every start up to the newest has been looked at, unless short runs were left over: then only up to the last one sent.
+        DateTimeOffset? mark = events.Count > send.Count ? send[^1].OccurredAt : boots.Count > 0 ? boots[0].StartedAt : null;
+        if (mark is { } m && (state.LastStart is null || m > state.LastStart)) store.Save(new State { LastStart = m });
+        return send;
     }
 
     private static AgentEvent Build(BootRecord start, BootRecord previous, long ran)

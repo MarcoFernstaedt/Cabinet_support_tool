@@ -48,13 +48,31 @@ public sealed class CrashWatchTests
     }
 
     [Fact]
-    public void A_folder_full_of_new_dumps_raises_at_most_ten_events_the_newest()
+    public void A_folder_full_of_new_dumps_is_sent_ten_a_look_oldest_first_and_none_is_lost()
     {
         var w = new DumpWatch(new StateFile<DumpWatch.State>(null));
-        var events = w.Check(Dumps(Enumerable.Range(0, 30).Select(i => Dump($"d{i:00}.dmp", 0.5 + i * 0.1)).ToArray()), Now);
-        Assert.Equal(DumpWatch.MaxEventsPerLook, events.Count);
-        Assert.Contains(events, e => e.Detail.Fields!["dump"] == "d00.dmp");
-        Assert.DoesNotContain(events, e => e.Detail.Fields!["dump"] == "d29.dmp");
+        var dumps = Dumps(Enumerable.Range(0, 30).Select(i => Dump($"d{i:00}.dmp", 0.5 + i * 0.1)).ToArray());
+        var sent = new List<string>();
+        for (int look = 0; look < 3; look++)
+        {
+            var events = w.Check(dumps, Now);
+            Assert.Equal(DumpWatch.MaxEventsPerLook, events.Count);
+            sent.AddRange(events.Select(e => e.Detail.Fields!["dump"]));
+        }
+        Assert.Empty(w.Check(dumps, Now));
+        Assert.Equal(30, sent.Distinct().Count());
+        Assert.Equal("d29.dmp", sent[0]);   // the oldest goes first, so the events stay in the order the crashes happened
+        Assert.Equal("d00.dmp", sent[^1]);
+    }
+
+    [Fact]
+    public void Old_dumps_the_first_look_leaves_out_stay_out_while_overflow_is_carried()
+    {
+        var w = new DumpWatch(new StateFile<DumpWatch.State>(null));
+        var dumps = Dumps([Dump("old.dmp", 72), .. Enumerable.Range(0, 12).Select(i => Dump($"n{i:00}.dmp", 1 + i * 0.1))]);
+        Assert.Equal(10, w.Check(dumps, Now).Count);
+        Assert.Equal(["n01.dmp", "n00.dmp"], w.Check(dumps, Now).Select(e => e.Detail.Fields!["dump"]));
+        Assert.Empty(w.Check(dumps, Now));
     }
 
     [Fact]
@@ -135,6 +153,22 @@ public sealed class CrashWatchTests
         Assert.Equal([Now.AddMinutes(-10), Now.AddMinutes(-6), Now.AddMinutes(-2)], events.Select(e => e.OccurredAt));
         var later = w.Check(Boots(Boot(1), Boot(2), Boot(6), Boot(10), Boot(14), Boot(300)), Now);
         Assert.Equal(Now.AddMinutes(-1), Assert.Single(later).OccurredAt);
+    }
+
+    [Fact]
+    public void A_long_boot_loop_is_sent_ten_a_look_oldest_first_and_none_is_lost()
+    {
+        var w = new UptimeWatch(new StateFile<UptimeWatch.State>(null));
+        // 16 starts 3 minutes apart: 15 short runs, then the run before the oldest start, which is not judged.
+        var history = Boots(Enumerable.Range(0, 16).Select(i => Boot(1 + i * 3)).ToArray());
+        var first = w.Check(history, Now);
+        Assert.Equal(UptimeWatch.MaxEventsPerLook, first.Count);
+        Assert.Equal(Now.AddMinutes(-43), first[0].OccurredAt);
+        var second = w.Check(history, Now);
+        Assert.Equal(5, second.Count);
+        Assert.Equal(Now.AddMinutes(-1), second[^1].OccurredAt);
+        Assert.Equal(15, first.Concat(second).Select(e => e.OccurredAt).Distinct().Count());
+        Assert.Empty(w.Check(history, Now));
     }
 
     [Fact]
