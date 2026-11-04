@@ -6,6 +6,44 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D22. Fleet patterns: the same problem at 5 sites within 24 hours is one fleet alert, with a report (2026-11-04)
+
+**Owner's request and decision.** "100 sites get a new installed driver, 50 get the same error message: that should be detected as a
+common thing the cabinets have; and if, say, 60 sites have an outage, a blue screen or something else, it should raise that as an alert
+and report what is happening, which clients, sites and cabinets are affected, and any common factors." Asked when: the same problem at
+**5 or more sites within 24 hours** (the recommendation), and it must also cover the case a few weeks ago of **60 sites in reboot loops**.
+Both numbers are Admin settings (Settings, Alerts: "Fleet alert at N sites within H hours").
+
+**What is built.**
+- **A problem is the alerts' own grouping:** one issue type (blue screen, reboot loop, offline, a mapped error...) or, for an error no
+  rule recognizes, one alert signature (the same log, source and event ID). Repeats on a cabinet already fold into one alert; two cabinets
+  at one site count as one site.
+- **The one-minute sweep** (`sweepFleetPatterns`, `server/src/services/fleet-patterns.ts`) counts the sites per problem among alerts
+  seen within the window. At the threshold it opens **one fleet pattern** (migration 0022, one open per problem by a unique index),
+  audited; later sweeps count it up (sites, cabinets, clients, occurrences only grow while it is open); it resolves itself once no
+  cabinet has the problem unresolved, audited. Demo cabinets are counted apart from real ones.
+- **The report** (`GET /api/fleet-patterns/:id`, Tier 1 and up, read only): clients, sites and cabinets affected with their counts and
+  first and latest times, agent versions, and **what they have in common**: the changes (drivers, updates, software) each affected
+  cabinet recorded in the 72 hours before its problem began, compared with the rest of the fleet; a change at least half of them had,
+  and 40 points more than the others, stands out. This is the comparison the crash incident view already used (`compareChanges`, now
+  shared).
+- **Console:** the Incidents page lists fleet patterns (open first, widest first) with the report beside each.
+
+**Considered.** A share of the fleet (10% of sites): scales, but a small fleet trips on very few sites and a large one waits long. A
+fixed number caught early, adjustable, was chosen. One fleet alert per issue per client: a bad driver crosses clients, and that is the
+signal.
+
+**Limits.** "The same error message" is the same log, source and event ID; two different messages under one event ID group together.
+Outages are counted through the offline and site-outage alerts that already exist. The sweep reads alerts seen in the window only.
+
+**Proof.** `fleet-patterns.test.ts`: 50 of 100 sites with one error after the same driver install give one pattern (50 sites, 51
+occurrences), counted up to 55, and the driver stands out in the report; 60 sites in reboot loops (two cabinets each) give one pattern of
+60 sites and 120 cabinets, major; four sites do not, until an Admin lowers the threshold to three; resolving every loop alert resolves
+the pattern, with open and resolve audited; alerts outside the window and a mix of 3 real and 3 demo sites make none. Red with the demo
+split removed, with the self-resolve removed, and with the window removed. `crashes.test.ts`: the routes (Tier 1, 401, 404).
+
+---
+
 ## D20. New crash dumps and short uptimes raise agent events; a short run is under 20 minutes (2026-11-04)
 
 **What the spec asks.** "New dumps, short uptimes and repeated boots raise events" (13-roadmap.md, phase 2, agent monitors). It does

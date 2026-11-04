@@ -71,6 +71,9 @@ export interface PlatformSettings {
   agents: AgentPacing;
   /** The drive risk thresholds (decision-log D18); the defaults follow common drive-maker and field-study values. */
   drives: DriveThresholds;
+  /** A fleet pattern (decision-log D22): the same problem at this many sites within this many hours raises one fleet alert. */
+  fleetPatternSites: number;
+  fleetPatternHours: number;
 }
 
 export const DEFAULT_SETTINGS: PlatformSettings = {
@@ -78,6 +81,7 @@ export const DEFAULT_SETTINGS: PlatformSettings = {
   retention: { eventsDays: 90, commandsDays: 90, alertsDays: 365, firewallDays: 365, diagnosesDays: 30, bootsDays: 365, jobsDays: 365 },
   agents: { heartbeatSeconds: 300, pollSeconds: 25, eventsPaceMs: 2_000 },
   drives: { ...DEFAULT_DRIVE_THRESHOLDS },
+  fleetPatternSites: 5, fleetPatternHours: 24,
 };
 
 /** Each drive threshold's key and allowed range (the console contract checks the same ranges). */
@@ -110,6 +114,7 @@ const KEYS = {
   eventsDays: ["retention.eventsDays", 7, 3650], commandsDays: ["retention.commandsDays", 7, 3650], alertsDays: ["retention.alertsDays", 30, 3650],
   firewallDays: ["retention.firewallDays", 30, 3650], diagnosesDays: ["retention.diagnosesDays", 7, 365], bootsDays: ["retention.bootsDays", 30, 3650],
   jobsDays: ["retention.jobsDays", 30, 3650],
+  fleetPatternSites: ["alerts.fleetPatternSites", 2, 1000], fleetPatternHours: ["alerts.fleetPatternHours", 1, 168],
 } as const;
 
 export async function platformSettings(db: Queryable): Promise<PlatformSettings> {
@@ -129,6 +134,7 @@ export async function platformSettings(db: Queryable): Promise<PlatformSettings>
       diagnosesDays: num("diagnosesDays", d.retention.diagnosesDays), bootsDays: num("bootsDays", d.retention.bootsDays), jobsDays: num("jobsDays", d.retention.jobsDays) },
     agents: pacingFrom(rows),
     drives: drivesFrom(rows),
+    fleetPatternSites: num("fleetPatternSites", d.fleetPatternSites), fleetPatternHours: num("fleetPatternHours", d.fleetPatternHours),
   };
 }
 
@@ -187,7 +193,7 @@ export class PacingCache {
 }
 
 export interface SettingsChange {
-  offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number;
+  offlineAlertDays?: number; sessionIdleMinutes?: number; sessionAbsoluteHours?: number; fleetPatternSites?: number; fleetPatternHours?: number;
   retention?: Partial<PlatformSettings["retention"]>;
   agents?: Partial<AgentPacing>;
   drives?: Partial<DriveThresholds>;
@@ -198,7 +204,7 @@ export async function updatePlatformSettings(pool: Pool, adminId: string, change
     await consumeStepUpToken(c, stepUpToken, adminId, "settings.update", "fleet");
     const before = await platformSettings(c);
     const writes: [string, unknown][] = [];
-    for (const name of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours"] as const)
+    for (const name of ["offlineAlertDays", "sessionIdleMinutes", "sessionAbsoluteHours", "fleetPatternSites", "fleetPatternHours"] as const)
       if (change[name] !== undefined) writes.push([KEYS[name][0], change[name]]);
     for (const name of ["eventsDays", "commandsDays", "alertsDays", "firewallDays", "diagnosesDays", "bootsDays", "jobsDays"] as const)
       if (change.retention?.[name] !== undefined) writes.push([KEYS[name][0], change.retention[name]]);

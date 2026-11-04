@@ -298,3 +298,12 @@ test("the agent's crash monitors: a new dump is a blue screen on the same alert 
   await storeEvents(db.app, hostile, { events: [odd("yesterday", "'; DROP TABLE cabinet_boots; --"), odd(iso(-600), iso(-24 * 60 * 30)), odd(iso(5 * 24 * 60), iso(5 * 24 * 60 + 3))] });
   assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [hostile])).rows[0].n), 0);
 });
+
+test("fleet pattern routes (D22): a list and a report for Tier 1, refused without a session, unknown or malformed ids are 404", async () => {
+  const list = await call("/api/fleet-patterns");
+  assert.equal(list.status, 200);
+  assert.ok(Array.isArray(list.body.patterns));
+  assert.equal((await call(`/api/fleet-patterns/${randomUUID()}`)).status, 404);
+  assert.equal((await call("/api/fleet-patterns/1%27%20OR%201=1")).status, 404);
+  assert.equal((await call("/api/fleet-patterns", null)).status, 401);
+});

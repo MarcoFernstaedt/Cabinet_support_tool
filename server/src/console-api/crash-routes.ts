@@ -5,6 +5,7 @@ import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { scannerHistory } from "../services/scanner-history.js";
+import { fleetPatternReport, listFleetPatterns } from "../services/fleet-patterns.js";
 import { buildEvidence } from "../services/evidence.js";
 import { encryptEvidence } from "../services/evidence-crypto.js";
 import { audit, transaction } from "../db/db.js";
@@ -37,6 +38,17 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const cabinetId = id(request);
     if (!(await o.pool.query("SELECT 1 FROM cabinets WHERE id = $1", [cabinetId])).rows[0]) throw new Refused("not_found", 404, "no such cabinet");
     return cabinetCrashes(o.pool, cabinetId, Number(q.days ?? 30));
+  });
+  // Fleet patterns (D22): the same problem at many sites, with who has it and what they have in common. Tier 1 and up, read only.
+  app.get("/api/fleet-patterns", async request => {
+    await o.guards.role(request, "tier1");
+    return { patterns: await listFleetPatterns(o.pool) };
+  });
+  app.get("/api/fleet-patterns/:id", async request => {
+    await o.guards.role(request, "tier1");
+    const report = await fleetPatternReport(o.pool, id(request));
+    if (!report) throw new Refused("not_found", 404, "no such fleet pattern");
+    return report;
   });
   app.get("/api/cabinets/:id/scanner-history", async request => {
     await o.guards.role(request, "tier1");

@@ -4,6 +4,7 @@
 import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
 import { durationText, endText, type BootRecord } from "../lib/boot-history";
 import { sizeText, stopCodeText, type Minidump } from "../lib/crash-dumps";
+import { orderPatterns, reachText, type FleetPattern } from "../lib/fleet-patterns";
 import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
@@ -184,6 +185,66 @@ function summaryText(i: Incident): string {
 }
 
 /** The Incidents page: a crash incident across the fleet. */
+interface FleetPatternReport {
+  pattern: FleetPattern;
+  byClient: { client: string; sites: number; cabinets: number }[];
+  bySite: { client: string; site: string; cabinets: number; occurrences: number }[];
+  cabinets: { id: string; name: string; client: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
+  byAgentVersion: { version: string; affected: number; total: number }[];
+  commonFactors: { change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }[];
+}
+
+/** Fleet patterns (D22): the same problem at many sites, each one alert, with who has it and what they have in common. */
+function FleetPatternsPanel() {
+  const { data, problem } = useLoad<{ patterns: FleetPattern[] }>("/api/fleet-patterns");
+  const [open, setOpen] = useState<string | null>(null);
+  const list = orderPatterns(data?.patterns ?? []);
+  return (
+    <section className="panel" aria-labelledby="fleet-patterns-heading">
+      <h2 id="fleet-patterns-heading">Fleet patterns</h2>
+      <p className="muted">The same problem at many sites at once: one alert each, counted up as it spreads.</p>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {data && list.length === 0 && <Empty>No problem is showing up across sites.</Empty>}
+      {list.length > 0 && (
+        <table className="table compact"><caption className="sr-only">Fleet patterns</caption>
+          <thead><tr><th scope="col">Problem</th><th scope="col">Reach</th><th scope="col">Times</th><th scope="col">Since</th><th scope="col">State</th><th scope="col"><span className="sr-only">Report</span></th></tr></thead>
+          <tbody>{list.map(p => (
+            <tr key={p.id}><td>{p.title}</td><td>{reachText(p)}</td><td>{p.occurrences.toLocaleString("en-US")}</td><td>{fullTime(p.firstSeen)}</td>
+              <td>{p.resolvedAt ? "Resolved" : <Badge tone={p.severity === "major" ? "crit" : "warn"}>Open</Badge>}</td>
+              <td><button className="btn small" onClick={() => setOpen(open === p.id ? null : p.id)} aria-expanded={open === p.id}>{open === p.id ? "Hide report" : "Report"}</button></td></tr>))}</tbody>
+        </table>)}
+      {open && <FleetPatternReportView id={open} />}
+    </section>);
+}
+
+function FleetPatternReportView({ id }: { id: string }) {
+  const { data, problem } = useLoad<FleetPatternReport>(`/api/fleet-patterns/${id}`);
+  const cabinets = usePaged(data?.cabinets ?? []);
+  if (problem) return <p className="error" role="alert">{problem}</p>;
+  if (!data) return null;
+  const standing = data.commonFactors.filter(c => c.standsOut);
+  return (
+    <div className="report" aria-label={`Report: ${data.pattern.title}`}>
+      <h3>{data.pattern.title}</h3>
+      <p>{reachText(data.pattern)}, {data.pattern.occurrences.toLocaleString("en-US")} times since {fullTime(data.pattern.firstSeen)}.</p>
+      <h4>What they have in common</h4>
+      {standing.length === 0 ? <p>Nothing stands out yet among the changes recorded before each cabinet's problem began.</p> : (
+        <ul>{standing.map(c => <li key={c.change}><strong>{c.change}</strong>: {c.affectedShare}% of affected cabinets ({c.affected}), {c.unaffectedShare}% of the others ({c.unaffected})</li>)}</ul>)}
+      <h4>Clients</h4>
+      <ul>{data.byClient.map(c => <li key={c.client}>{c.client}: {c.sites} site{c.sites === 1 ? "" : "s"}, {c.cabinets} cabinet{c.cabinets === 1 ? "" : "s"}</li>)}</ul>
+      {data.byAgentVersion.length > 1 && (<><h4>Agent versions</h4>
+        <ul>{data.byAgentVersion.map(v => <li key={v.version}>{v.version}: {v.affected} of {v.total}</li>)}</ul></>)}
+      <h4>Cabinets</h4>
+      <table className="table compact"><caption className="sr-only">Affected cabinets</caption>
+        <thead><tr><th scope="col">Cabinet</th><th scope="col">Client / site</th><th scope="col">Times</th><th scope="col">First</th><th scope="col">State</th></tr></thead>
+        <tbody>{cabinets.rows.map(c => (
+          <tr key={c.id}><td><Link to={`/cabinets/${c.id}`}>{c.name}</Link></td><td>{c.client} / {c.site}</td><td>{c.occurrences}</td><td>{fullTime(c.firstSeen)}</td>
+            <td>{c.state === "open" ? <Badge tone="crit">Open</Badge> : "Resolved"}</td></tr>))}</tbody>
+      </table>
+      <Pager {...cabinets} label="cabinets" />
+    </div>);
+}
+
 export function IncidentsPage() {
   const [range, setRange] = useState("3");
   const [clientId, setClientId] = useState("");
@@ -196,6 +257,7 @@ export function IncidentsPage() {
   return (
     <div className="page">
       <h1>Incidents</h1>
+      <FleetPatternsPanel />
       <div className="row gap wrap filters">
         <label className="field inline"><span>Period</span><select value={range} onChange={e => setRange(e.target.value)}>
           {[["1", "Last 24 hours"], ["3", "Last 3 days"], ["7", "Last 7 days"], ["14", "Last 14 days"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>

@@ -1476,6 +1476,14 @@ export interface PlatformSettings {
      */
     reallocatedCriticalPer30Days?: number;
   };
+  /**
+   * A fleet pattern (decision-log D22): the same problem at this many sites raises one fleet alert.
+   */
+  fleetPatternSites?: number;
+  /**
+   * The window, in hours, in which those sites must have the problem.
+   */
+  fleetPatternHours?: number;
 }
 
 /**

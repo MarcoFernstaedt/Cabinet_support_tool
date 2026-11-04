@@ -18,6 +18,7 @@ import { ResultStream } from "./console-api/stream.js";
 import { SecretBox } from "./auth/secrets.js";
 import { checkOffline, fleetContact } from "./services/alerts.js";
 import { checkSiteOutages } from "./services/site-outage.js";
+import { sweepFleetPatterns } from "./services/fleet-patterns.js";
 import { expireUnanswered } from "./services/commands.js";
 import { checkExpiringCertificates } from "./services/cabinets.js";
 import { TrustList } from "./packages/trust.js";
@@ -121,6 +122,8 @@ if (runsServices) {
   const offlineJob = setInterval(() => {
     checkOffline(jobs).catch(failed("offline alert check"));
     checkSiteOutages(jobs).catch(failed("site outage check"));
+    // The same problem at many sites at once is one fleet alert with a report (D22).
+    sweepFleetPatterns(jobs).catch(failed("fleet pattern check"));
     expireUnanswered(jobs).catch(failed("unanswered command check"));
     expireRules(jobs).catch(failed("rule expiry"));
     checkRollouts(jobs).catch(failed("rollout check"));

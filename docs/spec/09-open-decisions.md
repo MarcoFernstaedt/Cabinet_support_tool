@@ -925,3 +925,7 @@ The roadmap asks for Healthy, Attention, High risk, Critical and Unknown "from c
 ## How short is a short uptime (2026-11-04)
 
 The roadmap's agent monitors raise an event on a "short uptime" without saying how short. Set to under 20 minutes, worked out from the existing reboot-loop rule (3 starts within 60 minutes), not measured; a constant the owner can change. Built; details in docs/platform/decision-log.md, D20.
+
+## Fleet-wide patterns (2026-11-04)
+
+The spec flags the same issue at one site within an hour; it does not say when a problem across many sites becomes one alert. Answered by the owner (2026-11-04): the same problem at 5 or more sites within 24 hours raises one fleet alert, with a report of the clients, sites and cabinets affected and what they have in common; it must cover reboot loops across many sites; both numbers are Admin settings. Built; details in docs/platform/decision-log.md, D22.
