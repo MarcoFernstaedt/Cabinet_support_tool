@@ -32,6 +32,8 @@ public static class WindowsMonitors
             Logs = async t => (await Broker<EventlogChannelsOutput>(Catalog.EventlogChannels, new EmptyParams(), t).ConfigureAwait(false))
                 .Channels.Where(c => c.Available && c.Enabled).Select(c => c.Log).ToList(),
             Query = (p, t) => Broker<EventlogQueryOutput>(Catalog.EventlogQuery, p, t),
+            Dumps = t => Broker<CrashListOutput>(Catalog.CrashList, new EmptyParams(), t),
+            Boots = t => Broker<BootHistoryOutput>(Catalog.BootHistory, new BootHistoryParams { Days = 2 }, t),
         };
     }
 }
