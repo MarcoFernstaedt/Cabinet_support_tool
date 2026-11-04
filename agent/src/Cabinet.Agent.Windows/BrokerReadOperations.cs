@@ -16,6 +16,7 @@ public static class BrokerReadOperations
         .Register<EmptyParams, EventlogChannelsOutput>(Catalog.EventlogChannels, EventLogOperations.ChannelsAsync)
         .Register<EventlogQueryParams, EventlogQueryOutput>(Catalog.EventlogQuery, EventLogOperations.QueryAsync)
         .Register<BootHistoryParams, BootHistoryOutput>(Catalog.BootHistory, EventLogOperations.BootHistoryAsync)
+        .Register<EmptyParams, CrashListOutput>(Catalog.CrashList, CrashOperations.ListAsync)
         .Register<EventlogGetParams, EventlogGetOutput>(Catalog.EventlogGet, EventLogOperations.GetAsync)
         .Register<EmptyParams, UpdatesStatusOutput>(Catalog.UpdatesStatus, SystemOperations.UpdatesStatusAsync)
         .Register<EmptyParams, DiskSmartOutput>(Catalog.DiskSmart, DiskSmartAsync)

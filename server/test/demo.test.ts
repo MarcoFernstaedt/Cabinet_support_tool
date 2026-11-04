@@ -487,6 +487,32 @@ test("boot history on demo cabinets answers through the same path as a real agen
   } finally { sim.stop(); }
 });
 
+test("crash dumps on demo cabinets answer through the same path as a real agent: the blue-screen cabinet's dump names the same stop code as its event", async () => {
+  const t1 = await signIn(await account("tier1"));
+  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
+  sim.start();
+  try {
+    const cabinet = async (scenario: string) => (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = $1 ORDER BY name", [scenario])).rows[0]!.id;
+    const read = async (cab: string) => {
+      const issued = await call("POST", `/api/cabinets/${cab}/commands`, { operation: "crash.list", params: {} }, t1);
+      assert.equal(issued.status, 202, JSON.stringify(issued.body));
+      let r: any;
+      await until("crash.list to answer", async () => ["succeeded", "failed", "rejected"].includes((r = (await call("GET", `/api/commands/${issued.body.commandId}`, undefined, t1)).body).status), 20_000);
+      assert.equal(r.status, "succeeded", JSON.stringify(r));
+      return r.result.output;
+    };
+    const blue = await read(await cabinet("bsod"));
+    assert.equal(blue.minidumps.length, 1);
+    assert.equal(blue.minidumps[0].stopCode, 0xd1);
+    assert.ok(blue.memoryDump);
+    const fine = await read(await cabinet("healthy"));
+    assert.deepEqual([fine.folderFound, fine.minidumps.length, fine.memoryDump], [false, 0, null]);
+    // Nothing a command can send points it elsewhere: the contract takes no parameters at all.
+    for (const params of [{ path: "C:\\Windows\\System32\\config" }, { upload: true }])
+      assert.equal((await call("POST", `/api/cabinets/${await cabinet("healthy")}/commands`, { operation: "crash.list", params }, t1)).status, 400, JSON.stringify(params));
+  } finally { sim.stop(); }
+});
+
 test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
   const t1 = await signIn(await account("tier1"));
   // Cabinets that never answer keep their diagnoses running.

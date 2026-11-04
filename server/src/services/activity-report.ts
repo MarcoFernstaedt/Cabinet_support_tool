@@ -8,7 +8,7 @@ type Row = { cabinet_id: string; cabinet: string; site: string; client: string; 
 /** Reads that tell the story: grouped under one plain name each, so five event-log queries are one line. */
 const CHECKED: Record<string, string> = {
   "system.info": "System information", "system.performance": "Performance", "processes.list": "Processes", "services.list": "Services",
-  "eventlog.channels": "Event logs", "eventlog.query": "Event logs", "eventlog.get": "Event logs", "boot.history": "Boot history",
+  "eventlog.channels": "Event logs", "eventlog.query": "Event logs", "eventlog.get": "Event logs", "boot.history": "Boot history", "crash.list": "Crash dumps",
   "network.config": "Network adapters", "network.test": "Network tests", "network.trace": "Network path", "database.connectivity": "Database check", "network.listeners": "Listening ports", "system.security": "Security status", "system.hardware": "Hardware", "system.identity": "Identity and policy", "network.hosts": "Hosts file", "software.list": "Installed software", "startup.list": "Startup and tasks", "sessions.list": "Signed-in sessions", "shares.list": "Network shares", "reliability.list": "Reliability history", "disk.folders": "Folder sizes", "dns.cache": "DNS cache", "system.checkHealth": "Windows health check", "power.status": "Power settings", "usb.ports": "USB ports",
   "firewall.state": "Firewall", "disk.smart": "Drive health", "updates.status": "Windows updates", "devices.list": "Devices", "drivers.list": "Drivers",
   "peripheral.status": "Fingerprint scanner", "time.status": "Time", "files.list": "Files",

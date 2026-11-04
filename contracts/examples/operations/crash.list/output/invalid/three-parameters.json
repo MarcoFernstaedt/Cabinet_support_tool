@@ -1,0 +1,20 @@
+{
+  "takenAt": "2026-11-03T12:00:00Z",
+  "folderFound": true,
+  "truncated": false,
+  "memoryDump": null,
+  "minidumps": [
+    {
+      "name": "110226-9875-01.dmp",
+      "writtenAt": "2026-11-02T03:15:40Z",
+      "sizeBytes": 1048576,
+      "stopCode": 209,
+      "parameters": [
+        "0x0000000000000028",
+        "0x0000000000000002",
+        "0x0000000000000000"
+      ],
+      "problem": null
+    }
+  ]
+}

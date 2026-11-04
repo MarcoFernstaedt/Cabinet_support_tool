@@ -448,6 +448,17 @@ export function demoOutput(operation: string, params: Record<string, any>, ctx: 
         { name: "Microsoft SQL Server 2019 Express LocalDB", version: "15.0.4382.1", publisher: "Microsoft Corporation", installedOn: "20260110" }] };
     }
     case "config.snapshot": return demoConfigOutput(ctx, params.categories);
+    case "crash.list": {
+      // The blue-screen cabinet has the small dump of its 0xD1 (the same stop code as its BugCheck event) and a kernel dump; every other
+      // cabinet has never written one, so its Minidump folder does not exist yet.
+      if (ctx.scenario !== "bsod") return { takenAt: iso(ctx.now), folderFound: false, minidumps: [], memoryDump: null, truncated: false };
+      const crashedAt = new Date(ctx.now.getTime() - 1260 * 1000);
+      const name = `${String(crashedAt.getUTCMonth() + 1).padStart(2, "0")}${String(crashedAt.getUTCDate()).padStart(2, "0")}${String(crashedAt.getUTCFullYear() % 100).padStart(2, "0")}-9875-01.dmp`;
+      return { takenAt: iso(ctx.now), folderFound: true, truncated: false,
+        minidumps: [{ name, writtenAt: iso(crashedAt), sizeBytes: 1_048_576, stopCode: 0xd1, problem: null,
+          parameters: ["0x0000000000000028", "0x0000000000000002", "0x0000000000000000", "0xFFFFF8063C41A2B0"] }],
+        memoryDump: { writtenAt: iso(new Date(crashedAt.getTime() + 1000)), sizeBytes: 805_306_368 } };
+    }
     case "boot.history": {
       // The cabinet's starts, newest first: the blue-screen cabinet's last one ended in a bug check 21 minutes ago (its system.info uptime);
       // every other cabinet restarted cleanly for its updates, and the oldest start in the log says nothing about the run before it.

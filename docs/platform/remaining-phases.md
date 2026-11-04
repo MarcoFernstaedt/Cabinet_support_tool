@@ -57,8 +57,9 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
 - Evidence preservation: hashed bundles built; resumable uploads not.
 
 **Not built:**
-- Agent operations `crash.list` (dump inventory, minidump parsed on the cabinet) and `storage.health` (the NVMe health log,
-  volume state). (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's
+- Agent operation `storage.health` (the NVMe health log, volume state). (`crash.list` is built: each small dump's stop code and
+  parameters from its header, and the full dump's presence; the faulting module is not read, since a small dump's header does not
+  hold it.) (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's
   crash page.)
 - Agent monitors for new dumps and short uptimes (repeated boots are caught on the server, not the agent).
 - Crash signatures (stop code plus faulting module) grouped across the fleet: needs `crash.list`.
@@ -195,13 +196,13 @@ platform-authored write attribution worked. Its findings:
 
 ## How many PRs are left (estimate)
 
-**About 60 to 65 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**About 59 to 64 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 
 | Where | PRs (estimate) | What they are |
 |---|---|---|
-| Phase 2 | ~11 | `crash.list`, `storage.health`, dump and short-uptime monitors, crash signatures, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
+| Phase 2 | ~10 | `storage.health`, the faulting module of a crash, dump and short-uptime monitors, crash signatures, power-loss classification, resumable evidence, incident response mode, engine part 5b (the crash incident page), the drivers and services engine half |
 | Phase 3 | ~19 | Process signer and parent, service dependencies, application-crash correlation, driver files, boot and recovery, update install and compliance, scanner profiles, preflight, registry writes, the sustained connection check, WHEA detail, volume state, the network and application engine half |
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
