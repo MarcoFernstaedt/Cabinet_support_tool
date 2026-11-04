@@ -39,11 +39,19 @@ const cabinet = async () => (await db.app.query<{ id: string }>("SELECT id FROM 
 const send = async (id: string, operation: string, params: unknown, who: Awaited<ReturnType<typeof h.account>>, token?: string) =>
   h.call("POST", `/api/cabinets/${id}/commands`, { operation, params, ...(token ? { stepUpToken: token } : {}) }, who);
 
-test("restart needs Tier 2 and a code bound to its parameters; shutting down needs an Admin", async () => {
+test("anyone may restart with a code bound to its parameters (D28); shutting down needs an Admin", async () => {
   const [t1, t2, boss] = [await h.account("tier1"), await h.account("tier2"), await h.account("admin")];
   const id = await cabinet();
   const restart = { mode: "restart", delaySeconds: 300, message: "Restarting to finish updates." };
-  assert.equal((await send(id, "system.restart", restart, t1)).status, 403, "Tier 1 may not restart");
+  // Tier 1 restarts, with the authenticator code like everyone else, and without it is refused.
+  assert.notEqual((await send(id, "system.restart", restart, t1)).status, 202, "no code, no restart, even for Tier 1");
+  const byTier1 = await send(id, "system.restart", restart, t1, await h.codeToken(t1, "system.restart", id, restart));
+  assert.equal(byTier1.status, 202, JSON.stringify(byTier1.body));
+  // Tier 1 may cancel a waiting restart too, but never shut a cabinet down.
+  const cancel = { mode: "cancel" };
+  assert.equal((await send(id, "system.restart", cancel, t1, await h.codeToken(t1, "system.restart", id, cancel))).status, 202);
+  const t1Shutdown = { mode: "shutdown", delaySeconds: 600 };
+  assert.equal((await send(id, "system.restart", t1Shutdown, t1, await h.codeToken(t1, "system.restart", id, t1Shutdown))).status, 403, "Tier 1 may not shut down");
   assert.notEqual((await send(id, "system.restart", restart, t2)).status, 202, "no code, no restart");
   const token = await h.codeToken(t2, "system.restart", id, restart);
   const ok = await send(id, "system.restart", restart, t2, token);

@@ -18,7 +18,7 @@ It is for the people who will use the platform every day. It is not the demo (se
 | Tier 2 with permission to approve fixes | the same, plus **Fixes** |
 | Admin | the same, plus **Fixes** and **Admin** (Set up and demo, users, audit log, software library, upgrades, clients and sites, settings) |
 
-Each cabinet tab's step says what the tab is for and, where it matters, who may do what there ("Restart needs Tier 2 and a code. Shutting down needs an Admin.").
+Each cabinet tab's step says what the tab is for and, where it matters, who may do what there ("Anyone may restart, with a code. Shutting down needs an Admin.").
 
 ## Keeping it right
 
