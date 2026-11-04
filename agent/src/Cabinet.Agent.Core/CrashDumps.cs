@@ -14,7 +14,8 @@ public static class CrashDumps
     public const int MaxMinidumps = 50, HeaderBytes = 4096;
 
     // DUMP_HEADER64: "PAGE" then "DU64"; BugCheckCode (ULONG) at 0x38, four ULONG64 parameters from 0x40.
-    // DUMP_HEADER32: "PAGE" then "DUMP"; BugCheckCode (ULONG) at 0x20, four ULONG parameters from 0x24.
+    // DUMP_HEADER32: "PAGE" then "DUMP"; four ULONG pointers at 0x10..0x1F, MachineImageType at 0x20, NumberProcessors at 0x24,
+    // BugCheckCode (ULONG) at 0x28, four ULONG parameters from 0x2C (ntiodump.h).
     private static ReadOnlySpan<byte> Page => "PAGE"u8;
     private static ReadOnlySpan<byte> Du64 => "DU64"u8;
     private static ReadOnlySpan<byte> Dump => "DUMP"u8;
@@ -37,10 +38,10 @@ public static class CrashDumps
         }
         if (kind.SequenceEqual(Dump))
         {
-            if (head.Length < 0x34) return (null, DumpProblem.TooShort);
-            uint code = BinaryPrimitives.ReadUInt32LittleEndian(head.Slice(0x20, 4));
+            if (head.Length < 0x3C) return (null, DumpProblem.TooShort);
+            uint code = BinaryPrimitives.ReadUInt32LittleEndian(head.Slice(0x28, 4));
             var p = new List<string>(4);
-            for (int i = 0; i < 4; i++) p.Add(Hex(BinaryPrimitives.ReadUInt32LittleEndian(head.Slice(0x24 + 4 * i, 4))));
+            for (int i = 0; i < 4; i++) p.Add(Hex(BinaryPrimitives.ReadUInt32LittleEndian(head.Slice(0x2C + 4 * i, 4))));
             return (new Header(code, p), null);
         }
         return (null, DumpProblem.NotADump);

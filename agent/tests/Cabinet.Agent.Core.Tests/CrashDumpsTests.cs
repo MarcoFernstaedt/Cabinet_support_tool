@@ -25,9 +25,13 @@ public sealed class CrashDumpsTests
     {
         var b = new byte[4096];
         Encoding.ASCII.GetBytes("PAGEDUMP").CopyTo(b, 0);
-        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x20), code);
+        // DUMP_HEADER32 (ntiodump.h): after the signature, ValidDump and versions come four ULONG pointers (0x10..0x1F), then
+        // MachineImageType at 0x20 and NumberProcessors at 0x24; filled in so a read at the wrong offset cannot pass.
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x20), 0x14C);
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x24), 4);
+        BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x28), code);
         uint[] ps = [p1, p2, p3, p4];
-        for (int i = 0; i < 4; i++) BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x24 + 4 * i), ps[i]);
+        for (int i = 0; i < 4; i++) BinaryPrimitives.WriteUInt32LittleEndian(b.AsSpan(0x2C + 4 * i), ps[i]);
         return b;
     }
 
@@ -120,7 +124,7 @@ public sealed class CrashDumpsTests
         Assert.Equal(DumpProblem.TooShort, CrashDumps.ParseHeader(full.AsSpan(0, 0x5F)).Problem);
         Assert.Equal(0xD1, CrashDumps.ParseHeader(full.AsSpan(0, 0x60)).Header!.StopCode);
         byte[] small = Header32(0x7E, 1, 2, 3, 4);
-        Assert.Equal(DumpProblem.TooShort, CrashDumps.ParseHeader(small.AsSpan(0, 0x33)).Problem);
-        Assert.Equal(0x7E, CrashDumps.ParseHeader(small.AsSpan(0, 0x34)).Header!.StopCode);
+        Assert.Equal(DumpProblem.TooShort, CrashDumps.ParseHeader(small.AsSpan(0, 0x3B)).Problem);
+        Assert.Equal(0x7E, CrashDumps.ParseHeader(small.AsSpan(0, 0x3C)).Header!.StopCode);
     }
 }
