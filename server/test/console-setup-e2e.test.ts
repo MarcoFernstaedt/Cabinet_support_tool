@@ -23,13 +23,12 @@ import { DemoSimulator } from "../src/demo/demo.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
 import { launchChromium } from "./browser-launch.js";
+import { DEMO_ON_LIMIT_MS } from "./browser-console.js";
 
 const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
 const dll = process.env.TEST_AGENT_DLL;
 const skip = !dll ? "set TEST_AGENT_DLL to run" : !existsSync(join(dist, "index.html")) ? "build the console first (console/dist)" : false;
-/** Turning demo mode on: 20 to 25 s measured alone (decision-log D17); 90 s leaves room for a loaded machine. */
-const DEMO_ON_LIMIT_MS = 90_000;
 const freePort = (): Promise<number> => new Promise(r => { const s = createServer(); s.listen(0, "127.0.0.1", () => { const p = (s.address() as { port: number }).port; s.close(() => r(p)); }); });
 
 test("set up and demo: add a support member, enrol a real agent from the setup page, see its event logs, turn demo mode on", { skip, timeout: 240_000 }, async () => {

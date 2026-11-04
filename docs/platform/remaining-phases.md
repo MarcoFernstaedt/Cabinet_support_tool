@@ -211,7 +211,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~3 | Turning demo mode on takes 20–25 s (measured; the setup test now allows for it, D17), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
+| Open fixes | ~3 | Turning demo mode on takes 17–25 s (measured; every test that turns it on now allows 90 s, D17 and D27; seeding sites side by side was tried and is slower, D27), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
 
 ## Fixes from the hardware test (2026-10-30)
 
