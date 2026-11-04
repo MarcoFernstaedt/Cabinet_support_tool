@@ -1063,6 +1063,16 @@ export interface CrashQuery {
 }
 
 /**
+ * Crash signatures across the fleet (decision-log D26), from the query string: days back (at most 14, as for the fleet crash incident, since both read every cabinet's events), an optional client, and for one signature's report its key (as the list gave it, re-checked by the server) and whether it is the demo fleet's.
+ */
+export interface CrashSignatureQuery {
+  days?: "1" | "3" | "7" | "14";
+  clientId?: string;
+  key?: string;
+  demo?: "true" | "false";
+}
+
+/**
  * An Admin turns demo mode on (adds the simulated demo clients, sites and cabinets next to the real ones) or off (deletes all of them). Real cabinets are never touched. reset (with enabled true) deletes the simulated fleet and builds it again from the same scenarios, for a repeatable demonstration. Every change is confirmed with an authenticator code: the step-up token is bound to this exact body.
  */
 export interface DemoMode {

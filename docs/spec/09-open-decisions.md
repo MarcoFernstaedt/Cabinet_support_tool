@@ -944,5 +944,5 @@ D23 made every fleet pattern ring every open console, which also rang for minor 
 
 ## How the faulting driver of a blue screen is found (2026-11-04, waiting on a sample)
 
-A small dump's header holds the stop code and parameters but not the faulting driver. The loaded-driver list that follows it in the file is not published by Microsoft, and reading it from memory of its layout, untested, risks naming the wrong driver. Answered by the owner (2026-11-04): build the reader against one or two real small dumps (C:\Windows\Minidump on any machine that has blue-screened), kept as test fixtures. **Waiting on:** those sample files. Until then, crash signatures group by stop code and parameters, and the faulting driver stays on the list.
+A small dump's header holds the stop code and parameters but not the faulting driver. The loaded-driver list that follows it in the file is not published by Microsoft, and reading it from memory of its layout, untested, risks naming the wrong driver. Answered by the owner (2026-11-04): build the reader against one or two real small dumps (C:\Windows\Minidump on any machine that has blue-screened), kept as test fixtures. **Waiting on:** those sample files. Until then, crash signatures group by stop code and the exception or subtype Windows records (D26).
 

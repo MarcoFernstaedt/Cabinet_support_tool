@@ -396,3 +396,30 @@ test("fleet pattern routes (D22): a list and a report for Tier 1, refused withou
   assert.equal((await call("/api/fleet-patterns/1%27%20OR%201=1")).status, 404);
   assert.equal((await call("/api/fleet-patterns", null)).status, 401);
 });
+
+test("crash signatures (D26) through the console API: the overnight incident's blue screens are one signature, with its report; hostile queries are refused", async () => {
+  await enableDemo(db.app, adminId);
+  const r = await call("/api/crash-signatures?days=3");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  // The overnight incident's 0xD1 blue screens (a driver) are the widest signature in the demo fleet: one row, many cabinets.
+  const demo = r.body.signatures.find((s: { demo: boolean }) => s.demo);
+  assert.ok(demo, JSON.stringify(r.body.signatures.slice(0, 5)));
+  assert.equal(demo.key, "0x000000D1");
+  assert.ok(demo.cabinets >= 5, `${demo.cabinets} cabinets`);
+  assert.equal(r.body.signatures.filter((s: { key: string; demo: boolean }) => s.key === "0x000000D1" && s.demo).length, 1);
+  const rep = await call(`/api/crash-signatures/report?days=3&demo=true&key=${encodeURIComponent(demo.key)}`);
+  assert.equal(rep.status, 200, JSON.stringify(rep.body));
+  assert.equal(rep.body.cabinets.length, demo.cabinets);
+  assert.equal(rep.body.signature.key, demo.key);
+  // Real cabinets with the same signature are their own report: never a demo cabinet in it, never a real one in the demo's.
+  const real = await call(`/api/crash-signatures/report?days=3&demo=false&key=${encodeURIComponent(demo.key)}`);
+  const demoIds = new Set(rep.body.cabinets.map((c: { id: string }) => c.id));
+  if (real.status === 200) assert.ok(real.body.cabinets.every((c: { id: string }) => !demoIds.has(c.id)));
+  else assert.equal(real.status, 404);
+  assert.equal((await call("/api/crash-signatures/report?days=3&demo=true&key=0x00000050")).status, 404, "no crash with that signature");
+  for (const q of ["days=30", "days=7&sql=1", "clientId=x", "key=0x7E", "key=%27%20OR%201%3D1", "demo=yes", "key=0x0000007E%2F0xC0000005%2F0x1"])
+    assert.equal((await call(`/api/crash-signatures/report?${q}`)).status, 400, q);
+  assert.equal((await call("/api/crash-signatures/report?days=3")).status, 400, "a report needs a key");
+  assert.equal((await call("/api/crash-signatures?days=30")).status, 400);
+  assert.equal((await call("/api/crash-signatures", null)).status, 401);
+});

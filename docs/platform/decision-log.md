@@ -6,6 +6,56 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D26. Crash signatures: the stop code, and the exception or subtype that names the failure; the faulting driver waits on a sample dump (2026-11-04)
+
+**Spec.** Roadmap Phase 2: "A crash signature (stop code plus faulting module) groups crashes across the fleet."
+
+**Owner's decision.** The faulting module needs the driver list inside a small dump. Microsoft does not publish its layout, and there is no
+real dump here to check a reading against. Asked how to proceed, the owner chose to supply one or two real small dumps. Until then, crash
+signatures group by stop code and parameters. This is recorded in 09-open-decisions.
+
+**What is built.**
+- **The signature.** The stop code, plus the first parameter where Microsoft's bug-check reference documents it as the kind of failure:
+  - the exception code for 0x1E, 0x3B, 0x7E and 0x8E, and the two the reference documents with a 0x1000 prefix (0x1000007E, 0x1000008E);
+  - the subtype for 0x1A, 0x9F, 0xC2, 0x124, 0x133 and 0x139.
+
+  Common exception codes and a few subtypes are named in plain words (0xC0000005 is an access violation, for example). For every other
+  stop code the parameters are addresses or counts that differ from crash to crash, so they are left out: they would split one failure into
+  many.
+- **Parsing.** Read from the BugCheck 1001 message without regular expressions, for 64-bit and 32-bit formats. A sign-extended
+  exception code (0xffffffffc0000005) is the same signature as the plain one. Anything malformed gives no signature or no parameters,
+  never a wrong one.
+- **One crash, counted once.** Windows logs a crash under both BugCheck and WER-SystemErrorReporting. The second entry is taken as the
+  other half only when it comes from the other source, within 10 minutes, for the same cabinet and signature. Two real crashes minutes
+  apart, as in a reboot loop, stay two.
+- **Across the fleet** (Incidents page, "Kinds of blue screen"):
+  - each kind with its cabinets, sites, clients and crashes, first and last seen, and its trend (the last 24 hours against the 24 before);
+  - per kind, who has it and what they had in common before their first crash of that kind, using the same comparison as the fleet
+    incident;
+  - demo cabinets are their own rows, never mixed with real ones.
+- **Limits on the query.** Tier 1, read only. It covers up to 14 days, one query per person at a time, under the 15-second limit
+  fleet-wide queries already use. Its query is checked against `crash-signature-query.schema.json`, and the key is re-checked against
+  exactly the form the list gives.
+
+**Alternatives.**
+- Stop code only. Rejected: 0x7E alone mixes access violations with other exceptions that have different causes.
+- All four parameters. Rejected: addresses make every crash unique.
+- Reading the driver list now, from what is known of its layout. Rejected by the owner's answer: untested, it risks naming the wrong
+  driver.
+
+**Proof.**
+- `crash-signatures.test.ts`:
+  - parsing, including 32-bit, sign-extended and hostile input (three or five parameters, 17-digit numbers, a megabyte of text, 100,000
+    stray brackets);
+  - keys accepted back only in the exact form;
+  - across the fleet, 8 cabinets with 10 crashes (8 logged twice, plus a reboot loop's 2 more) and the driver they all installed standing
+    out.
+- `crashes.test.ts`: the demo's overnight incident is one 0xD1 signature through the console API, real and demo kept apart, and
+  hostile queries refused.
+- Console: the trend text.
+
+---
+
 ## D25. Fleet alarm level: major problems ring at once, minor ones only when they spread; each report says what to do (2026-11-04)
 
 **Owner's request and decision.** "Any event log, system log and other such things happening across the fleet should be raised: not small

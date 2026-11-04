@@ -63,8 +63,8 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   parameters from its header, and the full dump's presence; the faulting module is not read, since a small dump's header does not
   hold it.) (`boot.history` is built: each start, how the run before it ended and how long it lasted, on the cabinet's
   crash page.)
-- Crash signatures (stop code plus faulting module) grouped across the fleet. The faulting module waits on a real sample dump (09-open-decisions);
-  the stop-code half comes first.
+- (**Crash signatures are built (D26)** by stop code and the exception or subtype Windows records, across the fleet with a report per kind.)
+  The faulting module waits on a real sample dump (09-open-decisions).
 - (**Fleet alarm level is built (D25):** major fleet problems ring at once, minor ones only once they spread; each fleet report has the
   runbook for its issue, or how to name an unknown error.)
 - (**Incident response mode is built (D24):** the fleet alert's report counts who has recovered and who is still affected, shows how it went

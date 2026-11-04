@@ -7,6 +7,7 @@ import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashe
 import { scannerHistory } from "../services/scanner-history.js";
 import { crashIncidentFor } from "../services/crash-incidents.js";
 import { fleetPatternReport, listFleetPatterns } from "../services/fleet-patterns.js";
+import { crashSignatureReport, fleetCrashSignatures, isSignatureKey } from "../services/crash-signatures.js";
 import { buildEvidence } from "../services/evidence.js";
 import { encryptEvidence } from "../services/evidence-crypto.js";
 import { audit, transaction } from "../db/db.js";
@@ -15,6 +16,7 @@ import type { ConsoleApiOptions, Guards } from "./server.js";
 import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
 
 const evidenceExports = new HeavyQuery("evidence export", HEAVY_LIMIT_MS);
+const signatureRuns = new HeavyQuery("crash signatures", HEAVY_LIMIT_MS);
 
 const DAY = 86_400_000;
 const MAX_DAYS = 90;
@@ -95,6 +97,25 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const day = w.to.toISOString().slice(0, 10);
     return reply.header("content-type", "application/octet-stream").header("content-disposition", `attachment; filename="evidence-${pkg.manifest.cabinetId}-${day}.cabev"`)
       .send(encryptEvidence(Buffer.from(JSON.stringify(pkg), "utf8"), body.passphrase));
+  });
+
+  // Crash signatures (D26): what kind of blue screen, across the fleet, widest first; and one signature's report. Read only, Tier 1, and like the
+  // fleet incident one query per person at a time under the same time limit, since both read every cabinet's events in the window.
+  app.get("/api/crash-signatures", async request => {
+    const user = await o.guards.role(request, "tier1");
+    const q = consoleBodies.crashSignatureQuery.parse(request.query);
+    const w = window({ days: q.days ?? "7" }, 7, INCIDENT_MAX_DAYS);
+    return { ...w, signatures: await signatureRuns.run(user.userId, o.pool, db => fleetCrashSignatures(db, { ...w, clientId: q.clientId })) };
+  });
+  app.get("/api/crash-signatures/report", async request => {
+    const user = await o.guards.role(request, "tier1");
+    const q = consoleBodies.crashSignatureQuery.parse(request.query);
+    if (!q.key || !isSignatureKey(q.key)) throw new Refused("invalid_request", 400, "key must be a crash signature as the list gives it");
+    const key = q.key;
+    const w = window({ days: q.days ?? "7" }, 7, INCIDENT_MAX_DAYS);
+    const report = await signatureRuns.run(user.userId, o.pool, db => crashSignatureReport(db, { ...w, clientId: q.clientId, key, demo: q.demo === "true" }));
+    if (!report) throw new Refused("not_found", 404, "no crash with that signature in the window");
+    return { ...w, ...report };
   });
 
   app.get("/api/incidents/crashes", async request => {
