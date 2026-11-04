@@ -12,6 +12,7 @@ import { cabinetModules } from "../src/diagnose/cabinet-findings.js";
 import { NETWORK_RULES, networkModule, sqlLadderModule } from "../src/diagnose/network-module.js";
 import { AGENT_NETWORK_TESTS_PER_MINUTE, plannedTests } from "../src/diagnose/network.js";
 import { loadRegistry } from "../src/diagnose/registry.js";
+import { crashModule } from "../src/services/crash-incidents.js";
 import { findingKey } from "../src/services/known-fixes.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
@@ -23,7 +24,7 @@ test("the module is checked, names only the server's rules, and is registered as
   const m = networkModule();
   assert.equal(m.id, "network-diagnosis");
   assert.deepEqual(m.procedure.filter(p => p.kind === "rule").map(p => p.rule), Object.keys(NETWORK_RULES));
-  const r = loadRegistry(new Map([...cabinetModules(), m, sqlLadderModule()].map(x => [x.id, x])));
+  const r = loadRegistry(new Map([...cabinetModules(), m, sqlLadderModule(), crashModule()].map(x => [x.id, x])));
   assert.equal(r.capabilities.find(c => c.id === "network-diagnosis")?.status, "built");
 });
 

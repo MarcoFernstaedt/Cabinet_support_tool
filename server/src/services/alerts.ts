@@ -12,6 +12,7 @@ import { Refused } from "./errors.js";
 import { countRuleHits, decide, ISSUE, liveNow, ruleConfig, type RuleConfig } from "./rules.js";
 import { isBootRecord, recordBoot } from "./crashes.js";
 import { insertNote } from "./case-notes.js";
+import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
 import { resolutionNoteText } from "./resolutions.js";
 import { saveKnownFix } from "./known-fixes.js";
 
@@ -518,7 +519,10 @@ export async function resolveAlert(pool: Pool, user: { userId: string; role: str
     await saveKnownFix(pool, { userId: user.userId, canApproveFixes: details.canApproveFixes === true },
       { title: ([...saved.title].map(ch => (ch.charCodeAt(0) < 32 || ch.charCodeAt(0) === 127 ? " " : ch)).join("").trim().slice(0, 120)) || "Fix", solution: saved.solution,
         symptom: { kind: "issue", issueTypeId: saved.issueTypeId }, cabinetId: saved.cabinetId, alertId });
-  return (await alertById(pool, alertId))!;
+  const resolved = (await alertById(pool, alertId))!;
+  // Resolving the last crash alert closes the cabinet's crash incident (D21); the one-minute sweep catches anything this misses.
+  if (resolved.issueTypeId && CRASH_ISSUES.includes(resolved.issueTypeId.toLowerCase())) await syncCrashIncident(pool, resolved.cabinet.id).catch(() => undefined);
+  return resolved;
 }
 
 // ---- Offline ---------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { cabinetCrashes, fleetCrashIncident, timeline } from "../services/crashes.js";
 import { scannerHistory } from "../services/scanner-history.js";
+import { crashIncidentFor } from "../services/crash-incidents.js";
 import { fleetPatternReport, listFleetPatterns } from "../services/fleet-patterns.js";
 import { buildEvidence } from "../services/evidence.js";
 import { encryptEvidence } from "../services/evidence-crypto.js";
@@ -39,6 +40,12 @@ export async function crashRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     if (!(await o.pool.query("SELECT 1 FROM cabinets WHERE id = $1", [cabinetId])).rows[0]) throw new Refused("not_found", 404, "no such cabinet");
     return cabinetCrashes(o.pool, cabinetId, Number(q.days ?? 30));
   });
+  // The cabinet's crash incident (D21): each of its alerts once, with how many times it has happened.
+  app.get("/api/cabinets/:id/crash-incident", async request => {
+    await o.guards.role(request, "tier1");
+    const cabinetId = id(request);
+    if (!(await o.pool.query("SELECT 1 FROM cabinets WHERE id = $1", [cabinetId])).rows[0]) throw new Refused("not_found", 404, "no such cabinet");
+    return { incident: await crashIncidentFor(o.pool, cabinetId) };
   // Fleet patterns (D22): the same problem at many sites, with who has it and what they have in common. Tier 1 and up, read only.
   app.get("/api/fleet-patterns", async request => {
     await o.guards.role(request, "tier1");
