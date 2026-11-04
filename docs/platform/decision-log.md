@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D28. Anyone may restart a cabinet; shutdown stays Admin; the authenticator code stays (2026-11-04)
+
+**Owner's decision.** Asked about the device-restart operation approved on 25 October, the owner answered about restarting the
+machine: "as for devices I'm assuming you mean like restarting the windows machine, that can be everyone can restart since it's a
+common fix". Also: "We should be able to restart services". Service restart already exists (`service.control`, Tier 2, one click, approved
+services only) and is unchanged.
+
+**What changed.**
+- `system.restart` is now open to every role, Tier 1 included, in the operations catalog (`minimumRole: tier1`) and in the agent's copy
+  of it. That covers restart now or after a delay, and cancelling a waiting restart.
+- The server's separate rule keeps shutdown for Admins only, because a shut-down cabinet stays off until someone switches it on.
+- The console shows the restart panel to everyone, and the shutdown choice only to Admins, both from the same catalog.
+
+**What did not change, and why.**
+- **The authenticator code stays.** A restart interrupts whoever is at the cabinet. The code ties the confirmation to that exact restart
+  and delay, so a stray click or a reused confirmation cannot restart a cabinet. The 10 October answer was "all tiers, one click".
+  Dropping the code to a click is a one-line catalog change if the owner wants it.
+- **No bulk restarts** (29 October) still holds: one cabinet at a time, from its own page.
+- **Device-level restart** (restarting one hardware device, such as the scanner) is not built. The owner's answer was about the machine,
+  so that operation waits until it is asked for again.
+
+**Proof.** `support-actions.test.ts`:
+- Tier 1 restarts with a code and is refused without one;
+- Tier 1 may cancel a waiting restart, and is refused a shutdown (403);
+- Tier 2 and Admin behave as before.
+
+With the catalog back at Tier 2 the test fails, and at Tier 1 it passes. The contract test's list of Tier 1 writes now includes
+`system.restart`.
+
+---
+
 ## D27. Every test that turns the demo on waits the same 90 s; the seed stays one cabinet at a time (2026-11-04)
 
 **The failure.** A review run of #161 (on a machine where another job held both cores, load 9 to 11) had three browser tests time out:

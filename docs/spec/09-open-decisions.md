@@ -369,7 +369,7 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 
 - **Installing Windows updates.** Tier 1, Tier 2 and Admin, with one click; the confirmation says updates can take a long time. Security and quality updates only: never Windows version upgrades, and never drivers from Windows Update (drivers come from the software library). Updates come from Microsoft or the client's WSUS through the Windows Update Agent, never from the platform.
 - **Restart after updates.** Never automatic. The cabinet shows "restart pending" and a person restarts it now or schedules it.
-- **Restarting a cabinet.** Tier 2 and Admin (a shutdown: Admin only), confirmed with an authenticator code bound to the parameters, as the operations catalog and the table under "Support actions" below say. The 2026-10-10 answer here read "all tiers, one click"; what was built, and what stands, is the catalog's. Now or after a delay of up to an hour, one cabinet at a time. Most cabinets already restart on a routine; the platform shows the pending-reboot state alongside.
+- **Restarting a cabinet.** Every role, Tier 1 included (the owner, 2026-11-04: "everyone can restart since it's a common fix"; D28); a shutdown stays Admin only. Confirmed with an authenticator code bound to the parameters, as the operations catalog and the table under "Support actions" below say. (The 2026-10-10 answer read "all tiers, one click"; the code was kept, D28.) Now or after a delay of up to an hour, one cabinet at a time. Most cabinets already restart on a routine; the platform shows the pending-reboot state alongside.
 - **Bulk updates.** Allowed for a client or a site, confirmed with the password like the bulk firewall policy, up to 200 cabinets.
 - **No bulk restarts** (the owner's decision, 2026-10-29, replacing the earlier "bulk updates and restarts" answer): "Restarts shouldn't have bulk restarts for security." A restart is sent to one cabinet at a time from its own page, never as a fleet job or a client/site bulk action. `system.restart` stays out of the fleet job operations; `server/test/fleet-jobs-no-restart.test.ts` keeps it out.
 - **Cable or switch-port faults.** No packet capture. The diagnosis shows a physical-layer finding when the evidence supports it (no link, a gigabit port linking at 100 Mbps or less, rising receive errors, link up/down events), each paired with what to do. Every finding comes with its fix.
@@ -495,7 +495,7 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 
 | Operation | Who | Confirmation | What it runs |
 |---|---|---|---|
-| `system.restart` | Tier 2 (shutdown: Admin only) | authenticator code, bound to the parameters | `shutdown.exe` by full path, argument array, message as one element; delay 0 to 3600 s; `cancel` runs `shutdown /a`. |
+| `system.restart` | Every role (shutdown: Admin only; D28) | authenticator code, bound to the parameters | `shutdown.exe` by full path, argument array, message as one element; delay 0 to 3600 s; `cancel` runs `shutdown /a`. |
 | `process.end` | Tier 2 | authenticator code | Ends one process named by ID **and** name together. Windows' own processes, the security software, remote-access tools and the agent are refused (compiled-in list). |
 | `system.checkHealth` | Tier 1 (read) | none | `dism.exe /Online /Cleanup-Image /CheckHealth`: looks only. The answer is read by exact English phrases; anything else is "not clear". |
 | `power.set` | Tier 1 | one click | USB selective suspend through `powercfg.exe` (both power sources, then re-applies the plan); Fast Startup by writing the single registry value `HiberbootEnabled`. |
@@ -945,4 +945,8 @@ D23 made every fleet pattern ring every open console, which also rang for minor 
 ## How the faulting driver of a blue screen is found (2026-11-04, waiting on a sample)
 
 A small dump's header holds the stop code and parameters but not the faulting driver. The loaded-driver list that follows it in the file is not published by Microsoft, and reading it from memory of its layout, untested, risks naming the wrong driver. Answered by the owner (2026-11-04): build the reader against one or two real small dumps (C:\Windows\Minidump on any machine that has blue-screened), kept as test fixtures. **Waiting on:** those sample files. Until then, crash signatures group by stop code and the exception or subtype Windows records (D26).
+
+## Who may restart a cabinet (2026-11-04)
+
+Answered by the owner (2026-11-04): everyone may restart a cabinet, since it is a common fix; services should be restartable (they already are, Tier 2 for approved services). Built: `system.restart` is open to Tier 1, keeping the authenticator code; shutdown stays Admin only; no bulk restarts. Device-level restart (one hardware device) is not built: the answer was about the machine. Details in docs/platform/decision-log.md, D28.
 

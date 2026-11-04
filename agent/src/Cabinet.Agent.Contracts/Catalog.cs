@@ -134,7 +134,7 @@ public static class Catalog
         Write<TimeSetZoneParams, TimeSetZoneOutput>(TimeSetZone, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, TimeSyncOutput>(TimeSync, safetyNet: false, Confirm.Click, "tier1"),
         Write<NetworkRenewLeaseParams, NetworkRenewLeaseOutput>(NetworkRenewLease, safetyNet: false, Confirm.Click, "tier1"),
-        Write<SystemRestartParams, SystemRestartOutput>(SystemRestart, safetyNet: false, Confirm.Code, "tier2"),
+        Write<SystemRestartParams, SystemRestartOutput>(SystemRestart, safetyNet: false, Confirm.Code, "tier1"),
         Write<ProcessEndParams, ProcessEndOutput>(ProcessEnd, safetyNet: false, Confirm.Code, "tier2"),
         Write<PowerSetParams, PowerSetOutput>(PowerSet, safetyNet: false, Confirm.Click, "tier1"),
         Write<EmptyParams, NetworkFlushDnsOutput>(NetworkFlushDns, safetyNet: false, Confirm.Click, "tier1"),
