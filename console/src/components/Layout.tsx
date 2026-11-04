@@ -5,6 +5,7 @@ import { atLeast, roleName, useSession } from "../lib/session";
 import { AlertBadge, MajorAlertToasts } from "./AlertCenter";
 import { WritePauseBanner } from "../lib/writes";
 import { DemoBanner } from "./DemoBanner";
+import { FleetAlarm } from "./FleetAlarm";
 import { SignInNotice } from "./SignIns";
 import { AdminLink, SecurityToasts } from "./SecurityCenter";
 import { FixesLink } from "./KnownFixes";
@@ -83,6 +84,7 @@ export function Layout({ children }: { children: ReactNode }) {
           <button className="btn ghost small" onClick={() => void signOut()}>Sign out</button>
         </div>
       </header>
+      <FleetAlarm />
       <WritePauseBanner />
       <DemoBanner />
       <SignInNotice />

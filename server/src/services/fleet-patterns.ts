@@ -8,13 +8,42 @@
 // repeats never make a second one. It resolves itself once no cabinet has the problem unresolved. The report says which clients,
 // sites and cabinets have it, since when, and what they have in common that the others do not (a driver, an update, software) from the
 // changes each cabinet recorded before its problem began. Nothing here runs anything on a cabinet.
-import { audit, isUniqueViolation, type Pool, type Queryable } from "../db/db.js";
+import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
 import { compareChanges, type ChangeComparison } from "./crashes.js";
 import { platformSettings } from "./settings.js";
 
 export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date }
 
 const KEY = "CASE WHEN a.issue_type_id IS NOT NULL THEN N'issue:' + LOWER(CAST(a.issue_type_id AS nvarchar(36))) ELSE a.signature END";
+
+/** The notification channel the live stream listens on: "<pattern id> opened|resolved". */
+export const FLEET_CHANNEL = "fleet_patterns";
+
+/**
+ * As soon as possible (D23): an event batch that raised a new alert asks for a fleet check, which runs within a couple of seconds instead of
+ * waiting for the one-minute sweep. Requests that arrive while one is pending or running share it, so a burst of batches is one check.
+ */
+let pending: Promise<void> | null = null;
+let again = false;
+export function checkFleetSoon(pool: Pool, delayMs = 2_000): Promise<void> {
+  if (pending) { again = true; return pending; }
+  pending = (async () => {
+    try {
+      do {
+        again = false;
+        await new Promise(r => setTimeout(r, delayMs));
+        await sweepFleetPatterns(pool).catch(() => undefined);
+      } while (again);
+    } finally { pending = null; }
+  })();
+  return pending;
+}
+
+/** One fleet pattern by id, for the live stream. */
+export async function fleetPatternById(db: Queryable, id: string): Promise<FleetPattern | null> {
+  const r = (await db.query<Parameters<typeof toPattern>[0]>(`SELECT ${COLUMNS} FROM fleet_patterns WHERE id = $1`, [id])).rows[0];
+  return r ? toPattern(r) : null;
+}
 
 /** Every problem seen at `minSites` or more sites within the last `hours`, from the alerts. Demo cabinets are counted with the demo only. */
 export async function countPatterns(db: Queryable, o: { minSites: number; hours: number }): Promise<PatternCount[]> {
@@ -47,8 +76,11 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
     try {
       const r = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
         OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, args);
-      await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: r.rows[0]!.id.toLowerCase(),
+      const id = r.rows[0]!.id.toLowerCase();
+      await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
         outcome: "succeeded", details: { key: p.key, sites: p.sites, cabinets: p.cabinets, clients: p.clients } });
+      // Every signed-in console hears it within seconds: a red banner, a sound and a desktop notification (D23).
+      await notify(pool, FLEET_CHANNEL, `${id} opened`);
       opened++;
     } catch (e) {
       if (!isUniqueViolation(e)) throw e; // another sweep opened it a moment ago; the next look counts it up
@@ -59,8 +91,10 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
       UPDATE p SET resolved_at = SYSUTCDATETIME() OUTPUT inserted.id INTO @o FROM fleet_patterns p
        WHERE p.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM alerts a WHERE a.state <> 'resolved' AND ${KEY} = p.pattern_key);
       SELECT id FROM @o;`)).rows;
-  for (const g of gone)
+  for (const g of gone) {
     await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.resolve", targetKind: "fleet_pattern", targetId: g.id.toLowerCase(), outcome: "succeeded", details: {} });
+    await notify(pool, FLEET_CHANNEL, `${g.id.toLowerCase()} resolved`);
+  }
   return { opened, updated, resolved: gone.length };
 }
 

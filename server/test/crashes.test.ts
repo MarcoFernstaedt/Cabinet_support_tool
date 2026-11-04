@@ -386,6 +386,8 @@ test("crash incidents: two runs at once open one incident, and a cabinet with no
   assert.equal((await call(`/api/cabinets/not-a-uuid'%20OR%201=1/crash-incident`)).status, 404);
   assert.equal((await call(`/api/cabinets/${randomUUID()}/crash-incident`)).status, 404);
   assert.equal((await call(`/api/cabinets/${k}/crash-incident`, null)).status, 401);
+});
+
 test("fleet pattern routes (D22): a list and a report for Tier 1, refused without a session, unknown or malformed ids are 404", async () => {
   const list = await call("/api/fleet-patterns");
   assert.equal(list.status, 200);

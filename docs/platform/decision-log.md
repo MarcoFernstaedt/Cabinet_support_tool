@@ -6,6 +6,31 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D23. Fleet alarm: in every open console within seconds; nothing sent outside (2026-11-04)
+
+**Owner's request and decision.** "We need to know as soon as possible when something like the reboot loops happen, or other things
+affecting fleet error logs." Asked how to reach people: **console only**, keeping the October decision that the platform sends nothing
+outside (no email, SMS, chat or webhooks).
+
+**What is built.**
+- **Detection within seconds.** An event batch that raises a new alert asks for a fleet check, which runs about 2 seconds later instead
+  of at the next one-minute sweep; a burst of batches shares one check (`checkFleetSoon`). The one-minute sweep stays as the safety net
+  (and catches reboot loops and outages, which are raised outside event batches).
+- **Everyone signed in hears it.** Opening or resolving a fleet pattern is announced on the live stream to every signed-in console,
+  whatever the role (`event: fleet`). The console shows a **red banner on every page** naming the problem and its reach (sites,
+  cabinets, clients) with a link to the report, plays a short sound, and shows a **desktop notification** where the browser allows it
+  (a button asks for that permission). A console opened later shows the open patterns at once; the tab title counts them.
+- **Acknowledge** hides the banner in that browser only; the pattern stays open until no cabinet has the problem.
+
+**Limits.** Nobody hears about it until a console is open: that is what console only means. Browsers can hold the sound until the page
+has been used once, and a desktop notification needs the browser's permission; the banner shows either way.
+
+**Proof.** `alerts.test.ts`: a tier1 console's stream hears a fleet pattern open within 15 seconds when the same error arrives from 5
+sites through ingest alone, with no sweep run by hand; red with the ingest check removed. Console: the alarm's choice of what to show
+(open and unacknowledged, widest first), its text, and acknowledgements read safely from browser storage.
+
+---
+
 ## D22. Fleet patterns: the same problem at 5 sites within 24 hours is one fleet alert, with a report (2026-11-04)
 
 **Owner's request and decision.** "100 sites get a new installed driver, 50 get the same error message: that should be detected as a

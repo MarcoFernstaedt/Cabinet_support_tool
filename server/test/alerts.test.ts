@@ -485,3 +485,42 @@ test("a mapping can set its own severity; an Admin can create a new issue type w
   assert.equal(refused.status, 403);
   assert.equal((await call("POST", "/api/rules", { issueTypeId: ISSUE.drive, match: { eventId: 1, source: "x" }, severity: "critical", regroup: false, stepUpToken: "A".repeat(43) }, t2)).status, 400);
 });
+
+test("fleet alarm (D23): the alert that puts a problem at its fifth site reaches every signed-in console within seconds, with no sweep run by hand", async () => {
+  if (!app.server.listening) await app.listen({ host: "127.0.0.1", port: 0 });
+  const base = `http://127.0.0.1:${(app.server.address() as AddressInfo).port}`;
+  const cookie = await signIn(await account("tier1"));
+  const abort = new AbortController();
+  const source = `Fleet Alarm Test ${randomBytes(3).toString("hex")}`;
+  const heard = (async () => {
+    const r = await fetch(`${base}/api/stream`, { headers: { cookie }, signal: abort.signal });
+    const reader = r.body!.getReader();
+    let text = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) return null;
+      text += Buffer.from(value).toString("utf8");
+      for (const m of text.matchAll(/event: fleet\ndata: (.*)\n/g)) {
+        const news = JSON.parse(m[1]!) as { change: string; title: string; sites: number };
+        if (news.title.includes(source)) { abort.abort(); return news; }
+      }
+    }
+  })().catch(() => null);
+  await new Promise(r => setTimeout(r, 300));
+  // Five sites, one cabinet each, the same unrecognized error; ingest alone, as an agent would send it.
+  const client = randomUUID();
+  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Alarm ${randomBytes(3).toString("hex")}`]);
+  const started = Date.now();
+  for (let s = 0; s < 5; s++) {
+    const site = randomUUID(), k = randomUUID();
+    await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [site, client, `Alarm site ${s}`]);
+    await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, $3, 'standalone', 'active')", [k, site, `ALARM ${s}`]);
+    await send(k, errorEvent({ log: "Application", source, eventId: 4242 }));
+  }
+  const news = await Promise.race([heard, new Promise<null>(r => setTimeout(() => r(null), 15_000))]);
+  abort.abort();
+  assert.ok(news, "the console heard the fleet alarm");
+  assert.equal(news!.change, "opened");
+  assert.equal(news!.sites, 5);
+  assert.ok(Date.now() - started < 15_000);
+});

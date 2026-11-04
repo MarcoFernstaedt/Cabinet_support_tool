@@ -27,12 +27,17 @@ type AlertListener = (news: AlertNews) => void;
 export interface SecurityNews { id: string; created: boolean; kind: string; title: string; }
 type SecurityListener = (news: SecurityNews) => void;
 
-const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener>; security: Set<SecurityListener> }>({ wake: new Map(), alerts: new Set(), security: new Set() });
+/** A fleet pattern opening or resolving (D23), announced to everyone signed in. */
+export interface FleetNews { change: "opened" | "resolved"; id: string; title: string; severity: string; sites: number; cabinets: number; clients: number; firstSeen: string }
+type FleetListener = (news: FleetNews) => void;
+
+const StreamContext = createContext<{ wake: Map<string, Waiter>; alerts: Set<AlertListener>; security: Set<SecurityListener>; fleet: Set<FleetListener> }>({ wake: new Map(), alerts: new Set(), security: new Set(), fleet: new Set() });
 
 export function CommandStream({ children }: { children: ReactNode }) {
   const wake = useRef(new Map<string, Waiter>()).current;
   const alerts = useRef(new Set<AlertListener>()).current;
   const security = useRef(new Set<SecurityListener>()).current;
+  const fleet = useRef(new Set<FleetListener>()).current;
   useEffect(() => {
     const source = new EventSource(withBase("/api/stream"));
     source.addEventListener("result", e => {
@@ -49,9 +54,14 @@ export function CommandStream({ children }: { children: ReactNode }) {
       try { news = JSON.parse((e as MessageEvent<string>).data) as SecurityNews; } catch { return; }
       security.forEach(fn => fn(news));
     });
+    source.addEventListener("fleet", e => {
+      let news: FleetNews;
+      try { news = JSON.parse((e as MessageEvent<string>).data) as FleetNews; } catch { return; }
+      fleet.forEach(fn => fn(news));
+    });
     return () => source.close();
-  }, [wake, alerts, security]);
-  return <StreamContext.Provider value={{ wake, alerts, security }}>{children}</StreamContext.Provider>;
+  }, [wake, alerts, security, fleet]);
+  return <StreamContext.Provider value={{ wake, alerts, security, fleet }}>{children}</StreamContext.Provider>;
 }
 
 /** Calls fn for every alert change on the live stream while the component is mounted. */
@@ -64,6 +74,18 @@ export function useAlertNews(fn: AlertListener): void {
     alerts.add(listener);
     return () => { alerts.delete(listener); };
   }, [alerts]);
+}
+
+/** Calls fn for every fleet pattern opening or resolving on the live stream while the component is mounted. */
+export function useFleetNews(fn: FleetListener): void {
+  const { fleet } = useContext(StreamContext);
+  const latest = useRef(fn);
+  latest.current = fn;
+  useEffect(() => {
+    const listener: FleetListener = n => latest.current(n);
+    fleet.add(listener);
+    return () => { fleet.delete(listener); };
+  }, [fleet]);
 }
 
 /** Calls fn for every security alert announced on the live stream (Admins only) while the component is mounted. */
