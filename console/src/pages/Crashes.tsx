@@ -117,7 +117,6 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
   );
 }
 
-/** Lists the cabinet's crash dumps (crash.list): names, times and stop codes from each small dump's header. No dump is copied. */
 /** The cabinet's crash incident (D21): each blue-screen or reboot-loop alert once, with how many times it happened. */
 function CrashIncidentPanel({ cabinetId }: { cabinetId: string }) {
   const { data, problem } = useLoad<{ incident: CrashIncident | null }>(`/api/cabinets/${cabinetId}/crash-incident`);
@@ -142,6 +141,7 @@ function CrashIncidentPanel({ cabinetId }: { cabinetId: string }) {
     </section>);
 }
 
+/** Lists the cabinet's crash dumps (crash.list): names, times and stop codes from each small dump's header. No dump is copied. */
 function CrashDumpsPanel({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<{ folderFound: boolean; minidumps: Minidump[]; memoryDump: { writtenAt: string; sizeBytes: number } | null; truncated: boolean }>(cabinetId, "crash.list");
   const out = op.result?.output;
