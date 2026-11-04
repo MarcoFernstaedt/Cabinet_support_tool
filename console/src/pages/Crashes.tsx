@@ -10,7 +10,7 @@ import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
 import { EncryptedExport } from "../components/EncryptedExport";
-import { Link } from "../lib/router";
+import { Link, useRouter } from "../lib/router";
 import { fullTime, ago } from "../lib/time";
 import { useLoad } from "../lib/useLoad";
 import { Badge, Empty } from "../components/ui";
@@ -214,10 +214,12 @@ function summaryText(i: Incident): string {
 interface FleetPatternReport {
   pattern: FleetPattern;
   byClient: { client: string; sites: number; cabinets: number }[];
-  bySite: { client: string; site: string; cabinets: number; occurrences: number }[];
-  cabinets: { id: string; name: string; client: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
+  bySite: { client: string; siteId: string; site: string; cabinets: number; occurrences: number; stillAffected: { id: string; name: string }[] }[];
+  cabinets: { id: string; name: string; client: string; siteId: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
   byAgentVersion: { version: string; affected: number; total: number }[];
   commonFactors: { change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }[];
+  recovered: number; stillAffected: number;
+  timeline: { hour: string; began: number; recovered: number }[];
 }
 
 /** Fleet patterns (D22): the same problem at many sites, each one alert, with who has it and what they have in common. */
@@ -243,7 +245,20 @@ function FleetPatternsPanel() {
     </section>);
 }
 
+/** Fleet operations takes at most this many cabinets in one job. */
+const RECOVERY_LIMIT = 200;
+/**
+ * Stages one site's recovery: hands its still-affected cabinets to Fleet operations as that page's selection (its own storage key and
+ * shape), so the fix runs through its preview, password and batches. One site at a time, because a fleet operation covers one site.
+ */
+function stageRecovery(siteId: string, cabinets: readonly { id: string; name: string }[]): void {
+  const selected: Record<string, string> = {};
+  for (const c of cabinets.slice(0, RECOVERY_LIMIT)) selected[c.id] = c.name;
+  try { sessionStorage.setItem("fleet-ops-selection", JSON.stringify({ siteId, selected })); } catch { /* storage unavailable: the page opens on no site */ }
+}
+
 function FleetPatternReportView({ id }: { id: string }) {
+  const { navigate } = useRouter();
   const { data, problem } = useLoad<FleetPatternReport>(`/api/fleet-patterns/${id}`);
   const cabinets = usePaged(data?.cabinets ?? []);
   if (problem) return <p className="error" role="alert">{problem}</p>;
@@ -253,6 +268,27 @@ function FleetPatternReportView({ id }: { id: string }) {
     <div className="report" aria-label={`Report: ${data.pattern.title}`}>
       <h3>{data.pattern.title}</h3>
       <p>{reachText(data.pattern)}, {data.pattern.occurrences.toLocaleString("en-US")} times since {fullTime(data.pattern.firstSeen)}.</p>
+      <dl className="kv">
+        <div><dt>Still affected</dt><dd>{data.stillAffected > 0 ? <Badge tone="crit">{data.stillAffected}</Badge> : "0"}</dd></div>
+        <div><dt>Recovered</dt><dd>{data.recovered}</dd></div>
+      </dl>
+      {data.stillAffected > 0 && (<>
+        <h4>Recovery, site by site</h4>
+        <p className="muted">Stage a site: Fleet operations opens on it with its still-affected cabinets chosen. Pick the fix, preview it, and it runs in
+          the batches you set, each cabinet's result recorded. A fleet operation covers one site, so a mistake can only reach one place.</p>
+        <table className="table compact"><caption className="sr-only">Sites with cabinets still affected</caption>
+          <thead><tr><th scope="col">Client / site</th><th scope="col">Still affected</th><th scope="col">Recovered</th><th scope="col"><span className="sr-only">Stage</span></th></tr></thead>
+          <tbody>{data.bySite.filter(s => s.stillAffected.length > 0).map(s => (
+            <tr key={s.siteId}><td>{s.client} / {s.site}</td><td>{s.stillAffected.length}</td><td>{s.cabinets - s.stillAffected.length}</td>
+              <td><button className="btn small" aria-label={`Stage the recovery of ${s.site}`} onClick={() => { stageRecovery(s.siteId, s.stillAffected); navigate("/fleet-operations"); }}>
+                Stage {Math.min(s.stillAffected.length, RECOVERY_LIMIT)}</button></td></tr>))}</tbody>
+        </table></>)}
+      {data.timeline.length > 1 && (<>
+        <h4>How it went</h4>
+        <table className="table compact"><caption className="sr-only">Cabinets whose problem began and that recovered, by hour</caption>
+          <thead><tr><th scope="col">Hour</th><th scope="col">Began</th><th scope="col">Recovered</th></tr></thead>
+          <tbody>{data.timeline.map(t => <tr key={t.hour}><td>{fullTime(t.hour)}</td><td>{t.began}</td><td>{t.recovered}</td></tr>)}</tbody>
+        </table></>)}
       <h4>What they have in common</h4>
       {standing.length === 0 ? <p>Nothing stands out yet among the changes recorded before each cabinet's problem began.</p> : (
         <ul>{standing.map(c => <li key={c.change}><strong>{c.change}</strong>: {c.affectedShare}% of affected cabinets ({c.affected}), {c.unaffectedShare}% of the others ({c.unaffected})</li>)}</ul>)}
