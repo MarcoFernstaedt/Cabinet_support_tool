@@ -1,6 +1,6 @@
 # Cabinet Diagnostics Platform: status report
 
-**As of 4 November 2026.** Main at `7979c04`. The work started on 1 October 2026.
+**As of 4 November 2026.** Main at `b4a06aa`, after #153 and #155 merged; the figures were measured at `e15498a`, the tree those two PRs landed as. The work started on 1 October 2026.
 
 Every figure here says whether it was **measured** (and where) or **worked out**. Nothing is an estimate presented as a measurement.
 The detailed sources are [remaining-phases.md](remaining-phases.md), [performance.md](performance.md), [cost.md](cost.md),
@@ -16,7 +16,7 @@ The detailed sources are [remaining-phases.md](remaining-phases.md), [performanc
 - **The build spec is complete; the roadmap is not.**
   - Milestones 0 to 12 are done, and so is roadmap phase 1 (the demo).
   - Roadmap phases 2 to 6 remain. Phases 2 and 3 are mostly built, 4 and 5 partly, and 6 mostly not.
-  - About **58 to 63 pull requests** are left (worked out, one per remaining item).
+  - About **57 to 62 pull requests** are left (worked out, one per remaining item).
 - **It is cheap to run and has been load-tested at fleet size.** 8,000 simulated cabinets ran against one small server with
   **0 failed requests**. Running 8,000 to 10,000 cabinets costs about **$30 to $85 a month**.
 - **Six things outside the code block a live clinic.** The biggest are:
@@ -37,18 +37,18 @@ The detailed sources are [remaining-phases.md](remaining-phases.md), [performanc
 | Metric | Value | Basis |
 |---|---|---|
 | Duration so far | 5 weeks (1 Oct to 4 Nov 2026) | git history |
-| Commits on main | 588 | measured, `git log` |
-| Pull requests | numbered up to #155 | GitHub |
-| PRs merged in the last 7 days | 44 | measured, merge commits on main since 28 Oct |
-| Open PRs awaiting review | 2 (#153 storage health, #155 crash monitors) | GitHub |
+| Commits reachable from main | 772 | measured, `git rev-list --count origin/main` |
+| Pull requests | numbered up to #156 | GitHub |
+| PRs merged in the last 7 days | 45 | measured, `git log --first-parent --merges --since=2026-10-28 origin/main` |
+| Open PRs awaiting review | none outstanding (#153 and #155 merged on 4 Nov) | GitHub |
 | Recorded decisions, each with its reasons | 20 (D1 to D20) | decision log |
-| Code | about 95,000 lines (TypeScript, C#, SQL; generated files excluded) | measured |
+| Code | about 90,900 lines (TypeScript, C#, SQL, PowerShell; generated and vendored trees excluded) | measured, pygount at `e15498a` |
 
 ### Capability
 
 | Metric | Value | Basis |
 |---|---|---|
-| Operations in the fixed catalog | 55: 37 reads, 18 writes (56 with #153) | measured, `catalog.json` |
+| Operations in the fixed catalog | 56: 38 reads, 18 writes | measured, `contracts/schemas/operations/catalog.json` at `e15498a` |
 | Build milestones | 13 of 13 (0 to 12) | remaining-phases.md |
 | Roadmap phases | 1 of 6 complete; phases 2 to 3 mostly built | remaining-phases.md |
 | Supported Windows builds | 64-bit and 32-bit | built; the 32-bit build has not been run on a real 32-bit machine |
@@ -57,10 +57,10 @@ The detailed sources are [remaining-phases.md](remaining-phases.md), [performanc
 
 | Metric | Value | Basis |
 |---|---|---|
-| Server tests | 878 pass, 0 fail | measured at a0f7567 (#155), 4 Nov |
-| Agent tests | 879 pass, 0 fail | measured at a0f7567 |
-| Contract checks | 1,168 pass, 0 fail | measured at a0f7567 |
-| Console tests | 91 pass, 0 fail | measured at a0f7567 |
+| Server tests | 879: 864 pass, 15 skipped, 0 fail | measured at `e15498a`, 4 Nov (the skips want PowerShell 7 or `TEST_AGENT_DLL`) |
+| Agent tests | 938 core and 1,473 contract, 0 fail, 0 skipped | measured at `e15498a`, 4 Nov |
+| Contract checks | 1,184 pass, 0 fail | measured at `e15498a`, 4 Nov |
+| Console tests | 97 pass, 0 fail | measured at `e15498a`, 4 Nov |
 | Real-hardware reads | 35 of 35 (2 Nov); 34 of 34 (30 Oct) | product test and hardware test |
 | Defects from the hardware and product tests | 10 of 11 fixed; 1 is a host task (install the nightly backup job) | remaining-phases.md |
 | Bug-fix rule | every fix ships with a test that fails without the fix | house rule; shown in each PR |
@@ -92,13 +92,14 @@ The detailed sources are [remaining-phases.md](remaining-phases.md), [performanc
   - Cabinet diagnosis.
   - Crash investigation: boots, reboot loops, blue screens with their stop codes, and the timeline of what changed before them.
   - Drive-failure prediction with risk classes.
+  - NVMe and SATA drive health, including the repair state Windows reports for each volume.
   - Incidents opened and closed by diagnoses.
 - **Safe fixes.**
   - 18 typed write operations, each with a role, a confirmation level and an hourly limit.
   - Fleet jobs that run across many cabinets with per-cabinet results.
   - Approved software only, verified by hash, signature and publisher on the cabinet itself.
 - **Alerting.** Rules that map Windows events to issues, with severity, suppressions and claims; scanner, service, firewall and
-  drive watchers on the cabinet.
+  drive watchers on the cabinet. Crash dumps and short uptimes raise their own events.
 - **Security.**
   - Two-factor sign-in for everyone, and step-up codes bound to the exact action.
   - A tamper-evident audit chain.
@@ -115,18 +116,18 @@ The detailed sources are [remaining-phases.md](remaining-phases.md), [performanc
 
 ## What is left
 
-### Product work: about 58 to 63 PRs (worked out)
+### Product work: about 57 to 62 PRs (worked out)
 
 | Phase | What it adds | PRs |
 |---|---|---|
-| 2: blue screens, storage, drivers | Faulting module of a crash, crash signatures across the fleet, power-loss detail, incident response mode, the crash incident page, the drivers and services engine | ~9 |
+| 2: blue screens, storage, drivers | Faulting module of a crash, crash signatures across the fleet, power-loss detail, resumable evidence, incident response mode, the crash incident page, the drivers and services engine | ~8 |
 | 3: network, services, boot, updates | Process signer, service dependencies, app-crash correlation, boot and recovery, update install and compliance, scanner profiles, preflight checks, the sustained connection check | ~19 |
 | 4: support call and remediation | Symptom playbooks and support-call mode, the case report, before-and-after snapshots, site readiness, preventive-maintenance reports | ~10 |
 | 5: configuration and agent health | Restoring chosen settings, registry reads and writes, software lifecycle, agent health in the console, self-recovery, maintenance windows | ~10 |
 | 6: advanced and fleet intelligence | Bottleneck findings, DISM and SFC repair, packet capture, failure rates per driver, update and model, health scoring | ~10 |
 | Open fixes | Demo start time, the CI installer hash check, one intermittent console test | ~3 |
 
-**How long it takes is set by review, not by building.** At the last week's pace (44 merged), the remaining work is about **2 to
+**How long it takes is set by review, not by building.** At the last week's pace (45 merged), the remaining work is about **2 to
 3 weeks**. That is worked out, not a commitment: each PR currently gets one careful review round, and that round has found real
 defects (four in the last day, all fixed with tests).
 
@@ -148,7 +149,7 @@ defects (four in the last day, all fixed with tests).
 | Risk | Effect | Mitigation or ask |
 |---|---|---|
 | CI blocked by GitHub account billing | Windows-only code is not proven per PR; reviewers re-run suites by hand | **Ask:** restore Actions billing. Until then the full local suite runs on every PR, and the PR says what was not proven |
-| Windows-only code since the last hardware test | Reads added since 2 Nov (crash dumps, storage health) are tested on Linux only | One hardware session covers them together with gate 4 |
+| Windows-only code since the last hardware test | Reads added on 3 and 4 Nov (crash dumps, storage health) are tested on Linux only | One hardware session covers them together with gate 4 |
 | Database size limit | Express stops growing at 10 GB | Cheaper retention settings first; documented in cost.md |
 | Single server | A restart briefly drops all connections | Agents reconnect with backoff; a second process can be added later |
 
@@ -160,7 +161,8 @@ defects (four in the last day, all fixed with tests).
 
 ## How this report was made
 
-- The figures come from the repository at main `7979c04` and the latest PR heads, the measured load test in performance.md, and
+- The figures come from the repository at `e15498a` (the tree carrying #153 and #155), the measured load test in performance.md, and
   the list prices in cost.md.
 - The test counts are from full local runs on 4 November, because CI could not run.
+- The line count is pygount's, over the tree above, with generated, vendored and build output excluded.
 - The PR estimate and timeline are worked out from the remaining-phases list and the last week's merge count.
