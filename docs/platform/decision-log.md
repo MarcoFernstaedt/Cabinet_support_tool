@@ -16,7 +16,7 @@ signatures group by stop code and parameters. This is recorded in 09-open-decisi
 
 **What is built.**
 - **The signature.** The stop code, plus the first parameter where Microsoft's bug-check reference documents it as the kind of failure:
-  - the exception code for 0x1E, 0x3B, 0x7E and 0x8E (and their 0x1000… forms);
+  - the exception code for 0x1E, 0x3B, 0x7E and 0x8E, and the two the reference documents with a 0x1000 prefix (0x1000007E, 0x1000008E);
   - the subtype for 0x1A, 0x9F, 0xC2, 0x124, 0x133 and 0x139.
 
   Common exception codes and a few subtypes are named in plain words (0xC0000005 is an access violation, for example). For every other
