@@ -20,6 +20,8 @@ import { enableDemo, INCIDENT_DRIVER, INCIDENT_UPDATE } from "../src/demo/demo.j
 import { verifyEvidence } from "../src/services/evidence.js";
 import { decryptEvidence } from "../src/services/evidence-crypto.js";
 import { ISSUE } from "../src/services/rules.js";
+import { CRASH_ISSUES, planCrashIncident, sweepCrashIncidents, syncCrashIncident, type CrashAlert } from "../src/services/crash-incidents.js";
+import { getIncident } from "../src/services/incidents.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
@@ -297,4 +299,91 @@ test("the agent's crash monitors: a new dump is a blue screen on the same alert 
   const odd = (startedAt: string, previousStartedAt: string) => ({ ...short(1, 2), detail: { fields: { startedAt, previousStartedAt, ranSeconds: "60", previousEnd: "unknown" } } });
   await storeEvents(db.app, hostile, { events: [odd("yesterday", "'; DROP TABLE cabinet_boots; --"), odd(iso(-600), iso(-24 * 60 * 30)), odd(iso(5 * 24 * 60), iso(5 * 24 * 60 + 3))] });
   assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM cabinet_boots WHERE cabinet_id = $1", [hostile])).rows[0].n), 0);
+});
+
+test("crash incident rule (D21): crash alerts open it, new ones join it, all resolved closes it, nothing else touches it", () => {
+  const a = (id: string, state = "open", issueTypeId: string = ISSUE.crash): CrashAlert => ({ id, issueTypeId, title: id, state, occurrences: 1 });
+  assert.deepEqual(CRASH_ISSUES, [ISSUE.crash, ISSUE.rebootLoop], "the written-out ids are the issue types'");
+  assert.deepEqual(planCrashIncident([], null), { action: "none" });
+  assert.deepEqual(planCrashIncident([a("x", "resolved")], null), { action: "none" }, "a resolved crash alert opens nothing");
+  const opened = planCrashIncident([a("loop", "open", ISSUE.rebootLoop), a("bsod")], null);
+  assert.equal(opened.action, "open");
+  assert.equal(opened.action === "open" && opened.symptom, "bsod", "a blue screen names the incident before a loop does");
+  assert.deepEqual(planCrashIncident([a("bsod"), a("loop", "open", ISSUE.rebootLoop)], { linked: new Set(["bsod"]) }), { action: "add", link: [a("loop", "open", ISSUE.rebootLoop)] });
+  assert.deepEqual(planCrashIncident([a("bsod")], { linked: new Set(["bsod"]) }), { action: "none" }, "a repeat of a linked alert adds nothing");
+  assert.deepEqual(planCrashIncident([a("bsod", "resolved")], { linked: new Set(["bsod"]) }), { action: "close" });
+  assert.deepEqual(planCrashIncident([a("bsod", "resolved"), a("loop", "open", ISSUE.rebootLoop)], { linked: new Set(["bsod", "loop"]) }), { action: "none" }, "one still open keeps it open");
+});
+
+test("crash incidents (D21): fifteen blue screens are one alert counted 15 times on one incident; a loop joins; resolving closes; the next crash opens a new one", async () => {
+  const [client, site, k] = [randomUUID(), randomUUID(), randomUUID()];
+  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Inc ${randomBytes(3).toString("hex")}`]);
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
+  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, 'CRASHY', 'standalone', 'active')", [k, site]);
+  let rec = 1000;
+  const iso = (minutesAgo: number) => new Date(Math.floor((Date.now() - minutesAgo * 60_000) / 1000) * 1000).toISOString().split(".")[0] + "Z";
+  const bugcheck = (minutesAgo: number) => ({ eventId: randomUUID(), kind: "error" as const, occurredAt: iso(minutesAgo), severityHint: "major" as const,
+    source: { log: "System" as const, source: "BugCheck", eventId: 1001, level: "error" as const, recordId: rec++ },
+    detail: { message: "The computer has rebooted from a bugcheck.  The bugcheck was: 0x000000d1 (0x0, 0x2, 0x0, 0x0)." } });
+  for (let i = 0; i < 15; i++) await storeEvents(db.app, k, { events: [bugcheck(60 - i)] });
+  const incidents = async () => (await db.app.query<{ id: string; state: string }>(
+    "SELECT id, state FROM incidents WHERE cabinet_id = $1 AND module_id = 'crash-incidents' ORDER BY opened_at, id", [k])).rows;
+  assert.equal((await incidents()).length, 1);
+  const first = (await incidents())[0]!.id.toLowerCase();
+  const view = (await call(`/api/cabinets/${k}/crash-incident`)).body.incident;
+  assert.equal(view.incidentId, first);
+  assert.equal(view.alerts.length, 1, "one alert, not fifteen");
+  assert.equal(view.alerts[0].occurrences, 15);
+  let inc = (await getIncident(db.app, first))!;
+  assert.deepEqual(inc.steps.map(st => st.kind), ["symptom", "evidence"], "repeats add no steps");
+  assert.equal(inc.links.filter(l => l.kind === "alert").length, 1);
+  assert.equal(inc.module?.id, "crash-incidents");
+
+  // A reboot loop on the same cabinet joins the same incident.
+  for (const m of [12, 8, 4]) await db.app.query("INSERT INTO cabinet_boots (cabinet_id, booted_at, source) VALUES ($1, DATEADD(minute, -$2, SYSUTCDATETIME()), 'event')", [k, m]);
+  await checkQuietLoops(db.app);
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [k]);
+  const { checkRebootLoop } = await import("../src/services/crashes.js");
+  assert.equal(await checkRebootLoop(db.app, k), true);
+  assert.equal((await syncCrashIncident(db.app, k)).action, "add");
+  assert.equal((await call(`/api/cabinets/${k}/crash-incident`)).body.incident.alerts.length, 2);
+  assert.equal((await incidents()).length, 1);
+
+  // Resolving one keeps it open; resolving both closes it, on the next sweep.
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.crash]);
+  assert.equal((await syncCrashIncident(db.app, k)).action, "none");
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND issue_type_id = $2", [k, ISSUE.rebootLoop]);
+  assert.ok((await sweepCrashIncidents(db.app)) >= 1);
+  inc = (await getIncident(db.app, first))!;
+  assert.equal(inc.state, "resolved");
+  assert.equal(inc.steps.at(-1)!.kind, "close");
+  assert.equal((await syncCrashIncident(db.app, k)).action, "none", "a closed incident with resolved alerts stays closed");
+
+  // The next blue screen is a new incident.
+  await storeEvents(db.app, k, { events: [bugcheck(1)] });
+  const all = await incidents();
+  assert.equal(all.length, 2);
+  assert.notEqual(all[1]!.id.toLowerCase(), first);
+});
+
+test("crash incidents: two runs at once open one incident, and a cabinet with no crashes has none", async () => {
+  const [client, site, k] = [randomUUID(), randomUUID(), randomUUID()];
+  await db.app.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [client, `Race ${randomBytes(3).toString("hex")}`]);
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'North')", [site, client]);
+  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, 'RACE', 'standalone', 'active')", [k, site]);
+  assert.deepEqual(await syncCrashIncident(db.app, k), { action: "none", incidentId: null });
+  assert.equal((await call(`/api/cabinets/${k}/crash-incident`)).body.incident, null);
+  await db.app.query(`INSERT INTO alerts (id, cabinet_id, issue_type_id, severity, signature, title, state, first_seen, last_seen, occurrences)
+                      VALUES (NEWID(), $1, $2, 'major', $3, 'System crash (blue screen)', 'open', SYSUTCDATETIME(), SYSUTCDATETIME(), 3)`, [k, ISSUE.crash, `issue:${ISSUE.crash}`]);
+  const runs = await Promise.all([syncCrashIncident(db.app, k), syncCrashIncident(db.app, k), syncCrashIncident(db.app, k)]);
+  const ids = new Set(runs.map(r => r.incidentId).filter(Boolean));
+  assert.equal(ids.size, 1, JSON.stringify(runs));
+  assert.equal(Number((await db.app.query("SELECT COUNT(*) AS n FROM incidents WHERE cabinet_id = $1", [k])).rows[0].n), 1);
+  const inc = (await getIncident(db.app, [...ids][0]!))!;
+  assert.equal(inc.links.filter(l => l.kind === "alert").length, 1);
+  assert.equal(inc.steps.filter(st => st.kind === "evidence").length, 1, "the alert joins once whichever run linked it");
+  // A cabinet id that is not one is refused before any query (the shared id() check answers 404, as for every cabinet route).
+  assert.equal((await call(`/api/cabinets/not-a-uuid'%20OR%201=1/crash-incident`)).status, 404);
+  assert.equal((await call(`/api/cabinets/${randomUUID()}/crash-incident`)).status, 404);
+  assert.equal((await call(`/api/cabinets/${k}/crash-incident`, null)).status, 401);
 });

@@ -10,6 +10,7 @@ import { ContractError } from "../src/contracts.js";
 import type { DiagnosticModule } from "../src/diagnose/module.js";
 import { cabinetModules } from "../src/diagnose/cabinet-findings.js";
 import { networkModule, sqlLadderModule } from "../src/diagnose/network-module.js";
+import { crashModule } from "../src/services/crash-incidents.js";
 import { dependencyCycle, loadRegistry, parseRegistry, RegistryError, registryIssues, type Capability, type CapabilityRegistry } from "../src/diagnose/registry.js";
 
 const examples = join(resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", ".."), "contracts", "examples", "diagnostics");
@@ -25,7 +26,7 @@ function refusal(change: (r: CapabilityRegistry) => void, ms = modules(scanner()
 }
 
 test("the committed registry is valid with the modules the server has (the cabinet checks)", () => {
-  const all = [...cabinetModules(), networkModule(), sqlLadderModule()];
+  const all = [...cabinetModules(), networkModule(), sqlLadderModule(), crashModule()];
   const r = loadRegistry(new Map(all.map(m => [m.id, m])));
   assert.deepEqual(r.capabilities.filter(c => c.status === "built").map(c => c.id).sort(), all.map(m => m.id).sort());
   assert.ok(r.capabilities.some(c => c.id === "sql-connectivity-ladder" && c.status === "built"), "the plan's first new module is built and registered");

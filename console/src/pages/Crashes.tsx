@@ -4,6 +4,7 @@
 import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
 import { durationText, endText, type BootRecord } from "../lib/boot-history";
 import { sizeText, stopCodeText, type Minidump } from "../lib/crash-dumps";
+import { incidentBadge, timesText, totalCrashes, type CrashIncident } from "../lib/crash-incident";
 import { useOperation } from "../lib/commands";
 import { useMemo, useState } from "react";
 import { Pager, usePaged } from "../components/Pager";
@@ -109,6 +110,7 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
         <h3>Timeline</h3>
         <TimelineTable items={data.timeline} label="Timeline of changes, crashes and errors" />
       </>)}
+      <CrashIncidentPanel cabinetId={cabinetId} />
       <BootHistoryPanel cabinetId={cabinetId} days={Number(days)} />
       <CrashDumpsPanel cabinetId={cabinetId} />
     </section>
@@ -116,6 +118,30 @@ export function CabinetCrashes({ cabinetId }: { cabinetId: string }) {
 }
 
 /** Lists the cabinet's crash dumps (crash.list): names, times and stop codes from each small dump's header. No dump is copied. */
+/** The cabinet's crash incident (D21): each blue-screen or reboot-loop alert once, with how many times it happened. */
+function CrashIncidentPanel({ cabinetId }: { cabinetId: string }) {
+  const { data, problem } = useLoad<{ incident: CrashIncident | null }>(`/api/cabinets/${cabinetId}/crash-incident`);
+  const inc = data?.incident ?? null;
+  const [tone, label] = inc ? incidentBadge(inc.state) : ["off", ""] as const;
+  return (
+    <section className="panel" aria-labelledby="crash-incident-heading">
+      <h2 id="crash-incident-heading">Crash incident</h2>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {data && !inc && <p>No crash incident: this cabinet has had no blue-screen or reboot-loop alert.</p>}
+      {inc && (<>
+        <p><Badge tone={tone}>{label}</Badge> Opened {fullTime(inc.openedAt)}{inc.closedAt ? `, closed ${fullTime(inc.closedAt)}` : ""}.
+          {" "}{totalCrashes(inc.alerts).toLocaleString("en-US")} crash{totalCrashes(inc.alerts) === 1 ? "" : "es"} across {inc.alerts.length} alert{inc.alerts.length === 1 ? "" : "s"}.</p>
+        <table className="table compact"><caption className="sr-only">The incident's alerts, each once with its count</caption>
+          <thead><tr><th scope="col">Alert</th><th scope="col">How often</th><th scope="col">First</th><th scope="col">Latest</th><th scope="col">State</th></tr></thead>
+          <tbody>{inc.alerts.map(a => (
+            <tr key={a.id}><td>{a.title}</td><td>{timesText(a.occurrences)}</td><td>{fullTime(a.firstSeen)}</td><td>{fullTime(a.lastSeen)}</td>
+              <td>{a.state === "resolved" ? "Resolved" : <Badge tone="crit">Open</Badge>}</td></tr>))}</tbody>
+        </table>
+        <p className="muted">The whole record, step by step, is on the cabinet's History tab.</p>
+      </>)}
+    </section>);
+}
+
 function CrashDumpsPanel({ cabinetId }: { cabinetId: string }) {
   const op = useOperation<{ folderFound: boolean; minidumps: Minidump[]; memoryDump: { writtenAt: string; sizeBytes: number } | null; truncated: boolean }>(cabinetId, "crash.list");
   const out = op.result?.output;
