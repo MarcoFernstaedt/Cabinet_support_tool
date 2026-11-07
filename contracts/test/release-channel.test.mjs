@@ -1,4 +1,5 @@
-// F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel fails unless it carries a
+// F1.R1/R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): the repository's own trust list has to pin a publisher
+// whose root is the certificate beside it (agent/install/New-PublisherRoot.ps1 makes the material), and a build for the cabinet release channel
 // code-signing publisher the agent can actually load, and fails when it would accept unsigned programs. Runs the agent's own MSBuild check
 // (no package restore needed) against the repository's trust list and against throwaway ones. dotnet is found on PATH, under $DOTNET_ROOT or
 // in ~/.dotnet; with none, the tests are skipped on a developer machine and fail under CI, so the check is never silently unproven there.
@@ -40,11 +41,29 @@ function trust(publishers, files = {}) {
 const publisher = (over = {}) => ({ commonName: "Example Agent Publisher", organization: "Example", root: PEM_HASH, rootFile: "agent-root.pem", ...over });
 function inFolder(dir, fn) { try { return fn(check({ CabinetReleaseChannel: "production", UpgradeTrustDir: dir })); } finally { rmSync(dir, { recursive: true, force: true }); } }
 
-test("a cabinet release build with no code-signing publisher pinned fails to build (the repository today)", { skip }, () => {
-  assert.equal(JSON.parse(readFileSync(join(ROOT, "contracts", "trust", "upgrade", "upgrade-keys.json"), "utf8")).publishers.length, 0);
+test("the repository's trust list pins the publisher the fleet trusts, and a cabinet release build of it passes", { skip }, () => {
+  // The material is made by agent/install/New-PublisherRoot.ps1 (our own root, no certificate bought) and the list here is
+  // what every agent build compiles in. An empty publisher list is what this test used to assert, on the day it was the
+  // truth; now the list has to be one that ships, and the cases below still prove an empty or broken one fails.
+  const list = JSON.parse(readFileSync(join(ROOT, "contracts", "trust", "upgrade", "upgrade-keys.json"), "utf8"));
+  assert.ok(list.publishers.length >= 1, "contracts/trust/upgrade/upgrade-keys.json pins no code-signing publisher: every cabinet would refuse every upgrade");
+  for (const p of list.publishers) {
+    assert.ok(p.commonName && p.organization, "a pinned publisher needs the exact common name and organization its certificate carries");
+    // The agent hashes the DER of the certificate named beside the list (UpgradeTrust), and the build check compares the two.
+    const hash = createHash("sha256").update(new X509Certificate(readFileSync(join(ROOT, "contracts", "trust", "upgrade", p.rootFile))).raw).digest("hex");
+    assert.equal(hash, p.root, `${p.rootFile} is not the root the list pins as ${p.root}`);
+  }
   const r = check({ CabinetReleaseChannel: "production" });
-  assert.equal(r.ok, false, r.out);
-  assert.deepEqual(r.codes, ["CAB0002"]);
+  assert.equal(r.ok, true, r.out);
+  assert.deepEqual(r.codes, []);
+});
+
+test("a cabinet release build with no code-signing publisher pinned fails to build", { skip }, () => {
+  inFolder(trust([]), r => {
+    assert.equal(r.ok, false, r.out);
+    assert.deepEqual(r.codes, ["CAB0002"]);
+    assert.match(r.out, /no code-signing publisher is pinned/);
+  });
 });
 
 test("a cabinet release build that allows unsigned development upgrades fails to build", { skip }, () => {
