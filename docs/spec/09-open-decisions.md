@@ -966,9 +966,11 @@ the same transaction. Two do: a site back online and a disk no longer filling up
 - a clock that came right (`time.ts:61`)
 - a firewall matching its policy again (`firewall-policy.ts:110`)
 - file versions matching the baseline again (`filefacts-ingest.ts:232`)
-- a network diagnosis clearing it (`diagnose/network.ts:206`)
+- a network diagnosis clearing it (`server/src/diagnose/network.ts:206`)
 - an alert regrouped under another (`rules.ts:357`)
-- a security alert clearing itself (`ops-health.ts:130`)
+
+A security alert clearing itself is already on the chain and is not one of these: `ops-health.ts:132` writes
+`security_alert.auto_resolve` in the same transaction as the closure, which is the security-alert action and not `alert.resolve`.
 
 **Not a product decision, work left:** each goes on the chain in the F4 piece that follows, with the sweep test F4 asks for (no state change
 without an audit row), so a new close cannot be added without one.
