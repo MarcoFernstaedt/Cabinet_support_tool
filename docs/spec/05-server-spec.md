@@ -121,6 +121,7 @@ Protecting the rules:
 - An alert the platform closes by itself is audited too: `alert.resolve` with actor `system` (naming the check that closed it) and `automatic: true`, in the same transaction as the closure (finding F4). Every automatic close goes through `closeAutomatically` (`server/src/services/automatic-close.ts`) or audits on its own (the site outage, the disk forecast, a security alert clearing itself).
 - **Every state change and every delete is audited (F4).** A statement that changes a row's state or status, or deletes rows, writes an audit row in the same transaction, or is a named exception that is not a transition of its own: a delivery lease, one step's progress inside a run whose start and end are audited, derived or cached rows recomputed from others, and telemetry retention whose nightly run is audited with its counts. `server/test/audit-sweep.test.ts` reads the server's source and fails on any new statement that is neither audited nor on that list with its reason. A fleet job's automatic end is audited as `fleet.job.finish`.
 - Alert states: open, claimed, resolved.
+- **Fleet patterns** (decision-log D22, D23, D25): the same problem at the threshold number of sites within the look-back window is one fleet pattern. It opens only while at least one of its alerts is still unresolved, counts up while open, and resolves itself once none is; the resolved alerts of a closed pattern never open it again.
 
 ## Firewall change attribution
 

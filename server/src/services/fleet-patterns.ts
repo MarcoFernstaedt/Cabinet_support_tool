@@ -12,7 +12,9 @@ import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../
 import { compareChanges, type ChangeComparison } from "./crashes.js";
 import { platformSettings } from "./settings.js";
 
-export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date }
+export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date;
+  /** How many of its alerts are still unresolved: a pattern opens only while one is, so the alerts of one that resolved never reopen it. */
+  unresolved: number }
 
 /**
  * A problem's key, on an alert row `a` joined to its cabinet `k`: issue:<issue type> for a known issue, else the alert signature, with
@@ -46,6 +48,9 @@ export function checkFleetSoon(pool: Pool, delayMs = 2_000): Promise<void> {
   return pending;
 }
 
+/** Resolves once no check asked for by checkFleetSoon is pending or running (tests wait on it before they sweep themselves). */
+export async function fleetCheckSettled(): Promise<void> { while (pending) await pending; }
+
 /** One fleet pattern by id, for the live stream. */
 export async function fleetPatternById(db: Queryable, id: string): Promise<FleetPattern | null> {
   const r = (await db.query<Parameters<typeof toPattern>[0]>(`SELECT ${COLUMNS} FROM fleet_patterns WHERE id = $1`, [id])).rows[0];
@@ -54,16 +59,17 @@ export async function fleetPatternById(db: Queryable, id: string): Promise<Fleet
 
 /** Every problem seen at `minSites` or more sites within the last `hours`, from the alerts. Demo cabinets are counted with the demo only. */
 export async function countPatterns(db: Queryable, o: { minSites: number; hours: number }): Promise<PatternCount[]> {
-  const rows = (await db.query<{ k: string; issue_type_id: string | null; title: string; major: number; clients: number; sites: number; cabinets: number; occurrences: number; first_seen: Date; last_seen: Date }>(
+  const rows = (await db.query<{ k: string; issue_type_id: string | null; title: string; major: number; clients: number; sites: number; cabinets: number; occurrences: number; first_seen: Date; last_seen: Date; unresolved: number }>(
     `SELECT ${KEY} AS k, MAX(a.issue_type_id) AS issue_type_id, MIN(a.title) AS title, MAX(CASE WHEN a.severity = 'major' THEN 1 ELSE 0 END) AS major,
             COUNT(DISTINCT s.client_id) AS clients, COUNT(DISTINCT k.site_id) AS sites, COUNT(DISTINCT a.cabinet_id) AS cabinets,
-            SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen
+            SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen,
+            SUM(CASE WHEN a.state <> 'resolved' THEN 1 ELSE 0 END) AS unresolved
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
       WHERE a.last_seen > DATEADD(hour, -$1, SYSUTCDATETIME()) AND k.status = 'active'
       GROUP BY ${KEY}
      HAVING COUNT(DISTINCT k.site_id) >= $2`, [o.hours, o.minSites])).rows;
   return rows.map(r => ({ key: r.k, issueTypeId: r.issue_type_id?.toLowerCase() ?? null, title: r.title, severity: r.major ? "major" : "minor",
-    clients: Number(r.clients), sites: Number(r.sites), cabinets: Number(r.cabinets), occurrences: Number(r.occurrences), firstSeen: r.first_seen, lastSeen: r.last_seen }));
+    clients: Number(r.clients), sites: Number(r.sites), cabinets: Number(r.cabinets), occurrences: Number(r.occurrences), firstSeen: r.first_seen, lastSeen: r.last_seen, unresolved: Number(r.unresolved) }));
 }
 
 /** The one-minute sweep: opens a fleet pattern for each problem past the threshold, counts open ones up, and resolves the ones gone. */
@@ -86,6 +92,10 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
       if (rang) await notify(pool, FLEET_CHANNEL, `${rang} alarm`);
       continue;
     }
+    // No open pattern: one opens only while the problem is still unresolved somewhere. Without this, the alerts of a pattern that just
+    // resolved (still inside the look-back window) opened it again on the next sweep: a new alarm, audit trail and notification every
+    // minute after the fleet had recovered.
+    if (p.unresolved === 0) continue;
     try {
       const r = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
         OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, args);
