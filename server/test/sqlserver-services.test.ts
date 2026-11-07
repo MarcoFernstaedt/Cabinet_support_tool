@@ -339,7 +339,7 @@ test("watched services and device settings: levels, inheritance, JSON read back 
   await setWatched(db.app, boss, "fleet", "fleet", ["Spooler"]);
   await setWatched(db.app, boss, "fleet", "fleet", ["Spooler", "BioScan"]);
   assert.equal((await q("SELECT COUNT(*) AS n FROM settings WHERE [key] = 'services.watched'")).rows[0].n, 1);
-  assert.deepEqual(await watchLevels(db.app, w.cab), { cabinet: null, site: null, client: null, fleet: ["Spooler", "BioScan"], effective: ["Spooler", "BioScan"], source: "fleet" });
+  assert.deepEqual(await watchLevels(db.app, w.cab), { cabinet: null, site: null, client: null, fleet: ["Spooler", "BioScan"], role: null, effective: ["Spooler", "BioScan"], source: "fleet" });
   await setWatched(db.app, boss, "client", w.client, []);
   assert.deepEqual((await watchLevels(db.app, w.cab)).effective, []);
   assert.equal((await watchLevels(db.app, w.cab)).source, "client");
