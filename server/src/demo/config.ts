@@ -123,7 +123,7 @@ export async function uploadDemoConfig(pool: Pool, cabinetId: string, ctx: DemoC
 // ---- The approved baselines the demo starts with ---------------------------------------------------------------------------------
 
 /** Makes a draft with the real service, then moves it through the states a decision does (the demo has no second person to approve). */
-async function approvedBaseline(pool: Pool, adminId: string, scope: { kind: "global" | "model" | "client" | "site" | "cabinet"; id: string | null }, description: string, content: Parameters<typeof createDraft>[2]["content"]): Promise<void> {
+async function approvedBaseline(pool: Pool, adminId: string, scope: { kind: "global" | "role" | "model" | "client" | "site" | "cabinet"; id: string | null }, description: string, content: Parameters<typeof createDraft>[2]["content"]): Promise<void> {
   const d = await createDraft(pool, { userId: adminId, role: "admin" }, { scope, description, content });
   await transaction(pool, async (c: Queryable) => {
     await c.query("UPDATE baseline_versions SET status = 'pending', proposed_at = SYSUTCDATETIME() WHERE id = $1", [d.id]);

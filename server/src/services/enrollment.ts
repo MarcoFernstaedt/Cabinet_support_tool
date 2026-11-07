@@ -101,12 +101,12 @@ export type BaselineDecision = { use: "inherited" } | { use: "attach"; versionId
 /** What became of the baseline decision, for the console to say. */
 export interface ApprovalBaseline { decision: BaselineDecision["use"] | null; inForce: { kind: string; name: string; version: number }[]; captureWaiting: boolean }
 
-const noBaseline = () => new Refused("no_approved_baseline", 409, "no approved baseline applies to this cabinet's site, client or the fleet",
+const noBaseline = () => new Refused("no_approved_baseline", 409, "no approved baseline applies to this cabinet's site, client, role or the fleet",
   { reason: "No approved baseline applies here yet. Choose an approved baseline to attach to the site, or capture this cabinet's configuration as the site's baseline draft." });
 
-/** The scopes a cabinet at this client and site falls under before it has reported its model. */
-const placeScopes = (clientId: string | null, siteId: string | null): Scope[] =>
-  [{ kind: "global", id: null }, ...(clientId ? [{ kind: "client" as const, id: clientId.toLowerCase() }] : []), ...(siteId ? [{ kind: "site" as const, id: siteId.toLowerCase() }] : [])];
+/** The scopes a cabinet of this role at this client and site falls under before it has reported its model. */
+const placeScopes = (role: string | null, clientId: string | null, siteId: string | null): Scope[] =>
+  [{ kind: "global", id: null }, ...(role ? [{ kind: "role" as const, id: role }] : []), ...(clientId ? [{ kind: "client" as const, id: clientId.toLowerCase() }] : []), ...(siteId ? [{ kind: "site" as const, id: siteId.toLowerCase() }] : [])];
 
 // This one carries `reason`, the sentence the console shows (console/src/lib/api.ts describeError): a refusal an Admin has to act on
 // says what to do, not just that it happened.
@@ -196,7 +196,7 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     if (approval.baseline) {
       const decision = approval.baseline;
       if (decision.use === "inherited") {
-        const found = await approvedFor(c, placeScopes(client.id, site.id));
+        const found = await approvedFor(c, placeScopes(approval.role, client.id, site.id));
         if (found.length === 0) throw noBaseline();
         inForce = found.map(o => ({ kind: o.kind, name: o.name, version: o.version }));
       } else if (decision.use === "attach") {
@@ -238,12 +238,12 @@ export interface ApprovalBaselinePreview {
 }
 
 /** Reads only; the approval checks everything again. A client or site that does not exist yet has nothing of its own. */
-export async function approvalBaselinePreview(db: Queryable, requestId: string, q: { client: string; site: string }): Promise<ApprovalBaselinePreview> {
+export async function approvalBaselinePreview(db: Queryable, requestId: string, q: { client: string; site: string; role?: string | undefined }): Promise<ApprovalBaselinePreview> {
   if (!(await db.query("SELECT 1 AS x FROM enrollment_requests WHERE id = $1 AND status = 'pending'", [requestId])).rows[0])
     throw new Refused("not_pending", 409, "that enrollment request is not pending");
   const client = (await db.query<{ id: string }>("SELECT id FROM clients WHERE name = $1 AND removed_at IS NULL", [q.client])).rows[0] ?? null;
   const site = client ? (await db.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, q.site])).rows[0] ?? null : null;
-  const inForce = await approvedFor(db, placeScopes(client?.id ?? null, site?.id ?? null));
+  const inForce = await approvedFor(db, placeScopes(q.role ?? null, client?.id ?? null, site?.id ?? null));
   const modelBaselines = Number((await db.query<{ n: number }>(
     "SELECT COUNT(*) AS n FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved' WHERE b.scope_kind = 'model'")).rows[0]!.n);
   return { inForce: inForce.map(o => ({ kind: o.kind, name: o.name, version: o.version })), modelBaselines, siteHasOwn: inForce.some(o => o.kind === "site"),

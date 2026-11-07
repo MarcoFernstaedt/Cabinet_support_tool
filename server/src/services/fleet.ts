@@ -83,6 +83,7 @@ async function cabinetsWithoutBaseline(db: Queryable, cabinetIds: readonly strin
       WHERE k.id IN (SELECT TRY_CAST([value] AS uniqueidentifier) FROM OPENJSON($1)) AND k.status = 'active'
         AND NOT EXISTS (SELECT 1 FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved'
                          WHERE b.scope_kind = 'global'
+                            OR (b.scope_kind = 'role' AND b.scope_id = k.role)
                             OR (b.scope_kind = 'model' AND b.scope_id = k.model)
                             OR (b.scope_kind = 'client' AND b.scope_id = LOWER(CONVERT(nvarchar(36), s.client_id)))
                             OR (b.scope_kind = 'site' AND b.scope_id = LOWER(CONVERT(nvarchar(36), k.site_id)))

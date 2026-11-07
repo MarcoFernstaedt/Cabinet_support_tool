@@ -207,7 +207,7 @@ function CaptureBaseline({ cabinet }: { cabinet: CabinetDetail }) {
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const scopes: [string, string][] = [[`cabinet:${cabinet.id}`, `This cabinet only (${cabinet.name})`], [`site:${cabinet.site.id}`, `The site (${cabinet.site.name})`], [`client:${cabinet.client.id}`, `The client (${cabinet.client.name})`],
-    ...(atLeast(me, "admin") ? [["global:", "All cabinets"] as [string, string], ...(cabinet.model ? [[`model:${cabinet.model}`, `Cabinets of this model (${cabinet.model})`] as [string, string]] : [])] : [])];
+    ...(atLeast(me, "admin") ? [["global:", "All cabinets"] as [string, string], [`role:${cabinet.role}`, `Every ${cabinet.role} cabinet`] as [string, string], ...(cabinet.model ? [[`model:${cabinet.model}`, `Cabinets of this model (${cabinet.model})`] as [string, string]] : [])] : [])];
   const go = async () => {
     setBusy(true); setProblem(null);
     const at = scope.indexOf(":");

@@ -1,18 +1,18 @@
 // The baseline decision in a pending cabinet's approval (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). It shows which
-// approved baseline would apply at the chosen client and site, and with none the approver attaches an approved one or asks for a capture.
+// approved baseline would apply at the chosen client, site and role, and with none the approver attaches an approved one or asks for a capture.
 // The server checks the decision again; this only collects it.
 import { useEffect, useState } from "react";
 import { api, describeError } from "../lib/api";
 import { choiceAfterPreview, inForceText, type BaselineChoice, type BaselinePreview } from "../lib/approval-baseline";
 import { Badge } from "./ui";
 
-const SCOPE_LABEL: Record<string, string> = { global: "fleet", model: "model", client: "client", site: "site" };
+const SCOPE_LABEL: Record<string, string> = { global: "fleet", role: "role", model: "model", client: "client", site: "site" };
 
 /** What the approval knows about baselines: nothing asked yet, the answer, or why it could not be read (with a way to ask again). */
 export interface BaselinePreviewState { preview: BaselinePreview | null; problem: string | null; retry: () => void }
 
 /** Reads what applies for the client and site as they are typed, and keeps the choice sensible when it changes. */
-export function useBaselinePreview(requestId: string, client: string, site: string, setChoice: (f: (c: BaselineChoice) => BaselineChoice) => void): BaselinePreviewState {
+export function useBaselinePreview(requestId: string, client: string, site: string, role: string, setChoice: (f: (c: BaselineChoice) => BaselineChoice) => void): BaselinePreviewState {
   const [preview, setPreview] = useState<BaselinePreview | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
@@ -24,13 +24,13 @@ export function useBaselinePreview(requestId: string, client: string, site: stri
     let live = true;
     // A short pause so typing a name does not send a request per letter.
     const t = setTimeout(() => {
-      void api<BaselinePreview>("GET", `/api/admin/enrollments/${requestId}/baseline?${new URLSearchParams({ client: c, site: s })}`)
+      void api<BaselinePreview>("GET", `/api/admin/enrollments/${requestId}/baseline?${new URLSearchParams({ client: c, site: s, role })}`)
         .then(p => { if (live) { setPreview(p); setChoice(choice => choiceAfterPreview(choice, p)); } })
         // Said, with a way back: a failed read must not leave Approve disabled with nothing to act on.
         .catch(e => { if (live) setProblem(describeError(e)); });
     }, 300);
     return () => { live = false; clearTimeout(t); };
-  }, [requestId, c, s, setChoice, attempt]);
+  }, [requestId, c, s, role, setChoice, attempt]);
   return { preview, problem, retry: () => setAttempt(a => a + 1) };
 }
 

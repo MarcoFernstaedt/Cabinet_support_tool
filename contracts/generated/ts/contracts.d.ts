@@ -582,11 +582,12 @@ export interface AppControl {
 }
 
 /**
- * Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.
+ * Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, and the role when it is chosen,, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.
  */
 export interface ApproveEnrollmentBaseline {
   client: string;
   site: string;
+  role?: "sync" | "satellite" | "standalone";
 }
 
 /**

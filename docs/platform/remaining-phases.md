@@ -333,7 +333,7 @@ changes it with the behaviour.
 |---|---|---|---|
 | 0 | Production trust: publisher pinned, approved-list keys, a signing pipeline that cannot emit unsigned binaries, one observed upgrade | F1 | Open. R1, the pinned certificate, needs the release-signing purchase (gate 1). R3 and R4 are code. |
 | 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | F3 done (D31). F4: automatic transitions audited (#174); the sweep that no change lacks an audit row is open. F2: the server side was already met; the agent side is blocked, as the agent cannot be built here |
-| 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | Open |
+| 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33). Open: process and task expectations, the fleet comparison by role (R3), template-only watch lists (R4). F9 is agent work, blocked here |
 | 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | Open |
 | 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | Open |
 | 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | Open |

@@ -13,9 +13,11 @@ import { Pager, usePaged } from "../../components/Pager";
 import { useStepUp } from "../../components/StepUp";
 import { categoryName, show } from "../../components/ConfigParts";
 
-type Kind = "global" | "model" | "client" | "site" | "cabinet";
+type Kind = "global" | "role" | "model" | "client" | "site" | "cabinet";
 interface Scope { kind: Kind; id: string | null }
-const KIND_NAME: Record<Kind, string> = { global: "All cabinets", model: "A cabinet model", client: "A client", site: "A site", cabinet: "One cabinet" };
+const KIND_NAME: Record<Kind, string> = { global: "All cabinets", role: "Every cabinet of a role", model: "A cabinet model", client: "A client", site: "A site", cabinet: "One cabinet" };
+/** The three cabinet roles a role baseline can apply to (decision-log D33). */
+const ROLES: [string, string][] = [["sync", "Sync cabinets"], ["satellite", "Satellite cabinets"], ["standalone", "Standalone cabinets"]];
 const STATUS: Record<string, [string, "ok" | "warn" | "crit" | "info" | "off"]> = { draft: ["Draft", "off"], pending: ["Waiting for an Admin", "warn"], approved: ["In force", "ok"], rejected: ["Rejected", "crit"], superseded: ["Replaced", "off"] };
 
 interface Row { id: string; scope: Scope; name: string; createdAt: string; approvedVersion: number | null; approvedAt: string | null; pendingVersionId: string | null; drafts: number }
@@ -61,7 +63,7 @@ function ImportPanel({ rows, onDone }: { rows: Row[]; onDone: () => void }) {
   const [description, setDescription] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const targets: [string, string][] = [
-    ...(atLeast(me, "admin") ? [["global:", "All cabinets"] as [string, string]] : []),
+    ...(atLeast(me, "admin") ? [["global:", "All cabinets"] as [string, string], ...ROLES.map(([r, n]) => [`role:${r}`, n] as [string, string])] : []),
     ...(clients.data ?? []).flatMap(c => [[`client:${c.id}`, `Client ${c.name}`] as [string, string], ...c.sites.map(s => [`site:${s.id}`, `Site ${c.name} / ${s.name}`] as [string, string])]),
   ];
   if (sources.length === 0) return null;

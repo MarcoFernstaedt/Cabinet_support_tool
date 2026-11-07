@@ -677,3 +677,53 @@ test("a narrower scope replaces a wider one item by item, an ignore cancels an i
   await ingestAndEvaluate(db.app, other, [snap("system", [hardware("HP ProDesk 400 G7")], 0)], "agent");
   assert.equal((await call("GET", `/api/cabinets/${other}/baseline`, undefined, t1)).body.items.some((i: { key: string }) => i.key === "driver:oem42.inf"), true);
 });
+
+// ---- Role baselines (F7, decision-log D33) -----------------------------------------------------------------------------------
+
+test("a role baseline is an Admin's, names one of the three roles, and nothing else is accepted as a role", async () => {
+  const t2 = await account("tier2"), a1 = await account("admin");
+  const content = { items: [{ category: "services", key: "service:RoleOnly" + randomUUID().slice(0, 6), mode: "present" }] };
+  assert.equal((await call("POST", "/api/baselines/drafts", { scope: { kind: "role", id: "standalone" }, description: "Tier two tries", content }, t2)).status, 403);
+  for (const id of ["admin", "Sync", "", null, "sync' OR 1=1 --", "satellite ", "x".repeat(65)])
+    assert.equal((await call("POST", "/api/baselines/drafts", { scope: { kind: "role", id }, description: "A hostile role", content }, a1)).status, 400, JSON.stringify(id));
+  // The database holds the line too, whatever reaches it.
+  await assert.rejects(db.app.query("INSERT INTO baselines (id, scope_kind, scope_id, name, created_by) VALUES ($1, 'role', 'kiosk', 'x', $2)", [randomUUID(), a1.id]));
+  assert.equal((await call("GET", "/api/baselines?scopeKind=role", undefined, a1)).status, 200);
+});
+
+test("a role baseline applies to every cabinet of that role and no other, between the fleet's and a model's; a cabinet missing what its role expects is degraded with the item named", async () => {
+  const a1 = await account("admin"), a2 = await account("admin"), t1 = await account("tier1");
+  const tag = randomUUID().slice(0, 6);
+  const { siteId } = await newSite();
+  const standalone = await newCabinet(siteId, `Role standalone ${tag}`, `Role Model ${tag}`);
+  await db.app.query("UPDATE cabinets SET role = 'standalone' WHERE id = $1", [standalone]);
+  const satellite = await newCabinet(siteId, `Role satellite ${tag}`);
+  const expected = `service:DispenseSvc${tag}`, tuned = `service:Tuned${tag}`;
+  await approve(a1, a2, { kind: "role", id: "standalone" }, { items: [
+    { category: "services", key: expected, mode: "present", required: true },
+    { category: "services", key: tuned, mode: "match", expect: { startType: "automatic" } }] });
+  await approve(a1, a2, { kind: "model", id: `Role Model ${tag}` }, { items: [{ category: "services", key: tuned, mode: "match", expect: { startType: "manual" } }] });
+
+  const mine = (await call("GET", `/api/cabinets/${standalone}/baseline`, undefined, t1)).body;
+  const by = (k: string) => mine.items.find((i: { key: string }) => i.key === k);
+  assert.equal(by(expected).origin.kind, "role");
+  assert.equal(by(expected).origin.name, "Standalone cabinets");
+  assert.equal(by(tuned).expect.startType, "manual", "a model baseline is narrower than a role's and replaces its item");
+  const kinds = mine.scopes.map((s: { kind: string }) => s.kind);
+  assert.ok(kinds.indexOf("role") >= 0 && kinds.indexOf("role") < kinds.indexOf("model"), `role sits before model: ${kinds}`);
+  assert.ok(kinds.indexOf("global") === -1 || kinds.indexOf("global") < kinds.indexOf("role"), `the fleet's sits before role: ${kinds}`);
+  // A cabinet of another role is not judged by it.
+  const theirs = (await call("GET", `/api/cabinets/${satellite}/baseline`, undefined, t1)).body;
+  assert.equal(theirs.items.some((i: { key: string }) => i.key === expected), false);
+
+  // The standalone cabinet does not run the service its role expects: degraded, and the reason names the service.
+  await ingestAndEvaluate(db.app, standalone, [snap("services", [svc("Spooler")], 0)], "agent");
+  const state = await evaluateHealth(db.app, standalone);
+  assert.equal(state.state, "degraded");
+  assert.ok(state.reasons.some(r => r.code === "required_item" && r.text.includes(expected)), JSON.stringify(state.reasons));
+  await ingestAndEvaluate(db.app, satellite, [snap("services", [svc("Spooler")], 0)], "agent");
+  assert.ok(!(await evaluateHealth(db.app, satellite)).reasons.some(r => r.text.includes(expected)), "the satellite is not held to the standalone role");
+  // Once it runs it, the role's expectation is met.
+  await ingestAndEvaluate(db.app, standalone, [snap("services", [svc("Spooler"), svc(expected.slice("service:".length)), svc(tuned.slice("service:".length), "manual")], 5)], "agent");
+  assert.ok(!(await evaluateHealth(db.app, standalone)).reasons.some(r => r.code === "required_item"));
+});

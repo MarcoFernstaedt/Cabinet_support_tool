@@ -975,3 +975,14 @@ A security alert clearing itself is already on the chain and is not one of these
 
 **Not a product decision, work left:** each goes on the chain in the F4 piece that follows, with the sweep test F4 asks for (no state change
 without an audit row), so a new close cannot be added without one.
+
+## What a cabinet's role expects (F7, 2026-11-07, decided)
+
+Asked whether a role template is keyed by the three cabinet roles (sync, satellite, standalone) or is a named template an Admin creates
+and assigns, the owner chose the three roles. Built: a `role` baseline scope between the fleet's and a model's (docs/spec/15-baselines-and-config.md
+"Baselines"), counted at enrollment. Details and reasons in docs/platform/decision-log.md, D33.
+
+Still to build in F7, each its own piece: expectations for processes (with thresholds) and for scheduled tasks (a healthy last run, which
+needs F9's task fields from the agent); the fleet comparison "which cabinets of this client differ from their role" (F7.R3); and reading
+watch lists, expected processes and drivers only from the template (F7.R4).
+
