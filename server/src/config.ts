@@ -54,9 +54,17 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     if (!Number.isInteger(v) || v < min || v > max) throw new Error(`${name} must be a whole number from ${min} to ${max}.`);
     return v;
   };
+  // The names and addresses an agent may dial; the development TLS certificate covers exactly these, and the first is
+  // what the setup page offers when AGENT_PUBLIC_HOST is unset. An empty value is treated as unset on purpose: compose
+  // passes both switches through with an empty default, and "" would otherwise fail validation at start and, worse,
+  // reach the installer as the address a cabinet is told to dial.
+  const agentHostnames = (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean);
+  if (agentHostnames.length === 0) agentHostnames.push("localhost");
+  const publicHost = (env.AGENT_PUBLIC_HOST ?? "").trim() || agentHostnames[0]!;
+  const publicPort = (env.AGENT_PUBLIC_PORT ?? "").trim();
   const config: Config = {
     databaseUrl: databaseUrl(env, "DATABASE_URL"),
-    agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: (env.AGENT_API_HOSTNAMES ?? "localhost").split(",").map(s => s.trim()).filter(Boolean),
+    agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: agentHostnames,
       ...(longPollSeconds !== undefined ? { longPollSeconds } : {}),
       // HTTP/2 is offered (ALPN, with HTTP/1.1 on the same port); AGENT_API_HTTP2=false offers HTTP/1.1 only.
       http2: env.AGENT_API_HTTP2 !== "false",
@@ -71,7 +79,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     packages: { dir: env.PACKAGE_DIR ?? fileURLToPath(new URL("../../../data/packages", import.meta.url)), maxBytes: Number(env.PACKAGE_MAX_MB ?? "500") * 1024 * 1024 },
     releases: { dir: env.RELEASE_DIR ?? fileURLToPath(new URL("../../../data/releases", import.meta.url)), maxBytes: 500 * 1024 * 1024 },
     maintenanceAt: maintenanceAt(env.MAINTENANCE_AT),
-    agentSetup: { host: env.AGENT_PUBLIC_HOST ?? (env.AGENT_API_HOSTNAMES ?? "localhost").split(",")[0]!.trim(), port: Number(env.AGENT_PUBLIC_PORT ?? port),
+    agentSetup: { host: publicHost, port: publicPort === "" ? port : Number(publicPort),
       // Decided per package folder (setup-routes.ts): unsigned only when the build says so, and never in production.
       allowUnsigned: false },
   };

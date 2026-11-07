@@ -91,6 +91,11 @@ services:
       DATABASE_URL: sqlserver://cabinet_app_login:${APP_DB_PASSWORD}@mssql:1433/cabinet?trustServerCertificate=true
       # Every name or IP an agent may use to reach the agent API. The development TLS certificate covers exactly these.
       AGENT_API_HOSTNAMES: ${AGENT_API_HOSTNAMES:?set AGENT_API_HOSTNAMES in deploy/.env}
+      # The address the setup page tells an Admin to install against, when it is not the first name above. On a fleet
+      # reached over the internet this is the public address, and it is the one the installer bakes in, so the
+      # certificate above must cover it too. Leave both unset when the first name above is the right address.
+      AGENT_PUBLIC_HOST: ${AGENT_PUBLIC_HOST:-}
+      AGENT_PUBLIC_PORT: ${AGENT_PUBLIC_PORT:-}
       # The console refuses every state-changing request whose Origin header is not exactly this value.
       CONSOLE_ORIGIN: ${CONSOLE_ORIGIN:-https://${CONSOLE_SITE}}
       CONSOLE_SECRET_KEY: ${CONSOLE_SECRET_KEY:?set CONSOLE_SECRET_KEY in deploy/.env}
