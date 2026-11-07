@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { storeEvents } from "../src/services/events.js";
-import { fleetPatternReport, listFleetPatterns, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
+import { fleetCheckSettled, fleetPatternReport, listFleetPatterns, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
 import { upsertSetting } from "../src/services/settings.js";
 import { ISSUE } from "../src/services/rules.js";
 import { transaction } from "../src/db/db.js";
@@ -98,7 +98,10 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   assert.equal((await patternsFor("Clock out of step"))[0]!.alarmedAt, null, "a minor one at 3 sites is listed, not rung");
   await transaction(db.app, c => upsertSetting(c, "alerts.fleetPatternSites", 5, null));
 
-  // Once every loop alert is resolved, the pattern resolves itself and stays in the list as recently resolved.
+  // Once every loop alert is resolved, the pattern resolves itself and stays in the list as recently resolved. The fleet check that the
+  // first test's events asked for (checkFleetSoon) must be done first: running between the update and the sweep below, it would resolve
+  // the pattern itself and leave this sweep nothing to do (seen under load in review of #181).
+  await fleetCheckSettled();
   await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE issue_type_id = $1", [ISSUE.rebootLoop]);
   const r = await sweepFleetPatterns(db.app);
   assert.ok(r.resolved >= 1);
@@ -108,6 +111,12 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   const audits = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_kind = 'fleet_pattern' AND target_id = $1 ORDER BY seq", [after[0]!.id])).rows.map(a => a.action);
   // A major pattern rings when it opens (D25), so its trail is open, alarm, resolve.
   assert.deepEqual(audits, ["fleet_pattern.open", "fleet_pattern.alarm", "fleet_pattern.resolve"]);
+  // The next sweeps still see those alerts within the look-back window, resolved: they are what the pattern was, not a new one. Nothing
+  // opens again, so no alarm rings again and no console is told of a "new" fleet pattern every minute after the fleet recovered.
+  for (let i = 0; i < 2; i++) assert.equal((await sweepFleetPatterns(db.app)).opened, 0, "a resolved pattern's alerts do not open it again");
+  assert.equal((await patternsFor("Restarting repeatedly")).length, 1);
+  assert.deepEqual((await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_kind = 'fleet_pattern' AND target_id = $1 ORDER BY seq", [after[0]!.id])).rows.map(a => a.action),
+    audits, "its trail is the same: it did not open, ring or resolve again");
 });
 
 test("alerts older than the window and demo cabinets never make a real fleet pattern; a report for no such pattern is null", async () => {

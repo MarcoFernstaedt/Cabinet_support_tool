@@ -447,7 +447,10 @@ Both numbers are Admin settings (Settings, Alerts: "Fleet alert at N sites withi
 - **The one-minute sweep** (`sweepFleetPatterns`, `server/src/services/fleet-patterns.ts`) counts the sites per problem among alerts
   seen within the window. At the threshold it opens **one fleet pattern** (migration 0022, one open per problem by a unique index),
   audited; later sweeps count it up (sites, cabinets, clients, occurrences only grow while it is open); it resolves itself once no
-  cabinet has the problem unresolved, audited. Demo cabinets are counted apart from real ones.
+  cabinet has the problem unresolved, audited. A new one opens only while at least one of its alerts is unresolved: the resolved alerts
+  of a pattern that just closed are still inside the window, and until 7 November 2026 they opened it again on the next sweep (a new
+  alarm and notification every minute after the fleet recovered; found from a test that failed under load in review of #181). Demo
+  cabinets are counted apart from real ones.
 - **The report** (`GET /api/fleet-patterns/:id`, Tier 1 and up, read only): clients, sites and cabinets affected with their counts and
   first and latest times, agent versions, and **what they have in common**: the changes (drivers, updates, software) each affected
   cabinet recorded in the 72 hours before its problem began, compared with the rest of the fleet; a change at least half of them had,
