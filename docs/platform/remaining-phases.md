@@ -101,7 +101,7 @@ extra phases — the mapping is at the bottom of this page so nothing is counted
   diagnosis on sync port 1433 (D15).)
 - Process signer and parent; service dependencies; the files installed by each driver. (**Application-crash correlation is built (D29):**
   Application Error 1000 and Application Hang 1002 are known by their program, so each program is its own alert and fleet pattern. The
-  faulting module and exception code need the agent to send them; open in 09-open-decisions.)
+  faulting module and exception code need the agent to send them: decided 2026-11-07 (D30), and the agent side waits for the first signed release after F1.)
 - Boot and recovery: boot configuration, WinRE status, boot-critical services.
 - Installing updates, and update compliance across the fleet.
 - Profiles for the three scanner types and their vendor middleware services.
