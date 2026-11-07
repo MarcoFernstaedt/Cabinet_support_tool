@@ -813,10 +813,10 @@ export interface BaselineImport {
 }
 
 /**
- * Where a baseline applies: the whole fleet, a cabinet model, a client, a site or one cabinet. A model is named by its text; the others by their ID.
+ * Where a baseline applies: the whole fleet, every cabinet of one role (sync, satellite or standalone), a cabinet model, a client, a site or one cabinet. A role is named by the role, a model by its text, the others by their ID.
  */
 export interface BaselineScope {
-  kind: "global" | "model" | "client" | "site" | "cabinet";
+  kind: "global" | "role" | "model" | "client" | "site" | "cabinet";
   id: null | string;
 }
 
@@ -832,7 +832,7 @@ export interface BaselineUpdate {
  * Which baselines the list shows.
  */
 export interface BaselinesQuery {
-  scopeKind?: "global" | "model" | "client" | "site" | "cabinet";
+  scopeKind?: "global" | "role" | "model" | "client" | "site" | "cabinet";
   scopeId?: string;
 }
 
