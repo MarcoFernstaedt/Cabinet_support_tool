@@ -103,7 +103,7 @@ export async function triage(db: Queryable, q: TriageQuery, now = Date.now()) {
     "SELECT event_id, source, JSON_VALUE(detail, '$.message') AS message FROM events WHERE event_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [un.map(u => u.last_event).filter(Boolean)])).rows;
   const parsed = un.map(u => {
     const ev = events.find(e => e.event_id === u.last_event);
-    // The signature is "unrecognized:<log>|<source>|<event id>", for an application crash followed by "~<program>~<module>~<code>"
+    // The signature is "unrecognized:<log>|<source>|<event id>", for an application crash followed by "~<program>"
     // (alerts.ts, D29); read by splitting, never by a pattern.
     const whole = u.signature.slice("unrecognized:".length), tilde = whole.indexOf("~", Math.max(0, whole.lastIndexOf("|"))), body = tilde >= 0 ? whole.slice(0, tilde) : whole;
     const first = body.indexOf("|"), last = body.lastIndexOf("|");

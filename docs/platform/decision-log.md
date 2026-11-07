@@ -16,27 +16,35 @@ program crashed, was one alert per cabinet. Across the fleet it was one pattern:
 crashing at 5 others read as "Application Error 1000 at 10 sites".
 
 **What is built.**
-- **What the signature carries.** For an Application Error 1000, the signature also holds the program, the faulting module and the
-  exception code. For an Application Hang 1002, it holds the program.
-  - These are read from the message by their labels ("Faulting application name:", "Faulting module name:", "Exception code:", and "The
-    program … version"), in any letter case, without regular expressions.
-  - They are appended after a `~`, with `|` and `~` removed from each value and each value cut at 80 characters.
-- **How it shows.** The alert title names the problem: "CabinetUI.exe crashed in ucrtbase.dll (0xc0000409)", or "CabinetUI.exe stopped
-  responding".
-- **Folding.** Repeats of the same program and fault fold into one alert with its count. A different program or fault is its own alert,
-  and so its own fleet pattern (D22), with its own alarm level (D25).
+- **What the signature carries.** For an Application Error 1000 or an Application Hang 1002, the signature also holds the program.
+  - It is read from the first line of the message by its label ("Faulting application name:", or "The program … version"), in any
+    letter case, without regular expressions.
+  - It is appended after a `~`, with `|` and `~` removed and the name cut at 80 characters.
+- **How it shows.** The alert title names the program: "CabinetUI.exe crashed" or "CabinetUI.exe stopped responding".
+- **Folding.** Repeats of the same program fold into one alert with its count. A different program is its own alert, and so its own fleet
+  pattern (D22), with its own alarm level (D25).
 - **Still unrecognized.** The alert can still be mapped to an issue type, which then takes over as before.
-- **Triage** reads the signature by splitting on `|` and `~`, so its counts and samples are unchanged.
+- **Triage** reads the signature by splitting on `|` and dropping the `~` tail after the last `|`, so its counts and samples are unchanged.
+
+**Why the program only.** The agent puts only the first line of a message into an event (`EventLogWatch.ToEvent`, `Message =
+e.FirstLine`; D19 says the same). For an Application Error 1000, that line names the program. The faulting module and exception code are
+on later lines, so a cabinet never sends them. The review of #164 checked this against a live database: four Application Error and
+Application Hang events from a real cabinet, none with the module or the code.
+
+An earlier version of this PR also read the module and code. It worked only on the demo's one-line messages and its own test fixture, so
+it was removed.
+
+**Open.** Sending the module and code would mean the agent sends them as fields for these two events, as it already does for Kernel-Power
+41 (D19). That changes what the agent sends and needs an agent release. It is recorded in 09-open-decisions for the owner to decide.
 
 **Limits.**
-- Alerts opened before this change keep their old signature and resolve as usual. The next crash of a program opens an alert under the
-  new signature.
-- A message without the labels (another language, say) falls back to the plain signature: one alert per source, as before, never a wrong
-  program.
+- Alerts opened before this change keep their old signature and resolve as usual.
+- A first line without the label (Windows in another language, say) falls back to the plain signature: one alert per source, as before,
+  never a wrong program.
 
-**Proof.** `app-crash-signatures.test.ts`:
-- the parsing;
-- hostile input: separators in names, a 10,000-character module name, other logs and IDs, a hang with no version;
+**Proof.** `app-crash-signatures.test.ts`, on exactly the first line a cabinet sends:
+- the parsing, including letter case;
+- hostile input: separators and a 10,000-character name, other logs and IDs, a hang with no version, empty values;
 - one cabinet: the same program twice is one alert with 2 occurrences, and another program is its own alert;
 - across the fleet: two programs at five sites each are two fleet patterns.
 

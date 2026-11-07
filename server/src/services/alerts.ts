@@ -30,14 +30,14 @@ export type Outcome =
 
 /**
  * The signature that folds repeats together. An unrecognized error is known by where it came from; an application crash or hang also by
- * which program, faulting module and exception code (appended after "~"), so different programs crashing never fold into one alert or one
- * fleet pattern (D29).
+ * which program (appended after "~"), so different programs crashing never fold into one alert or one fleet pattern (D29). Only the
+ * program: the agent sends an event's first line, and the faulting module and exception code are on later lines of a crash's message.
  */
 export function unrecognizedSignature(e: Pick<Event, "kind" | "source"> & { detail?: Event["detail"] }): string {
   if (!(e.kind === "error" && e.source)) return normalizeSignature(`unrecognized:${e.kind}`);
   const base = `unrecognized:${e.source.log}|${e.source.source.toLowerCase()}|${e.source.eventId}`;
   const app = appFault(e.source, e.detail?.message);
-  return normalizeSignature(app ? `${base}~${[app.program, app.module ?? "", app.exception ?? ""].map(v => v.toLowerCase()).join("~")}` : base);
+  return normalizeSignature(app ? `${base}~${app.program.toLowerCase()}` : base);
 }
 
 /** Field values from a message, read by their labels (never by a pattern): "Faulting application name: X.exe, version: …". */
@@ -52,19 +52,22 @@ function labelled(message: string, label: string): string | null {
   return v.length > 0 ? v : null;
 }
 
-/** The program (and for a crash its faulting module and exception code) of an Application Error 1000 or Application Hang 1002 event. */
-export function appFault(source: { log: string; source: string; eventId: number }, message: string | undefined): { program: string; module: string | null; exception: string | null; hang: boolean } | null {
+/**
+ * The program of an Application Error 1000 or Application Hang 1002 event, from the first line of its message, which is what the agent
+ * sends ("Faulting application name: X.exe, version: …"; "The program X.exe version … stopped interacting with Windows").
+ */
+export function appFault(source: { log: string; source: string; eventId: number }, message: string | undefined): { program: string; hang: boolean } | null {
   if (!message || source.log !== "Application") return null;
   const src = source.source.toLowerCase();
   if (src === "application error" && source.eventId === 1000) {
     const program = labelled(message, "Faulting application name:");
-    return program ? { program, module: labelled(message, "Faulting module name:"), exception: labelled(message, "Exception code:"), hang: false } : null;
+    return program ? { program, hang: false } : null;
   }
   if (src === "application hang" && source.eventId === 1002) {
     // "The program CabinetUI.exe version 7.2.1.0 stopped interacting with Windows and was closed."
     const lower = message.toLowerCase(), at = lower.indexOf("the program "), ver = lower.indexOf(" version ", at + 12);
     const program = at >= 0 && ver > at ? message.slice(at + 12, ver).trim().replaceAll("|", "").replaceAll("~", "").slice(0, 80) : "";
-    return program ? { program, module: null, exception: null, hang: true } : null;
+    return program ? { program, hang: true } : null;
   }
   return null;
 }
@@ -78,7 +81,7 @@ export function normalizeSignature(signature: string): string {
 
 function unrecognizedTitle(e: Pick<Event, "kind" | "source"> & { detail?: Event["detail"] }): string {
   const app = e.kind === "error" && e.source ? appFault(e.source, e.detail?.message) : null;
-  if (app) return (app.hang ? `${app.program} stopped responding` : `${app.program} crashed${app.module ? ` in ${app.module}` : ""}${app.exception ? ` (${app.exception})` : ""}`).slice(0, 300);
+  if (app) return (app.hang ? `${app.program} stopped responding` : `${app.program} crashed`).slice(0, 300);
   if (e.kind === "error" && e.source) return `Unrecognized ${e.source.level}: ${e.source.source || "(no source)"} event ${e.source.eventId} in ${e.source.log}`.slice(0, 300);
   return `Unrecognized ${e.kind.replace("_", " ")} event`;
 }
