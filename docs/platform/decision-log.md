@@ -28,8 +28,8 @@ crashing at 5 others read as "Application Error 1000 at 10 sites".
 
 **Why the program only.** The agent puts only the first line of a message into an event (`EventLogWatch.ToEvent`, `Message =
 e.FirstLine`; D19 says the same). For an Application Error 1000, that line names the program. The faulting module and exception code are
-on later lines, so a cabinet never sends them. The review of #164 checked this against a live database: four Application Error and
-Application Hang events from a real cabinet, none with the module or the code.
+on later lines, so a cabinet never sends them. The review of #164 checked this against the live database on 7 November 2026: no
+Application Error or Application Hang event from a real cabinet carried the faulting module or the exception code.
 
 An earlier version of this PR also read the module and code. It worked only on the demo's one-line messages and its own test fixture, so
 it was removed.
