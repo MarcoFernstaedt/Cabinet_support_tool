@@ -27,6 +27,36 @@ Upgrading the agent means running new code on every cabinet. If the server alone
 6. Each agent downloads the files and verifies, in order: the manifest signature against the public key compiled into the agent, the zip's hash against the manifest, that the version is newer than its own, and the Authenticode signature on the binaries.
 7. Only if every check passes does it install. It reports success or the exact failed check.
 
+## A build that ships to cabinets
+
+An agent built for cabinets has to be able to check every release it is offered. So a build for the cabinet release channel
+(`-p:CabinetReleaseChannel=production`) fails, with an error rather than a warning, in either of two cases:
+- **No code-signing publisher the agent can load is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). That
+  is any of the following:
+  - the list is empty, and such an agent would refuse every upgrade at the publisher check;
+  - a publisher has no common name or no organization;
+  - a publisher names no root file, or its root file is not beside the list;
+  - the root file is not a PEM certificate;
+  - its SHA-256 (of the certificate, in lower-case hex) is not the entry's `root`.
+
+  These are the checks the agent makes when it loads the compiled trust at start: `UpgradeTrust.Load` validates the list
+  against its whole contract, reads each publisher root file, and the constructor pins the certificate hash. An entry that
+  fails one stops the broker on every cabinet, so the build refuses it rather than ship it.
+
+  **What this check does not prove:** that the list is valid against its whole contract
+  (`contracts/schemas/agent/upgrade-keys.schema.json`). The common name and organization above are the one rule from that
+  contract the build enforces; rules such as no extra properties and at most two publishers it does not.
+  `UpgradeTrust.Load` checks the whole contract first, and a list that fails it stops the broker too. The contracts suite
+  validates the repository file against that schema, and a release built from any other trust folder (the signing pipeline,
+  F1.R2) must run the same validation before it builds.
+- **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
+  that are not code-signed.
+
+The check is the `CheckCabinetReleaseTrust` target (and its inline `CheckUpgradeTrust` task) in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation. It needs no package restore.
+Development, test and CI builds leave the property unset and are not stopped by it. The signing pipeline (step 1 of the signing flow)
+sets it; until that pipeline exists (finding F1.R2) no build sets it, and today's repository, with no publisher pinned, cannot produce a
+cabinet release build at all.
+
 ## Installing on the cabinet
 
 - A small updater program, also signed, stops the service, keeps the current version as a backup, puts the new version in place and starts the service.
