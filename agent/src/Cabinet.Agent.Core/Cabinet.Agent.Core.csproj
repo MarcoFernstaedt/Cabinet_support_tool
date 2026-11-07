@@ -42,4 +42,71 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />
   </ItemGroup>
+  <!--
+    F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel
+    (-p:CabinetReleaseChannel=production, set by the signing pipeline) must carry a code-signing publisher the agent can
+    load, because the broker reads the compiled trust when it starts (UpgradeTrust.Compiled) and an entry it cannot load stops
+    it. So the build fails, before compiling, unless at least one publisher is pinned and every publisher names a common name
+    and an organization, and a root file that is present beside upgrade-keys.json, is a PEM certificate, and hashes (SHA-256
+    of the certificate, lower-case hex) to the entry's "root": the checks UpgradeTrust.Load makes when the broker starts.
+    It does NOT validate the list against its whole contract (contracts/schemas/agent/upgrade-keys.schema.json), which
+    UpgradeTrust.Load also requires: the common name and organization above are the one rule from it this gate enforces, and
+    the contracts suite checks the repository's file against the rest, as a release built from another folder must too. It
+    also fails when unsigned development upgrades are allowed. Development and test builds leave the property unset.
+  -->
+  <UsingTask TaskName="CheckUpgradeTrust" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
+    <ParameterGroup>
+      <TrustDir ParameterType="System.String" Required="true" />
+      <Problem ParameterType="System.String" Output="true" />
+    </ParameterGroup>
+    <Task>
+      <!-- netstandard only (the task factory's own references), so the check needs no package restore. The trust file is
+           schema-checked JSON, so its publisher entries are read with a fixed pattern; this is build code, not a symptom rule. -->
+      <Using Namespace="System.IO" />
+      <Using Namespace="System.Linq" />
+      <Using Namespace="System.Text.RegularExpressions" />
+      <Using Namespace="System.Security.Cryptography" />
+      <Code Type="Fragment" Language="cs"><![CDATA[
+        Problem = "";
+        string text;
+        try { text = File.ReadAllText(Path.Combine(TrustDir, "upgrade-keys.json")); }
+        catch (Exception e) { Problem = "upgrade-keys.json cannot be read (" + e.GetType().Name + ")"; return true; }
+        Match array = Regex.Match(text, "\"publishers\"\\s*:\\s*\\[(?<body>[^\\]]*)\\]");
+        if (!array.Success) { Problem = "upgrade-keys.json has no publishers list"; return true; }
+        string Field(string obj, string key) { Match m = Regex.Match(obj, "\"" + key + "\"\\s*:\\s*\"(?<v>[^\"]*)\""); return m.Success ? m.Groups["v"].Value : ""; }
+        var entries = Regex.Matches(array.Groups["body"].Value, "\\{[^}]*\\}").Cast<Match>().Select(m => m.Value).ToList();
+        if (entries.Count == 0) { Problem = "no code-signing publisher is pinned; the agent would refuse every upgrade"; return true; }
+        foreach (string entry in entries)
+        {
+          string name = Field(entry, "commonName"), org = Field(entry, "organization"), file = Field(entry, "rootFile"), root = Field(entry, "root");
+          if (name.Length == 0 || org.Length == 0) { Problem = "a publisher entry has no common name or no organization"; return true; }
+          if (file.Length == 0) { Problem = "publisher '" + name + "' names no root file"; return true; }
+          string path = Path.Combine(TrustDir, Path.GetFileName(file));
+          if (!File.Exists(path)) { Problem = "publisher '" + name + "': its root file " + file + " is not in " + TrustDir; return true; }
+          string pem = File.ReadAllText(path);
+          int begin = pem.IndexOf("-----BEGIN CERTIFICATE-----"), end = pem.IndexOf("-----END CERTIFICATE-----");
+          byte[] der;
+          try
+          {
+            if (begin < 0 || end < begin) throw new FormatException("no certificate block");
+            der = Convert.FromBase64String(new string(pem.Substring(begin + 27, end - begin - 27).Where(c => !char.IsWhiteSpace(c)).ToArray()));
+          }
+          catch (FormatException) { Problem = "publisher '" + name + "': " + file + " is not a PEM certificate"; return true; }
+          string hash;
+          using (SHA256 sha = SHA256.Create()) hash = string.Concat(sha.ComputeHash(der).Select(b => b.ToString("x2")));
+          if (hash != root) { Problem = "publisher '" + name + "': the SHA-256 of " + file + " is " + hash + ", not the pinned root " + root; return true; }
+        }
+        return true;
+      ]]></Code>
+    </Task>
+  </UsingTask>
+  <Target Name="CheckCabinetReleaseTrust" BeforeTargets="CoreCompile" Condition="'$(CabinetReleaseChannel)' == 'production'">
+    <Error Condition="'$(AllowUnsignedDevelopmentUpgrades)' == 'true'"
+           Code="CAB0001" Text="A cabinet release build cannot allow unsigned development upgrades (AllowUnsignedDevelopmentUpgrades=true)." />
+    <CheckUpgradeTrust TrustDir="$(UpgradeTrustDir)">
+      <Output TaskParameter="Problem" PropertyName="_UpgradeTrustProblem" />
+    </CheckUpgradeTrust>
+    <Error Condition="'$(_UpgradeTrustProblem)' != ''"
+           Code="CAB0002" Text="A cabinet release build needs a code-signing publisher the agent can load from $(UpgradeTrustDir): $(_UpgradeTrustProblem)." />
+  </Target>
 </Project>
