@@ -27,6 +27,7 @@
 5. Write the command record and the audit entry together.
 6. Hand the command to the waiting long poll for that cabinet, if one is open.
 7. When the result arrives, store it, write the audit entry and push it to the user's live stream.
+8. A delivered command with no result after 35 minutes is marked expired by the minute job. Each expiry writes an audit entry (`command.expire`, actor `system`) in the same transaction as the change.
 
 ## Enrollment and certificates
 
@@ -117,6 +118,7 @@ Protecting the rules:
 - Correlation: repeats of the same issue on the same cabinet fold into one open alert with an occurrence count and first-seen and last-seen times. The same issue on several cabinets at one site within an hour is flagged as a site-wide pattern.
 - Major alerts go out on every support and admin live stream immediately.
 - Claiming is atomic: the first claim wins, and later claims get told who owns it. Claim and resolve are both audited.
+- An alert the platform closes by itself (a site back online, a disk no longer filling up, and so on) is audited too: `alert.resolve` with actor `system` and `automatic: true`, in the same transaction as the closure.
 - Alert states: open, claimed, resolved.
 
 ## Firewall change attribution
