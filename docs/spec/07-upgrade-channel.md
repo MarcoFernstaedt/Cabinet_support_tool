@@ -31,12 +31,19 @@ Upgrading the agent means running new code on every cabinet. If the server alone
 
 An agent built for cabinets has to be able to check every release it is offered. So a build for the cabinet release channel
 (`-p:CabinetReleaseChannel=production`) fails, with an error rather than a warning, in either of two cases:
-- **No code-signing publisher is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). Such an agent would refuse
-  every upgrade at the publisher check.
+- **No code-signing publisher the agent can load is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). That
+  is any of the following:
+  - the list is empty, and such an agent would refuse every upgrade at the publisher check;
+  - a publisher names no root file, or its root file is not beside the list;
+  - the root file is not a PEM certificate;
+  - its SHA-256 (of the certificate, in lower-case hex) is not the entry's `root`.
+
+  These are the checks `UpgradeTrust.Load` makes when the broker starts. An entry that fails them would stop the broker on every
+  cabinet, so the build refuses it rather than ship it.
 - **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
   that are not code-signed.
 
-The check is the `CheckCabinetReleaseTrust` target in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation.
+The check is the `CheckCabinetReleaseTrust` target (and its inline `CheckUpgradeTrust` task) in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation. It needs no package restore.
 Development, test and CI builds leave the property unset and are not stopped by it. The signing pipeline (step 1 of the signing flow)
 sets it; until that pipeline exists (finding F1.R2) no build sets it, and today's repository, with no publisher pinned, cannot produce a
 cabinet release build at all.

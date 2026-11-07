@@ -1,53 +1,74 @@
-// F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel fails when it could not
-// check a release's code-signing publisher, or would accept unsigned programs. Runs the agent's own MSBuild check (no package restore
-// needed) against the repository's trust list and against a throwaway one with a publisher pinned. Skipped where dotnet is not installed.
+// F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel fails unless it carries a
+// code-signing publisher the agent can actually load, and fails when it would accept unsigned programs. Runs the agent's own MSBuild check
+// (no package restore needed) against the repository's trust list and against throwaway ones. dotnet is found on PATH, under $DOTNET_ROOT or
+// in ~/.dotnet; with none, the tests are skipped on a developer machine and fail under CI, so the check is never silently unproven there.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { createHash, X509Certificate } from "node:crypto";
+import { existsSync, mkdtempSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const PROJECT = join(ROOT, "agent", "src", "Cabinet.Agent.Core", "Cabinet.Agent.Core.csproj");
-const dotnet = spawnSync("dotnet", ["--version"], { encoding: "utf8" });
-const skip = dotnet.status === 0 ? false : "dotnet is not installed";
+const DOTNET = ["dotnet", process.env.DOTNET_ROOT && join(process.env.DOTNET_ROOT, "dotnet"), join(homedir(), ".dotnet", "dotnet")]
+  .filter(Boolean).find(d => spawnSync(d, ["--version"], { encoding: "utf8" }).status === 0);
+const skip = DOTNET || process.env.CI ? false : "dotnet is not installed (PATH, $DOTNET_ROOT, ~/.dotnet)";
 
-/** Runs only the check target, with these MSBuild properties; returns the error codes it reported (CAB0001, CAB0002). */
+test("dotnet is available wherever this suite runs under CI", { skip: !process.env.CI }, () => assert.ok(DOTNET, "the release-channel check cannot be proven without dotnet"));
+
+/** Runs only the check target with these MSBuild properties; returns the error codes it reported (CAB0001, CAB0002) and its output. */
 function check(props) {
-  const r = spawnSync("dotnet", ["msbuild", PROJECT, "-t:CheckCabinetReleaseTrust", "-nologo", ...Object.entries(props).map(([k, v]) => `-p:${k}=${v}`)], { encoding: "utf8" });
+  const r = spawnSync(DOTNET, ["msbuild", PROJECT, "-t:CheckCabinetReleaseTrust", "-nologo", ...Object.entries(props).map(([k, v]) => `-p:${k}=${v}`)], { encoding: "utf8" });
   const out = `${r.stdout}${r.stderr}`;
   return { ok: r.status === 0, codes: ["CAB0001", "CAB0002"].filter(c => out.includes(c)), out };
 }
 
+// A real certificate to pin: one of the package roots already in contracts/trust, and its SHA-256 as the agent computes it (UpgradeTrust).
+const PEM = join(ROOT, "contracts", "trust", "microsoft-root-2011.pem");
+const PEM_HASH = createHash("sha256").update(new X509Certificate(readFileSync(PEM)).raw).digest("hex");
+
+/** A throwaway trust folder: upgrade-keys.json with these publishers, plus the named files copied in. */
+function trust(publishers, files = {}) {
+  const dir = mkdtempSync(join(tmpdir(), "upgrade-trust-"));
+  writeFileSync(join(dir, "upgrade-keys.json"), JSON.stringify({ version: 1, keys: [], publishers }, null, 2));
+  for (const [name, from] of Object.entries(files)) copyFileSync(from, join(dir, name));
+  return dir;
+}
+const publisher = (over = {}) => ({ commonName: "Example Agent Publisher", organization: "Example", root: PEM_HASH, rootFile: "agent-root.pem", ...over });
+function inFolder(dir, fn) { try { return fn(check({ CabinetReleaseChannel: "production", UpgradeTrustDir: dir })); } finally { rmSync(dir, { recursive: true, force: true }); } }
+
 test("a cabinet release build with no code-signing publisher pinned fails to build (the repository today)", { skip }, () => {
-  // The repository's list, as shipped: one release key, no publisher.
   assert.equal(JSON.parse(readFileSync(join(ROOT, "contracts", "trust", "upgrade", "upgrade-keys.json"), "utf8")).publishers.length, 0);
   const r = check({ CabinetReleaseChannel: "production" });
   assert.equal(r.ok, false, r.out);
   assert.deepEqual(r.codes, ["CAB0002"]);
 });
 
-test("a cabinet release build that allows unsigned development upgrades fails to build, publisher or not", { skip }, () => {
+test("a cabinet release build that allows unsigned development upgrades fails to build", { skip }, () => {
   const r = check({ CabinetReleaseChannel: "production", AllowUnsignedDevelopmentUpgrades: "true" });
   assert.equal(r.ok, false, r.out);
   assert.ok(r.codes.includes("CAB0001"), r.out);
 });
 
-test("with a publisher pinned, the cabinet release build passes the check; development and test builds are never stopped by it", { skip }, () => {
-  const dir = mkdtempSync(join(tmpdir(), "upgrade-trust-"));
-  try {
-    writeFileSync(join(dir, "upgrade-keys.json"), JSON.stringify({ version: 1, keys: [],
-      publishers: [{ commonName: "Example Agent Publisher", organization: "Example", root: "Example Root", rootFile: "example-root.pem" }] }));
-    const pinned = check({ CabinetReleaseChannel: "production", UpgradeTrustDir: dir });
-    assert.equal(pinned.ok, true, pinned.out);
-    assert.deepEqual(pinned.codes, []);
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+test("a publisher the agent could not load fails the build: its root missing, unnamed, not a certificate, or not the pinned hash", { skip }, () => {
+  inFolder(trust([publisher()]), r => { assert.deepEqual(r.codes, ["CAB0002"], "the root file is not beside the list"); assert.match(r.out, /is not in/); });
+  inFolder(trust([publisher({ rootFile: "" })]), r => { assert.deepEqual(r.codes, ["CAB0002"], "no root file named"); assert.match(r.out, /names no root file/); });
+  const notPem = join(tmpdir(), `not-a-cert-${process.pid}.pem`);
+  writeFileSync(notPem, "hello");
+  try { inFolder(trust([publisher()], { "agent-root.pem": notPem }), r => { assert.deepEqual(r.codes, ["CAB0002"]); assert.match(r.out, /not a PEM certificate/); }); }
+  finally { rmSync(notPem, { force: true }); }
+  inFolder(trust([publisher({ root: "0".repeat(64) })], { "agent-root.pem": PEM }), r => { assert.deepEqual(r.codes, ["CAB0002"]); assert.match(r.out, /not the pinned root/); });
+  // One good publisher does not cover a broken second one.
+  inFolder(trust([publisher(), publisher({ commonName: "Second", rootFile: "missing.pem" })], { "agent-root.pem": PEM }), r => assert.deepEqual(r.codes, ["CAB0002"]));
+});
+
+test("with a publisher the agent can load, the cabinet release build passes; development and test builds are never stopped by it", { skip }, () => {
+  inFolder(trust([publisher()], { "agent-root.pem": PEM }), r => { assert.equal(r.ok, true, r.out); assert.deepEqual(r.codes, []); });
   // No channel (every development, test and CI build): the check does not run, whatever the trust list holds.
   const dev = check({});
   assert.equal(dev.ok, true, dev.out);
-  assert.deepEqual(dev.codes, []);
-  const devUnsigned = check({ AllowUnsignedDevelopmentUpgrades: "true" });
-  assert.equal(devUnsigned.ok, true, devUnsigned.out);
+  assert.equal(check({ AllowUnsignedDevelopmentUpgrades: "true" }).ok, true);
 });
