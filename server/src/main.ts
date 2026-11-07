@@ -19,7 +19,7 @@ import { SecretBox } from "./auth/secrets.js";
 import { checkOffline, fleetContact } from "./services/alerts.js";
 import { checkSiteOutages } from "./services/site-outage.js";
 import { sweepFleetPatterns } from "./services/fleet-patterns.js";
-import { expireUnanswered } from "./services/commands.js";
+import { expireCommands } from "./services/commands.js";
 import { checkExpiringCertificates } from "./services/cabinets.js";
 import { TrustList } from "./packages/trust.js";
 import { mkdirSync } from "node:fs";
@@ -125,7 +125,7 @@ if (runsServices) {
     checkSiteOutages(jobs).catch(failed("site outage check"));
     // The same problem at many sites at once is one fleet alert with a report (D22).
     sweepFleetPatterns(jobs).catch(failed("fleet pattern check"));
-    expireUnanswered(jobs).catch(failed("unanswered command check"));
+    expireCommands(jobs).catch(failed("command expiry"));
     expireRules(jobs).catch(failed("rule expiry"));
     checkRollouts(jobs).catch(failed("rollout check"));
     checkQuietLoops(jobs).then(() => sweepCrashIncidents(jobs)).catch(failed("reboot loop and crash incident check"));

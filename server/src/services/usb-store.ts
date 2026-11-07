@@ -10,6 +10,7 @@
 // the migration by a test without a SQL Server — this file stays the only one in the layer that needs a live database.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { normalizeSignature, upsertAlert } from "./alerts.js";
+import { closeAutomatically } from "./automatic-close.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { upsertSetting } from "./settings.js";
@@ -152,7 +153,7 @@ export async function applyUsbReport(pool: Pool, cabinetId: string, body: unknow
     const work = usbAlertWork(cabinetId, result.decisions);
     for (const write of work.writes) await upsertAlert(c, { ...write, signature: normalizeSignature(write.signature) });
     for (const done of work.resolutions) {
-      await c.query(usbResolveIncidentSql, usbResolveIncidentParams(cabinetId, normalizeSignature(done.signature), done.resolution));
+      await closeAutomatically(c, "usb-watch", usbResolveIncidentSql, usbResolveIncidentParams(cabinetId, normalizeSignature(done.signature), done.resolution));
     }
     return {
       decisions: result.decisions.length,

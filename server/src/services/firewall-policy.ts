@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { catalog } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
@@ -106,13 +107,13 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
       OUTPUT $action INTO @o (act);
      SELECT act FROM @o;`,
     [...params, ISSUE.firewallPolicy, issue.severity, `issue:${ISSUE.firewallPolicy}`, issue.name]);
-  const resolved = !open ? { rowCount: 0 } : await db.query(
-    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The firewall matches its policy again.'
+  const resolved = !open ? [] : await closeAutomatically(db, "firewall-policy",
+    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The firewall matches its policy again.' ${CLOSED_OUTPUT}
        FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
       WHERE a.issue_type_id = CAST($${n + 1} AS uniqueidentifier) AND a.state <> 'resolved' AND ${where}
         AND (k.status <> 'active' OR NOT (${DIFFERS_SQL}))`,
     [...params, ISSUE.firewallPolicy]);
-  return { opened: opened.rows.filter(r => r.act === "INSERT").length, resolved: resolved.rowCount ?? 0 };
+  return { opened: opened.rows.filter(r => r.act === "INSERT").length, resolved: resolved.length };
 }
 
 /** An Admin sets a client's own policy, or removes it (null) so the fleet default applies. Needs a code. */

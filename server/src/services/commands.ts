@@ -97,8 +97,8 @@ export interface TakenCommands {
 /**
  * Hands over the commands waiting for this cabinet (Protocol 1.1 leased delivery), after recording the acknowledgements the poll
  * carried. A command handed to a poll is leased for leaseSeconds; one neither acknowledged nor answered when its lease ends is offered
- * again while it has not expired, so a poll whose answer was lost on the way loses no command. Commands past their expiry are marked
- * expired, never delivered. The acknowledgements count only for this cabinet's own commands.
+ * again while it has not expired, so a poll whose answer was lost on the way loses no command. Commands past their expiry are never
+ * delivered; the minute job marks them expired (expireCommands). The acknowledgements count only for this cabinet's own commands.
  */
 export async function takeLeasedCommands(pool: Queryable, cabinetId: string, acks: readonly string[] = [], leaseSeconds = LEASE_SECONDS): Promise<TakenCommands> {
   // One batch, one round trip: it runs for every long poll of every cabinet. At most MAX_COMMANDS_PER_POLL, oldest first.
@@ -114,11 +114,8 @@ export async function takeLeasedCommands(pool: Queryable, cabinetId: string, ack
      IF EXISTS (SELECT 1 FROM commands WITH (FORCESEEK) WHERE cabinet_id = $1 AND status = 'queued')
         OR EXISTS (SELECT 1 FROM commands WITH (FORCESEEK) WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL)
      BEGIN
-     UPDATE commands SET status = 'expired' WHERE cabinet_id = $1 AND status = 'queued' AND expires_at <= @now;
-     -- Handed to a poll that never confirmed it (its answer went into a dead connection), and its lifetime ran out before it could be
-     -- offered again: it is expired now, not left looking as if it were running. A result that still arrives is kept (storeResult).
-     UPDATE commands SET status = 'expired'
-      WHERE cabinet_id = $1 AND status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at <= @now;
+     -- A command past its expiry is never handed over (both halves below require expires_at > @now). Marking it expired is the minute
+     -- job's (expireCommands), which audits each one (F4); doing it here would put a table variable on every poll.
      UPDATE commands SET status = 'delivered', delivered_at = COALESCE(delivered_at, @now), lease_until = @until
       WHERE id IN (SELECT TOP (${MAX_COMMANDS_PER_POLL}) w.id FROM (
                      SELECT id, issued_at FROM commands WITH (UPDLOCK, ROWLOCK, READPAST, FORCESEEK)
@@ -167,7 +164,7 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       await c.query("UPDATE commands SET ack_at = COALESCE(ack_at, SYSUTCDATETIME()) WHERE id = $1", [result.commandId]);
       return;
     }
-    // A delivered command that went quiet is marked expired (expireUnanswered), but its result still counts if it arrives
+    // A delivered command that went quiet is marked expired (expireCommands), but its result still counts if it arrives
     // later (the cabinet ran it, then lost the server): what really happened on the cabinet is never thrown away.
     if (!(command.status === "delivered" || (command.status === "expired" && command.delivered === 1)))
       throw new Refused("result_not_expected", 409, "this command already has a result or was never delivered");
@@ -227,21 +224,34 @@ export async function commandRecord(db: Queryable, commandId: string): Promise<{
 export const UNANSWERED_AFTER_MINUTES = 35;
 
 /**
- * Marks delivered commands that never got a result as expired, so the console stops showing them as running (the
- * long-poll answer may have been lost on the way, or the cabinet went offline). Runs with the minute job.
+ * The minute job's expiry, every command that can no longer run, each with its own audit entry in the same transaction (F4):
+ * - queued and past its expiry, never handed over;
+ * - handed to a poll that never confirmed it (its answer went into a dead connection), whose lifetime ran out before it could be
+ *   offered again, so it is not left looking as if it were running;
+ * - delivered and unanswered for UNANSWERED_AFTER_MINUTES (the long-poll answer was lost, or the cabinet went offline), so the console
+ *   stops showing it as running.
+ * A result that still arrives is kept (storeResult). The changed rows come back through a table variable (OUTPUT INTO), which SQL Server
+ * allows whatever triggers the table carries.
  */
-export async function expireUnanswered(pool: Pool): Promise<number> {
-  // Every command this automatic step expires leaves its own audit entry, in the same transaction as the change (F4). The changed rows
-  // are collected into a table variable (OUTPUT INTO), which SQL Server allows whatever triggers the table carries.
+export async function expireCommands(pool: Pool): Promise<number> {
   return transaction(pool, async tx => {
-    const expired = (await tx.query<{ id: string; cabinet_id: string; operation: string }>(
-      `DECLARE @o TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64));
-       UPDATE commands SET status = 'expired' OUTPUT inserted.id, inserted.cabinet_id, inserted.operation INTO @o (id, cabinet_id, operation)
-        WHERE status = 'delivered' AND delivered_at < DATEADD(minute, -$1, SYSUTCDATETIME());
-       SELECT id, cabinet_id, operation FROM @o;`, [UNANSWERED_AFTER_MINUTES])).rows;
+    const expired = (await tx.query<{ id: string; cabinet_id: string; operation: string; why: string }>(
+      `DECLARE @now datetime2(3) = SYSUTCDATETIME();
+       DECLARE @o TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), why varchar(16));
+       UPDATE commands SET status = 'expired'
+         OUTPUT inserted.id, inserted.cabinet_id, inserted.operation,
+                CASE WHEN deleted.status = 'queued' THEN 'never_delivered'
+                     WHEN deleted.delivered_at < DATEADD(minute, -$1, @now) THEN 'unanswered' ELSE 'unconfirmed' END
+           INTO @o (id, cabinet_id, operation, why)
+        WHERE (status = 'queued' AND expires_at <= @now)
+           OR (status = 'delivered' AND ack_at IS NULL AND result_at IS NULL AND lease_until <= @now AND expires_at <= @now)
+           OR (status = 'delivered' AND delivered_at < DATEADD(minute, -$1, @now));
+       SELECT id, cabinet_id, operation, why FROM @o;`, [UNANSWERED_AFTER_MINUTES])).rows;
     if (expired.length > 0)
       await auditMany(tx, expired.map(r => ({ actorKind: "system", actorId: "command-expiry", action: "command.expire", targetKind: "command", targetId: r.id.toLowerCase(),
-        outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation, unansweredMinutes: UNANSWERED_AFTER_MINUTES, automatic: true } })));
+        outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation,
+          why: r.why, ...(r.why === "unanswered" ? { unansweredMinutes: UNANSWERED_AFTER_MINUTES } : {}),
+          automatic: true } })));
     return expired.length;
   });
 }
