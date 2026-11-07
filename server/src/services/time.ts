@@ -2,6 +2,7 @@
 // client's, else the fleet default (05-server-spec.md "Site policies"); each cabinet reports its zone and its clock offset in every heartbeat. A cabinet in the wrong zone, or whose clock is more than two
 // minutes off, gets a minor alert, which closes on its own when the heartbeat shows it right again.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
+import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
 import { upsertSetting } from "./settings.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
@@ -57,12 +58,12 @@ export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opene
         OUTPUT $action INTO @o (act);
        SELECT act FROM @o;`, [issueId, issue.severity, `issue:${issueId}`, Math.round(OFFLINE_AFTER_MS / 1000), issue.name, ...args]);
     opened += o.rows.filter(r => r.act === "INSERT").length;
-    const r = !open ? { rowCount: 0 } : await db.query(
-      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2
+    const r = !open ? [] : await closeAutomatically(db, "time-check",
+      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
          FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
         WHERE a.issue_type_id = CAST($1 AS uniqueidentifier) AND a.state <> 'resolved' AND ${whereAt(3)}
           AND (k.status <> 'active' OR NOT (${condition}))`, [issueId, fixed, ...args]);
-    resolved += r.rowCount ?? 0;
+    resolved += r.length;
   }
   return { opened, resolved };
 }

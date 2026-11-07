@@ -27,7 +27,7 @@
 5. Write the command record and the audit entry together.
 6. Hand the command to the waiting long poll for that cabinet, if one is open.
 7. When the result arrives, store it, write the audit entry and push it to the user's live stream.
-8. A delivered command with no result after 35 minutes is marked expired by the minute job. Each expiry writes an audit entry (`command.expire`, actor `system`) in the same transaction as the change.
+8. A command that can no longer run is marked expired by the minute job: one still queued past its expiry, one handed to a poll that never confirmed it whose expiry has passed, and one delivered with no result after 35 minutes. Each expiry writes an audit entry (`command.expire`, actor `system`, with why: `never_delivered`, `unconfirmed` or `unanswered`) in the same transaction as the change. The long poll never hands over a command past its expiry; it does not mark it expired itself, so until the next minute job such a command still reads as queued or delivered. A result that arrives after expiry is kept.
 
 ## Enrollment and certificates
 
@@ -118,7 +118,8 @@ Protecting the rules:
 - Correlation: repeats of the same issue on the same cabinet fold into one open alert with an occurrence count and first-seen and last-seen times. The same issue on several cabinets at one site within an hour is flagged as a site-wide pattern.
 - Major alerts go out on every support and admin live stream immediately.
 - Claiming is atomic: the first claim wins, and later claims get told who owns it. Claim and resolve are both audited.
-- An alert the platform closes by itself is to be audited too: `alert.resolve` with actor `system` and `automatic: true`, in the same transaction as the closure (finding F4). Today two automatic closes do this, a site back online (`site-outage.ts`) and a disk no longer filling up (`drives.ts`). The others still close with nothing on the chain; they are listed in 09-open-decisions.md "Automatic closes not yet on the audit chain", and until each is audited this rule does not hold for it.
+- An alert the platform closes by itself is audited too: `alert.resolve` with actor `system` (naming the check that closed it) and `automatic: true`, in the same transaction as the closure (finding F4). Every automatic close goes through `closeAutomatically` (`server/src/services/automatic-close.ts`) or audits on its own (the site outage, the disk forecast, a security alert clearing itself).
+- **Every state change and every delete is audited (F4).** A statement that changes a row's state or status, or deletes rows, writes an audit row in the same transaction, or is a named exception that is not a transition of its own: a delivery lease, one step's progress inside a run whose start and end are audited, derived or cached rows recomputed from others, and telemetry retention whose nightly run is audited with its counts. `server/test/audit-sweep.test.ts` reads the server's source and fails on any new statement that is neither audited nor on that list with its reason. A fleet job's automatic end is audited as `fleet.job.finish`.
 - Alert states: open, claimed, resolved.
 
 ## Firewall change attribution

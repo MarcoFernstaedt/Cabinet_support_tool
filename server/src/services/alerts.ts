@@ -13,6 +13,7 @@ import { countRuleHits, decide, ISSUE, liveNow, ruleConfig, type RuleConfig } fr
 import { isBootRecord, recordBoot } from "./crashes.js";
 import { insertNote } from "./case-notes.js";
 import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
+import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
 import { resolutionNoteText } from "./resolutions.js";
 import { saveKnownFix } from "./known-fixes.js";
 
@@ -187,15 +188,14 @@ export async function processBatch(c: Tx, cabinetId: string, events: readonly Ev
   for (let i = 0; i < steps.length;) {
     const step = steps[i]!;
     if (step.kind === "resolve") {
-      const r = await c.query<{ id: string }>(
-        `DECLARE @o TABLE (id uniqueidentifier);
-         UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $3
-           OUTPUT inserted.id INTO @o
-          WHERE cabinet_id = $1 AND state <> 'resolved' AND ${step.by === "issue" ? "issue_type_id = CAST($2 AS uniqueidentifier)" : "signature = $2"};
-         SELECT id FROM @o;`, [cabinetId, step.key, step.resolution]);
+      const closed = await closeAutomatically(c, "event-rule",
+        `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $3
+           ${CLOSED_OUTPUT}
+          WHERE cabinet_id = $1 AND state <> 'resolved' AND ${step.by === "issue" ? "issue_type_id = CAST($2 AS uniqueidentifier)" : "signature = $2"}`,
+        [cabinetId, step.key, step.resolution]);
       const e = events[step.index]!;
-      links.set(e.eventId, { e: e.eventId, a: r.rows[0]?.id ?? null, r: null });
-      outcomes[step.index] = { kind: "resolved", alertIds: r.rows.map(x => x.id) };
+      links.set(e.eventId, { e: e.eventId, a: closed[0]?.id ?? null, r: null });
+      outcomes[step.index] = { kind: "resolved", alertIds: closed.map(x => x.id) };
       i++;
       continue;
     }
@@ -690,16 +690,16 @@ export async function checkOffline(pool: Pool, guard: FleetContact = fleetContac
  * (every heartbeat after a silence) never runs with the plan made for the whole fleet; both use the open-alerts index.
  */
 export async function resolveOfflineFor(db: Queryable, cabinetId: string | null): Promise<number> {
-  const r = cabinetId === null
-    ? await db.query(
-      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The cabinet is back online.'
+  const closed = cabinetId === null
+    ? await closeAutomatically(db, "offline-check",
+      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The cabinet is back online.' ${CLOSED_OUTPUT}
          FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.state <> 'resolved'
           AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())`, [ISSUE.offline, OFFLINE_AFTER_MS / 1000])
-    : await db.query(
-      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The cabinet is back online.'
+    : await closeAutomatically(db, "offline-check",
+      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The cabinet is back online.' ${CLOSED_OUTPUT}
          FROM alerts a WITH (FORCESEEK) JOIN cabinets k ON k.id = a.cabinet_id WHERE a.issue_type_id = $1 AND a.cabinet_id = $3 AND a.state <> 'resolved'
           AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())`, [ISSUE.offline, OFFLINE_AFTER_MS / 1000, cabinetId]);
-  return r.rowCount ?? 0;
+  return closed.length;
 }
 
 /** The offline filter: clients with offline cabinets, then one client's sites, then one site's cabinets. */

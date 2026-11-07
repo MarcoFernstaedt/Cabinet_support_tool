@@ -7,7 +7,7 @@ import { CommandNotifier } from "../src/agent-api/notifier.js";
 import { buildAgentApi } from "../src/agent-api/server.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import type { IssuingKey } from "../src/pki/x509.js";
-import { issueCommand, commandRecord, expireUnanswered } from "../src/services/commands.js";
+import { issueCommand, commandRecord, expireCommands } from "../src/services/commands.js";
 import { approveEnrollment, createBootstrapToken } from "../src/services/enrollment.js";
 import { listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { verifyAuditChain } from "../src/db/db.js";
@@ -212,7 +212,12 @@ test("the long poll returns empty after its time limit, and expired commands are
   const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
   await asOwner(db, c => c.query("UPDATE commands SET issued_at = DATEADD(minute, -10, SYSUTCDATETIME()), expires_at = DATEADD(minute, -5, SYSUTCDATETIME()) WHERE id = $1", [command.commandId]));
   assert.deepEqual((await call("GET", "/agent/v1/commands", undefined, cab)).body.commands, []);
+  // The minute job marks it expired, on the audit chain (F4); the poll itself only refuses to hand it over.
+  await expireCommands(db.app);
   assert.equal((await commandRecord(db.app, command.commandId))!.status, "expired");
+  const why = (await db.app.query<{ details: Record<string, unknown> }>("SELECT details FROM audit_log WHERE action = 'command.expire' AND target_id = $1",
+    [command.commandId.toLowerCase()])).rows.map(r => r.details.why);
+  assert.deepEqual(why, ["never_delivered"]);
 });
 
 test("issuing refuses unknown operations, bad parameters, and writes without a step-up token", async () => {
@@ -389,9 +394,10 @@ test("a delivered command that is never answered expires, and a late result is s
   const command = await issueCommand(db.app, admin, cab.cabinetId, "system.info", {});
   const polled = await call("GET", "/agent/v1/commands", undefined, cab);
   assert.equal(polled.body.commands[0].commandId, command.commandId);
-  assert.equal(await expireUnanswered(db.app), 0, "not yet");
+  await expireCommands(db.app);
+  assert.equal((await commandRecord(db.app, command.commandId))?.status, "delivered", "not yet");
   await asOwner(db, c => c.query("UPDATE commands SET delivered_at = DATEADD(minute, -36, SYSUTCDATETIME()) WHERE id = $1", [command.commandId]));
-  assert.equal(await expireUnanswered(db.app), 1);
+  assert.ok(await expireCommands(db.app) >= 1);
   assert.equal((await commandRecord(db.app, command.commandId))?.status, "expired");
   // F4: the automatic expiry is on the audit chain, once, against the command.
   const audited = (await db.app.query<{ actor_kind: string; details: Record<string, unknown> }>(
@@ -399,7 +405,10 @@ test("a delivered command that is never answered expires, and a late result is s
   assert.equal(audited.length, 1);
   assert.equal(audited[0]!.actor_kind, "system");
   assert.equal(audited[0]!.details.operation, "system.info");
-  assert.equal(await expireUnanswered(db.app), 0, "an expired command is not expired, or audited, again");
+  assert.equal(audited[0]!.details.why, "unanswered");
+  await expireCommands(db.app);
+  assert.equal((await db.app.query("SELECT 1 AS x FROM audit_log WHERE action = 'command.expire' AND target_id = $1", [command.commandId.toLowerCase()])).rows.length, 1,
+    "an expired command is not expired, or audited, again");
   const now = new Date().toISOString();
   const late = await call("POST", "/agent/v1/results", { commandId: command.commandId, status: "failed", startedAt: now, finishedAt: now,
     error: { code: "timeout", message: "late" } }, cab);
