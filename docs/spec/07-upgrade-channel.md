@@ -39,14 +39,16 @@ An agent built for cabinets has to be able to check every release it is offered.
   - the root file is not a PEM certificate;
   - its SHA-256 (of the certificate, in lower-case hex) is not the entry's `root`.
 
-  These are the root checks `UpgradeTrust`'s constructor makes when the broker starts. An entry that fails them would stop the
-  broker on every cabinet, so the build refuses it rather than ship it.
+  These are the checks the agent makes when it loads the compiled trust at start: `UpgradeTrust.Load` validates the list
+  against its whole contract, reads each publisher root file, and the constructor pins the certificate hash. An entry that
+  fails one stops the broker on every cabinet, so the build refuses it rather than ship it.
 
-  **What this check does not prove:** that the list is valid against its contract
-  (`contracts/schemas/agent/upgrade-keys.schema.json`, for example no extra properties and at most two publishers).
-  `UpgradeTrust.Load` checks that first, and a list that fails it stops the broker too. The contracts suite validates the
-  repository's file against that schema; a release built from any other trust folder (the signing pipeline, F1.R2) must run the
-  same validation before it builds.
+  **What this check does not prove:** that the list is valid against its whole contract
+  (`contracts/schemas/agent/upgrade-keys.schema.json`). The common name and organization above are the one rule from that
+  contract the build enforces; rules such as no extra properties and at most two publishers it does not.
+  `UpgradeTrust.Load` checks the whole contract first, and a list that fails it stops the broker too. The contracts suite
+  validates the repository file against that schema, and a release built from any other trust folder (the signing pipeline,
+  F1.R2) must run the same validation before it builds.
 - **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
   that are not code-signed.
 
