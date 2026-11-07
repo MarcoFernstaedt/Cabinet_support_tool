@@ -27,6 +27,20 @@ Upgrading the agent means running new code on every cabinet. If the server alone
 6. Each agent downloads the files and verifies, in order: the manifest signature against the public key compiled into the agent, the zip's hash against the manifest, that the version is newer than its own, and the Authenticode signature on the binaries.
 7. Only if every check passes does it install. It reports success or the exact failed check.
 
+## A build that ships to cabinets
+
+An agent built for cabinets has to be able to check every release it is offered. So a build for the cabinet release channel
+(`-p:CabinetReleaseChannel=production`) fails, with an error rather than a warning, in either of two cases:
+- **No code-signing publisher is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). Such an agent would refuse
+  every upgrade at the publisher check.
+- **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
+  that are not code-signed.
+
+The check is the `CheckCabinetReleaseTrust` target in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation.
+Development, test and CI builds leave the property unset and are not stopped by it. The signing pipeline (step 1 of the signing flow)
+sets it; until that pipeline exists (finding F1.R2) no build sets it, and today's repository, with no publisher pinned, cannot produce a
+cabinet release build at all.
+
 ## Installing on the cabinet
 
 - A small updater program, also signed, stops the service, keeps the current version as a backup, puts the new version in place and starts the service.

@@ -42,4 +42,20 @@
   <ItemGroup>
     <InternalsVisibleTo Include="Cabinet.Agent.Core.Tests" />
   </ItemGroup>
+  <!--
+    F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel
+    (-p:CabinetReleaseChannel=production, set by the signing pipeline) must be able to check the code-signing publisher of
+    every release it is offered. With no publisher pinned it would refuse every upgrade, and with development upgrades on it
+    would accept unsigned programs; either is a build failure, not a warning. Development and test builds leave the property
+    unset and are unaffected. A publisher entry always names its pinned root ("rootFile"), so an empty list has none.
+  -->
+  <Target Name="CheckCabinetReleaseTrust" BeforeTargets="CoreCompile" Condition="'$(CabinetReleaseChannel)' == 'production'">
+    <PropertyGroup>
+      <_UpgradeKeysText>$([System.IO.File]::ReadAllText('$(UpgradeTrustDir)/upgrade-keys.json'))</_UpgradeKeysText>
+    </PropertyGroup>
+    <Error Condition="'$(AllowUnsignedDevelopmentUpgrades)' == 'true'"
+           Code="CAB0001" Text="A cabinet release build cannot allow unsigned development upgrades (AllowUnsignedDevelopmentUpgrades=true)." />
+    <Error Condition="!$(_UpgradeKeysText.Contains('&quot;rootFile&quot;'))"
+           Code="CAB0002" Text="A cabinet release build needs a code-signing publisher pinned in $(UpgradeTrustDir)/upgrade-keys.json; with none, the agent would refuse every upgrade." />
+  </Target>
 </Project>
