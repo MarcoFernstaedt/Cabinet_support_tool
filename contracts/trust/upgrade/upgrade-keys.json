@@ -7,5 +7,12 @@
       "publicKey": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAERtZoCmr4JzgIgbVZLNGiUDt6ftyDMa2D2HfvRwZlAHzW8EVxeODNww3UP4UuGKB/8JJtaDZjnGGN02OwpNGEgw=="
     }
   ],
-  "publishers": []
+  "publishers": [
+    {
+      "commonName": "Mashura Code Signing",
+      "organization": "Mashura LLC",
+      "root": "3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b",
+      "rootFile": "agent-code-signing-root.pem"
+    }
+  ]
 }

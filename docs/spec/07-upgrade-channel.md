@@ -33,7 +33,8 @@ An agent built for cabinets has to be able to check every release it is offered.
 (`-p:CabinetReleaseChannel=production`) fails, with an error rather than a warning, in either of two cases:
 - **No code-signing publisher the agent can load is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). That
   is any of the following:
-  - the list is empty, and such an agent would refuse every upgrade at the publisher check;
+  - the list is empty, and such an agent would refuse every upgrade at the publisher check (the repository's list is not
+    empty; see "What the repository pins" below);
   - a publisher has no common name or no organization;
   - a publisher names no root file, or its root file is not beside the list;
   - the root file is not a PEM certificate;
@@ -54,8 +55,24 @@ An agent built for cabinets has to be able to check every release it is offered.
 
 The check is the `CheckCabinetReleaseTrust` target (and its inline `CheckUpgradeTrust` task) in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation. It needs no package restore.
 Development, test and CI builds leave the property unset and are not stopped by it. The signing pipeline (step 1 of the signing flow)
-sets it; until that pipeline exists (finding F1.R2) no build sets it, and today's repository, with no publisher pinned, cannot produce a
-cabinet release build at all.
+sets it; until that pipeline exists (finding F1.R2) no build sets it. The repository's own list now pins a publisher, so a
+cabinet release build of the current tree passes this check, which `contracts/test/release-channel.test.mjs` asserts
+alongside the cases that still fail: an empty list, a broken publisher entry, or a root that is not the pinned one.
+
+## What the repository pins
+
+`contracts/trust/upgrade/upgrade-keys.json` names one code-signing publisher — common name `Mashura Code Signing`,
+organization `Mashura LLC` — and the root certificate beside it, `agent-code-signing-root.pem`, whose SHA-256 is
+`3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b`. Both are made and pinned by
+`agent/install/New-PublisherRoot.ps1`, which generates an offline root and one issuing certificate from it, proves a
+signature and the chain before it writes anything, and refuses to write a private key inside the repository; its cases are
+in `agent/install/tests/run-tests.ps1`. The decision behind it (7 November 2026) is our own publisher root and no bought
+certificate, so we can sign and update our own programs.
+
+What that does not yet do: nothing signs the agent binaries with the issuing certificate, and no cabinet has the root in
+its trust store. Both are F1.R2 — the signing step and the install step that puts the root on the machine. The two
+conditions are independent and both are needed: Windows must accept the signature, which is what the installed root is
+for, and the signer must match this pinned publisher, which is what this list is for.
 
 ## Installing on the cabinet
 
