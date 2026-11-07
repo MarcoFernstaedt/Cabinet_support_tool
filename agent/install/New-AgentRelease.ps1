@@ -33,7 +33,12 @@ param(
     [string] $AwsKmsKeyId,
     [string] $AzureKeyId,
     [string] $DevKeyFile,
-    # Test builds only, with -DevKeyFile: package binaries that are not signed, to prove the agent refuses them.
+    # The upgrade trust list the agent in this build compiled in. Checked before packaging, so a release is never shipped
+    # to cabinets that the agent carrying it would refuse: an empty publisher list, or a pinned root that is not the root
+    # in the folder, fails the build instead of the fleet.
+    [string] $UpgradeTrustDir,
+    # Test builds only, with -DevKeyFile: package binaries that are not signed and skip the publisher check, to prove the
+    # agent refuses them.
     [switch] $AllowUnsignedForTest
 )
 $ErrorActionPreference = 'Stop'
@@ -47,6 +52,10 @@ if ($PSVersionTable.PSEdition -ne 'Core' -or $PSVersionTable.PSVersion.Major -lt
 $versionPattern = '^(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})\.(0|[1-9][0-9]{0,8})(-[0-9A-Za-z.-]{1,32})?$'
 if ($Version -notmatch $versionPattern -or $MinimumVersion -notmatch $versionPattern) { throw 'Versions are major.minor.patch.' }
 if (@($AwsKmsKeyId, $AzureKeyId, $DevKeyFile | Where-Object { $_ }).Count -ne 1) { throw 'Name exactly one signer: -AwsKmsKeyId, -AzureKeyId or -DevKeyFile.' }
+$repo = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+. (Join-Path $PSScriptRoot 'TrustFolder.ps1')
+if (-not $UpgradeTrustDir) { $UpgradeTrustDir = Join-Path $repo 'contracts\trust\upgrade' }
+if (-not (Test-Path $UpgradeTrustDir)) { throw "The upgrade trust list directory $UpgradeTrustDir does not exist. Point -UpgradeTrustDir at the trust the agent was built with." }
 
 # 1. Every program the updater puts in place, each Authenticode-signed (the agent checks this again and refuses otherwise).
 $required = 'Cabinet.Agent.Broker\Cabinet.Agent.Broker.exe', 'Cabinet.Agent.Network\Cabinet.Agent.Network.exe', 'Cabinet.Agent.Updater\Cabinet.Agent.Updater.exe'
@@ -74,12 +83,21 @@ foreach ($exe in Get-ChildItem $PublishDir -Recurse -File -Filter '*.exe') {
     }
 }
 if ($AllowUnsignedForTest -and -not $DevKeyFile) { throw '-AllowUnsignedForTest is only for test releases signed with -DevKeyFile.' }
-if ($IsWindows -and -not $AllowUnsignedForTest) {
+if (-not $AllowUnsignedForTest) {
+    # A release that was packaged with this check skipped is one the agent refuses after it has been shipped, and the
+    # cabinet it was shipped to has no way back. Failing the build is the only safe place for that decision (F1).
+    if (-not ($IsWindows -or $env:OS -eq 'Windows_NT')) {
+        throw 'Authenticode signatures cannot be checked on this host, so this release would be packaged unverified. Package releases on Windows, or pass -AllowUnsignedForTest with -DevKeyFile for a test release that a production agent refuses.'
+    }
     foreach ($b in $binaries) {
         $sig = Get-AuthenticodeSignature $b.FullName
         if ($sig.Status -ne 'Valid') { throw "$($b.FullName) is not validly Authenticode-signed ($($sig.Status)); sign every binary before packaging." }
     }
-} else { Write-Warning 'Authenticode was not checked here (this is not a Windows host, or -AllowUnsignedForTest was given): the binaries in this release are unverified, and the agent checks every one again before it installs.' }
+    $pinned = Assert-PublisherPinned $UpgradeTrustDir
+    Write-Host "$($binaries.Count) binaries are validly signed, and $pinned publisher(s) are pinned in $UpgradeTrustDir."
+} else {
+    Write-Warning 'This is a test release: the binaries are not signed and no publisher is checked, so a production agent refuses it.'
+}
 
 # 2. The zip, with forward-slash names, one folder per program.
 New-Item -ItemType Directory -Force -Path $OutDir | Out-Null

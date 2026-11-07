@@ -47,6 +47,7 @@ Run each line from the repository root:
 ```sh
 (cd contracts && npm ci && npm test)                    # schemas, examples, generated types
 (cd agent && dotnet build Cabinet.Agent.sln -c Release && dotnet test tests/Cabinet.Agent.Core.Tests -c Release && dotnet test tests/Cabinet.Agent.Contracts.Tests -c Release)
+pwsh -File agent/install/tests/run-tests.ps1             # the publisher root, the upgrade trust list, the release gate
 (cd console && npm ci && npm run build)
 (cd server && npm ci && npm test)                        # needs SQL Server; see server/README.md
 ```

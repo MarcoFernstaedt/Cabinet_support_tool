@@ -245,6 +245,11 @@ jobs:
           node deploy/database-setup.mjs login
           "DATABASE_URL=sqlserver://cabinet_app_login:CiOnlyNotASecret0123456789Aa1@localhost:1433/cabinet?trustServerCertificate=true" | Out-File -Append $env:GITHUB_ENV
           "DEV_PKI_DIR=$env:RUNNER_TEMP\dev-pki" | Out-File -Append $env:GITHUB_ENV
+          # The key that seals authenticator secrets, made for this run only; the CI accounts' authenticators live in the runner's temp folder.
+          $env:CONSOLE_SECRET_KEY = [Convert]::ToBase64String([System.Security.Cryptography.RandomNumberGenerator]::GetBytes(32))
+          $env:CI_AUTHENTICATOR_DIR = "$env:RUNNER_TEMP\ci-authenticator"
+          "CONSOLE_SECRET_KEY=$env:CONSOLE_SECRET_KEY" | Out-File -Append $env:GITHUB_ENV
+          "CI_AUTHENTICATOR_DIR=$env:CI_AUTHENTICATOR_DIR" | Out-File -Append $env:GITHUB_ENV
           $env:DATABASE_URL = 'sqlserver://cabinet_app_login:CiOnlyNotASecret0123456789Aa1@localhost:1433/cabinet?trustServerCertificate=true'
           $env:DEV_PKI_DIR = "$env:RUNNER_TEMP\dev-pki"
           $env:AGENT_API_PORT = '8443'
@@ -253,7 +258,8 @@ jobs:
           for ($i = 0; $i -lt 30 -and -not (Test-Path "$env:DEV_PKI_DIR\dev-agent-api.cert.pem"); $i++) { Start-Sleep 1 }
           Start-Sleep 2
           node server/dist/src/cli.js user add --username ci.admin --name "CI Admin" --role admin
-          $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
+          node .github/ci/ci-authenticator.mjs enroll ci.admin
+          $token = (node server/dist/src/cli.js token create --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -EnableLocalHarness -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
             -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token
           $request = $null
@@ -261,7 +267,7 @@ jobs:
           Get-Content "$env:ProgramData\Mashura\CabinetAgent\logs\network.log" -Tail 20
           if (-not $request) { Get-Content "$env:RUNNER_TEMP\server.log" -Tail 30; throw 'No enrollment request arrived.' }
           if (Test-Path "$env:ProgramData\Mashura\CabinetAgent\state\bootstrap-token") { throw 'The bootstrap token was not deleted after use.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone --baseline capture
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) --client "CI Client" --site "Runner" --cabinet "Windows runner" --role standalone --baseline capture
           $online = $null
           for ($i = 0; $i -lt 60 -and -not $online; $i++) { Start-Sleep 2; $online = node server/dist/src/cli.js cabinets | Select-String ' online ' }
           node server/dist/src/cli.js cabinets
@@ -273,7 +279,7 @@ jobs:
               @('system.info', '{}'), @('peripheral.status', '{}'), @('disk.smart', '{}'), @('updates.status', '{}'),
               @('eventlog.query', '{"log":"System","levels":["error","warning"],"pageSize":5}'),
               @('network.test', '{"target":"sync_cabinet","method":"tcp","port":135}'))) {
-            $ids[$op[0]] = (node server/dist/src/cli.js issue $env:CABINET_ID $op[0] $op[1] --as ci.admin | Select-Object -Last 1).Trim()
+            $ids[$op[0]] = (node server/dist/src/cli.js issue $env:CABINET_ID $op[0] $op[1] --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           }
           $failed = @()
           foreach ($op in $ids.Keys) {
@@ -305,8 +311,10 @@ jobs:
             }
           }
           $cli = 'server/dist/src/cli.js'
-          node $cli user add --username ci.tier2 --name "CI Tier 2" --role tier2 | Out-Null
-          node $cli user add --username ci.admin2 --name "CI Second Admin" --role admin | Out-Null
+          node $cli user add --username ci.tier2 --name "CI Tier 2" --role tier2 --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Out-Null
+          node .github/ci/ci-authenticator.mjs enroll ci.tier2
+          node $cli user add --username ci.admin2 --name "CI Second Admin" --role admin --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Out-Null
+          node .github/ci/ci-authenticator.mjs enroll ci.admin2
           $sql = { param($q) (node deploy/sql-query.mjs $q | Out-String).Trim() }
 
           Write-Host 'The server checks real files: a driver signed through Microsoft and a Microsoft MSI pass; tampered, impostor and unsigned ones are refused.'
@@ -319,7 +327,7 @@ jobs:
 
           $firewallAlerts = (& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.[key] = 'firewall'")
           Write-Host 'A firewall rule through the platform: created, kept because the result was delivered, attributed to its command, then deleted.'
-          $id = (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"create","rule":{"name":"MashuraDiag CI 9","direction":"out","action":"block","protocol":"tcp","remotePorts":[{"from":9,"to":9}],"remoteAddresses":["203.0.113.9"],"profiles":["domain","private","public"],"enabled":true}}' --as ci.tier2 --write | Select-Object -Last 1).Trim()
+          $id = (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"create","rule":{"name":"MashuraDiag CI 9","direction":"out","action":"block","protocol":"tcp","remotePorts":[{"from":9,"to":9}],"remoteAddresses":["203.0.113.9"],"profiles":["domain","private","public"],"enabled":true}}' --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()
           Expect (Wait-Command $id) 'succeeded'
           if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The rule is not in Windows Firewall.' }
           for ($i = 0; $i -lt 45 -and (& $sql "SELECT count(*) FROM firewall_changes WHERE command_id = '$id' AND event_id IS NOT NULL") -ne '1'; $i++) { Start-Sleep 2 }
@@ -327,13 +335,13 @@ jobs:
           if ((& $sql "SELECT count(*) FROM alerts a JOIN issue_types t ON t.id = a.issue_type_id WHERE t.[key] = 'firewall'") -ne $firewallAlerts) { throw 'A platform change raised an unexpected-change alert.' }
           Start-Sleep 125
           if (-not (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue)) { throw 'The confirmed rule was rolled back.' }
-          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"delete","ruleName":"MashuraDiag CI 9"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setRule '{"change":"delete","ruleName":"MashuraDiag CI 9"}' --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
           if (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue) { throw 'The rule was not deleted.' }
 
           Write-Host 'Network writes that change nothing on this runner: DHCP on a DHCP adapter, automatic DNS on an automatic adapter.'
           $nic = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
-          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setIp "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"dhcp`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
-          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setDns "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"automatic`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setIp "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"dhcp`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setDns "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"automatic`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
 
           Write-Host 'A bad change nobody confirms is undone: a firewall rule and a DNS change sent through the local harness (no server confirms them).'
           $harness = "$env:ProgramFiles\Mashura\CabinetAgent\Cabinet.Agent.Harness\cabinet-harness.exe"
@@ -350,7 +358,7 @@ jobs:
           if (-not (Get-ItemProperty $key).NameServer) { throw 'The unconfirmed DNS change was not made.' }
 
           Write-Host 'A firewall profile turned off for one minute comes back on, even though the broker restarts in between (a reboot keeps the timer the same way).'
-          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setProfile '{"profile":"public","enabled":false,"defaultInbound":"block","defaultOutbound":"allow","durationMinutes":1}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'succeeded'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID firewall.setProfile '{"profile":"public","enabled":false,"defaultInbound":"block","defaultOutbound":"allow","durationMinutes":1}' --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
           if ((Get-NetFirewallProfile -Name Public).Enabled) { throw 'The public profile was not turned off.' }
           Stop-Service CabinetAgentBroker -Force; Start-Sleep 20; Start-Service CabinetAgentBroker; Start-Service CabinetAgentNetwork
           Start-Sleep 140
@@ -360,17 +368,17 @@ jobs:
           Select-String -Path "$env:ProgramData\Mashura\CabinetAgent\broker\logs\broker.log" -Pattern 'rolled back', 'on again' -SimpleMatch | ForEach-Object { Write-Host "  $($_.Line)" }
 
           Write-Host 'Packages: the driver signed through Microsoft is uploaded, approved by a second Admin, downloaded, checked again and installed by pnputil.'
-          $up = node $cli package upload "$env:PACKAGE_FIXTURES\oem-driver.zip" --type driver --name "CI driver" --version 1 --vendor Microsoft --as ci.admin
+          $up = node $cli package upload "$env:PACKAGE_FIXTURES\oem-driver.zip" --type driver --name "CI driver" --version 1 --vendor Microsoft --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
           Write-Host "  $up"
           $pkg = ($up -split '\s+')[0]; $sha = ($up -split 'sha256 ')[1].Trim()
-          node $cli package approve $pkg --as ci.admin2
-          $r = Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$pkg`",`"packageType`":`"driver`",`"sha256`":`"$sha`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim() 600
+          node $cli package approve $pkg --as ci.admin2 --code (node .github/ci/ci-authenticator.mjs code ci.admin2)
+          $r = Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$pkg`",`"packageType`":`"driver`",`"sha256`":`"$sha`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim() 600
           Expect $r 'succeeded'
           Write-Host "  installed: $($r.result.output.installed) signer: $($r.result.output.signer) exit $($r.result.output.exitCode)"
           if ($r.result.output.signer -ne 'Microsoft Windows Hardware Compatibility Publisher') { throw 'Unexpected signer.' }
           Write-Host 'The server refuses the tampered, impostor and unsigned packages on upload...'
           foreach ($bad in @('tampered-driver.zip', 'impostor-driver.zip', 'unsigned-driver.zip')) {
-            node $cli package upload "$env:PACKAGE_FIXTURES\$bad" --type driver --name "CI $bad" --version 1 --vendor x --as ci.admin
+            node $cli package upload "$env:PACKAGE_FIXTURES\$bad" --type driver --name "CI $bad" --version 1 --vendor x --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
             if ($LASTEXITCODE -eq 0) { throw "The server accepted $bad." }
           }
           Write-Host '...and when they are forced past the server (approved by hand in the database), the agent refuses each itself.'
@@ -381,18 +389,18 @@ jobs:
             $forced = [guid]::NewGuid().ToString()
             node deploy/sql-query.mjs "INSERT INTO packages (id, name, version, vendor, type, state, sha256, size_bytes, signer, uploaded_by, approved_by, approved_at) SELECT '$forced', 'Forced $($bad[0])', '1', 'x', 'driver', 'approved', '$hash', 1, 'forced', a.id, b.id, SYSUTCDATETIME() FROM users a, users b WHERE a.username = 'ci.admin' AND b.username = 'ci.admin2'" | Out-Null
             Write-Host "  $($bad[0])"
-            Expect (Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$forced`",`"packageType`":`"driver`",`"sha256`":`"$hash`"}" --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'rejected' $bad[1]
+            Expect (Wait-Command (node $cli issue $env:CABINET_ID package.install "{`"packageId`":`"$forced`",`"packageType`":`"driver`",`"sha256`":`"$hash`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'rejected' $bad[1]
           }
           if (Get-ChildItem "$env:ProgramData\Mashura\CabinetAgent\staging" -Force) { throw 'The staging folder was not emptied.' }
           Write-Host 'driver.uninstall reaches pnputil (a published name that does not exist is reported, nothing is removed).'
-          Expect (Wait-Command (node $cli issue $env:CABINET_ID driver.uninstall '{"publishedName":"oem9999.inf"}' --as ci.tier2 --write | Select-Object -Last 1).Trim()) 'failed' 'not_found'
+          Expect (Wait-Command (node $cli issue $env:CABINET_ID driver.uninstall '{"publishedName":"oem9999.inf"}' --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'failed' 'not_found'
           # Every write command the server sent has its command.write entry, by the person who issued it (the harness's local writes never touch the server).
           $writes = & $sql "SELECT count(*) FROM commands WHERE operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall')"
           $missing = & $sql "SELECT count(*) FROM commands c WHERE c.operation IN ('network.setIp','network.setDns','firewall.setProfile','firewall.setRule','firewall.restore','package.install','driver.uninstall') AND NOT EXISTS (SELECT 1 FROM audit_log a WHERE a.action = 'command.write' AND JSON_VALUE(a.details, '$.commandId') = CONVERT(nvarchar(36), c.id) AND a.actor_id = CONVERT(nvarchar(36), c.issued_by))"
           Write-Host "Write commands: $writes; without their audit entry: $missing"
           if ([int]$writes -lt 10 -or [int]$missing -ne 0) { throw 'Not every write is in the audit log.' }
 
-          node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin
+          node server/dist/src/cli.js revoke $env:CABINET_ID --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
           $refused = $false
           for ($i = 0; $i -lt 45 -and -not $refused; $i++) {
             Start-Sleep 2
@@ -428,7 +436,7 @@ jobs:
           function Release($version, $publishDir, [switch] $Unsigned) {
             ./agent/install/New-AgentRelease.ps1 -PublishDir $publishDir -Architecture win-x64 -Version $version -MinimumVersion 0.1.0 -OutDir "$t\release-$version" -DevKeyFile "$t\release-key.pem" -AllowUnsignedForTest:$Unsigned | Out-Null
             $r = "$t\release-$version"
-            node server/dist/src/cli.js release add --manifest "$r\manifest.json" --signature "$r\signature.json" --package "$r\agent-$version.zip" --architecture windows-x64 --as ci.admin
+            node server/dist/src/cli.js release add --manifest "$r\manifest.json" --signature "$r\signature.json" --package "$r\agent-$version.zip" --architecture windows-x64 --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
             if ($LASTEXITCODE -ne 0) { throw "The server refused release $version." }
           }
           $v0 = Build '0.1.0'; $v1 = Build '0.1.1'; $v2 = Build '0.1.2'; $v3 = Build '0.1.3'; $v4 = Build '0.1.4'
@@ -441,13 +449,13 @@ jobs:
           function Start-Server { Start-Process -FilePath node -ArgumentList 'server/dist/src/main.js' -RedirectStandardOutput "$t\server7.log" -RedirectStandardError "$t\server7.err" -NoNewWindow -PassThru }
           $server = Start-Server
           Start-Sleep 5
-          $token = (node server/dist/src/cli.js token create --as ci.admin | Select-Object -Last 1).Trim()
+          $token = (node server/dist/src/cli.js token create --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           ./agent/install/Install-CabinetAgent.ps1 -AllowUnsigned -SkipSourceFolderCheck -SourceDir $v0 -SyncCabinetAddress 127.0.0.1 -AllowedTcpPort 135 -PlatformServerHost localhost -PlatformServerPort 8443 `
             -PlatformCaFile "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -PlatformCaSha256 (Get-FileHash "$env:DEV_PKI_DIR\dev-issuing-ca.cert.pem" -Algorithm SHA256).Hash -BootstrapToken $token -CabinetRole standalone
           $request = $null
           for ($i = 0; $i -lt 60 -and -not $request; $i++) { Start-Sleep 2; $request = (node server/dist/src/cli.js pending | Select-Object -First 1) }
           if (-not $request) { throw 'No enrollment request arrived.' }
-          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone --baseline capture
+          node server/dist/src/cli.js approve ($request -split ' ')[0] --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) --client "CI Client" --site "Upgrades" --cabinet "Upgrade runner" --role standalone --baseline capture
           $cab = $null
           for ($i = 0; $i -lt 60 -and -not $cab; $i++) { Start-Sleep 2; $cab = node server/dist/src/cli.js cabinets | Select-String 'Upgrade runner' | Select-String ' online ' }
           if (-not $cab) { throw 'The cabinet did not come online.' }
@@ -472,7 +480,7 @@ jobs:
 
           Write-Host 'A signed upgrade to 0.1.1 rolls out to the test batch (one cabinet) and checks in.'
           Release '0.1.1' $v1
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.1 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.1 --architecture windows-x64 --pilot $cabinetId --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) $($target.message); rollout $($r.rollout.state)"
@@ -489,26 +497,26 @@ jobs:
           $stored = (Resolve-Path 'data/releases/agent-0.1.2-windows-x64.zip').Path
           Set-ItemProperty $stored -Name IsReadOnly -Value $false
           $bytes = [IO.File]::ReadAllBytes($stored); $mid = [int]($bytes.Length / 2); $bytes[$mid] = $bytes[$mid] -bxor 0xFF; [IO.File]::WriteAllBytes($stored, $bytes)
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.2 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.2 --architecture windows-x64 --pilot $cabinetId --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) at $($target.check): $($target.message); rollout $($r.rollout.state)"
           if ($target.outcome -ne 'refused' -or $target.check -ne 'package_hash' -or $r.rollout.state -ne 'paused') { Logs; throw 'The tampered package was not refused at its hash, or the rollout did not pause.' }
           if ((Version) -ne '0.1.1') { throw 'The refused release changed the cabinet.' }
-          node server/dist/src/cli.js rollout stop $rollout --as ci.admin
+          node server/dist/src/cli.js rollout stop $rollout --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
 
           Write-Host 'A properly signed release (0.1.3) whose package carries one binary not signed by the agent publisher: refused at the Authenticode check.'
           Release '0.1.3' $v3 -Unsigned
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.3 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.3 --architecture windows-x64 --pilot $cabinetId --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           $r = Outcome $rollout
           $target = $r.targets | Where-Object cabinetId -eq $cabinetId
           Write-Host "  $($target.state) $($target.outcome) at $($target.check): $($target.message)"
           if ($target.outcome -ne 'refused' -or $target.check -ne 'authenticode') { Logs; throw 'The unsigned binary was not refused by the Authenticode check.' }
-          node server/dist/src/cli.js rollout stop $rollout --as ci.admin
+          node server/dist/src/cli.js rollout stop $rollout --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin)
 
           Write-Host 'A failed upgrade: 0.1.4 (genuine) is installed, but the server goes away before it can check in. After 5 minutes the updater restores 0.1.1 on its own.'
           Release '0.1.4' $v4
-          $rollout = (node server/dist/src/cli.js rollout start 0.1.4 --architecture windows-x64 --pilot $cabinetId --as ci.admin | Select-Object -Last 1).Trim()
+          $rollout = (node server/dist/src/cli.js rollout start 0.1.4 --architecture windows-x64 --pilot $cabinetId --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()
           $journal = "$env:ProgramData\Mashura\CabinetAgent\broker\upgrade.json"
           # The agent takes an offer on its next check-in, about every 5 minutes: wait up to 10 for 0.1.4 to start, and say so if it
           # never does, rather than stopping the server on a cabinet that is not upgrading.

@@ -2,7 +2,18 @@
 # by GitHub regardless. Docker entries propose new image digests, and the github-actions entry proposes new action versions.
 version: 2
 updates:
-  - { package-ecosystem: npm, directory: /server, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
+  # @types/node stays on the line of the Node runtime this platform ships: Node 22 LTS (deploy/Dockerfile `node:22.23.2`, CI `node-version: 22`).
+  # Types describe the runtime that executes, so taking 26 is a runtime move with a spec change behind it, not a dependency bump. It also stops the
+  # server build compiling today, through thread-stream's own declaration (`TransferListItem` is gone from worker_threads in those types, and 4.2.0
+  # still refers to it): a dependency's problem, not ours to chase for a runtime we do not run. Minor and patch updates still arrive.
+  - package-ecosystem: npm
+    directory: /server
+    schedule: { interval: weekly }
+    open-pull-requests-limit: 5
+    groups: { minor-and-patch: { update-types: [minor, patch] } }
+    ignore:
+      - dependency-name: "@types/node"
+        update-types: ["version-update:semver-major"]
   - { package-ecosystem: npm, directory: /console, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
   - { package-ecosystem: npm, directory: /contracts, schedule: { interval: weekly }, open-pull-requests-limit: 5, groups: { minor-and-patch: { update-types: [minor, patch] } } }
   - { package-ecosystem: nuget, directory: /agent, schedule: { interval: weekly }, open-pull-requests-limit: 5 }

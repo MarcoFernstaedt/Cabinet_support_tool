@@ -1,8 +1,11 @@
 // platform-admin: operator commands on the server host. The console is the normal way to do
-// all of this, with sign-in and step-up; this tool names the person acting (--as), applies the
-// same checks (write pauses and limits, the two-person rule) and audits everything as "via cli".
+// all of this, with sign-in and step-up; this tool names the person acting (--as) and proves it with
+// their authenticator code (--code), applies the same checks (write pauses and limits, the two-person rule) and audits everything as "via cli".
 import { randomBytes, randomUUID } from "node:crypto";
 import { hashPassword } from "./auth/passwords.js";
+import { SecretBox } from "./auth/secrets.js";
+import * as totp from "./auth/totp.js";
+import { recordAuthFailure } from "./services/auth-failures.js";
 import { endAllSessions } from "./auth/sessions.js";
 import { parseArgs } from "node:util";
 import { databaseUrl, loadConfig } from "./config.js";
@@ -30,8 +33,11 @@ import { createHash } from "node:crypto";
 
 const USAGE = `platform-admin <command> [options]
 
+  Every command that changes something takes --as <username> --code <6 digits>: the code from that person's own authenticator,
+  checked like a console step-up (used once, wrong codes count toward the account lock). Commands with no --as only read.
+
   migrate                                   apply migrations (uses DATABASE_OWNER_URL)
-  user add --username u --name "N" --role tier1|tier2|admin   prints a one-time temporary password
+  user add --username u --name "N" --role tier1|tier2|admin [--as <admin>]   prints a one-time temporary password; --as is needed once any Admin exists
   user reset-password --username u --as <admin>             new temporary password; ends the user's sessions
   token create --as <admin>                 one-time bootstrap token for one cabinet (valid 7 days)
   pending                                   enrollment requests waiting for approval
@@ -61,18 +67,51 @@ const USAGE = `platform-admin <command> [options]
 
 const ROLE_RANK: Record<string, number> = RANKS;
 
-async function userId(pool: Pool, username: string | undefined, minimumRole: "tier1" | "tier2" | "admin"): Promise<string> {
-  if (!username) throw new Refused("usage", 2, "--as <username> is required");
-  const row = (await pool.query<{ id: string; role: string }>("SELECT TOP (1) id, role FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'", [username])).rows[0];
-  if (!row) throw new Refused("usage", 2, `no active user ${username}`);
-  if ((ROLE_RANK[row.role] ?? 0) < ROLE_RANK[minimumRole]!) throw new Refused("forbidden", 2, `${username} is ${row.role}; this needs ${minimumRole}`);
-  return row.id;
+function required(name: string): string {
+  const v = process.env[name];
+  if (!v) throw new Refused("config", 1, `${name} is not set; it is needed to check authenticator codes`);
+  return v;
+}
+
+/**
+ * The person a command acts as, proven by their own authenticator code (F3, docs/spec/02-security-model.md "The operator command line"):
+ * access to the server's shell is not authority. The code is checked as the console checks a step-up: single use (the step is claimed
+ * atomically), the account's lock honoured, and a wrong code counted toward it. Every attempt that reaches the code check is audited as cli.authenticate, with the
+ * path ("cli") and the proof ("authenticator"), so the audit chain says how each command line action was authorised; a refusal before the check
+ * leaves no row.
+ */
+function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
+  return async (username: string | undefined, minimumRole: "tier1" | "tier2" | "admin", code: string | undefined): Promise<string> => {
+    if (!username) throw new Refused("usage", 2, "--as <username> is required");
+    if (!code || !/^\d{6}$/.test(code)) throw new Refused("usage", 2, "--code <the 6-digit code from that person's authenticator> is required");
+    const row = (await pool.query<{ id: string; role: string; totp_enabled: boolean; totp_secret_enc: Buffer | null; totp_last_step: string | null; locked: boolean }>(
+      `SELECT TOP (1) id, role, totp_enabled, totp_secret_enc, totp_last_step,
+              CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
+         FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [username])).rows[0];
+    if (!row) throw new Refused("usage", 2, `no active user ${username}`);
+    if ((ROLE_RANK[row.role] ?? 0) < ROLE_RANK[minimumRole]!) throw new Refused("forbidden", 2, `${username} is ${row.role}; this needs ${minimumRole}`);
+    if (!row.totp_enabled || !row.totp_secret_enc) throw new Refused("totp_required", 2, `${username} has no authenticator set up; sign in to the console once to set it up`);
+    if (row.locked) throw new Refused("account_locked", 2, `${username} is locked after repeated failures; try again later`);
+    const details = { via: "cli", proof: "authenticator", command };
+    const step = totp.verify(secrets().open(row.totp_secret_enc), code, Date.now(), row.totp_last_step === null ? null : Number(row.totp_last_step));
+    if (step === null) {
+      await recordAuthFailure(pool, row.id, "failed_step_ups", "cli");
+      await transaction(pool, c => audit(c, { actorKind: "user", actorId: row.id, action: "cli.authenticate", outcome: "refused", details }));
+      throw new Refused("invalid_code", 2, "that code is not right");
+    }
+    await transaction(pool, async c => {
+      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [row.id, step]);
+      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 2, "that code was already used");
+      await audit(c, { actorKind: "user", actorId: row.id, action: "cli.authenticate", outcome: "succeeded", details });
+    });
+    return row.id;
+  };
 }
 
 async function main(argv: string[]): Promise<void> {
   const { positionals, values } = parseArgs({
     args: argv, allowPositionals: true, strict: true,
-    options: { as: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
+    options: { as: { type: "string" }, code: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
       client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
       version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" },
       manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" },
@@ -135,12 +174,14 @@ async function main(argv: string[]): Promise<void> {
 
   const config = loadConfig();
   const pool = await createPool(config.databaseUrl, 2);
+  // The authenticator secrets are opened with the console's key; read only when a command needs a person's code.
+  const authorize = authorizer(pool, () => new SecretBox(config.console?.secretKey ?? required("CONSOLE_SECRET_KEY")), command);
   try {
     switch (["user", "token", "package", "writes", "release", "rollout", "cabinet"].includes(command) ? `${command} ${rest.shift()}` : command) {
       case "release add": {
         const r = await releaseInput();
         const a = architecture();
-        const adminId = await userId(pool, values.as, "admin");
+        const adminId = await authorize(values.as, "admin", values.code);
         mkdirSync(config.releases.dir, { recursive: true, mode: 0o700 });
         const store = { dir: config.releases.dir, maxBytes: config.releases.maxBytes, keys: ReleaseKeys.fromFolder(config.releases.keysDir) };
         const version = await addRelease(pool, store.keys, adminId, r.manifest, r.signature, a, null);
@@ -153,7 +194,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       case "rollout start": {
         if (!rest[0] || !values.pilot) throw new Refused("usage", 2, USAGE);
-        const id = await startRollout(pool, await userId(pool, values.as, "admin"), { version: rest[0], architecture: architecture(), pilotCabinetId: values.pilot.toLowerCase(),
+        const id = await startRollout(pool, await authorize(values.as, "admin", values.code), { version: rest[0], architecture: architecture(), pilotCabinetId: values.pilot.toLowerCase(),
           successRatePercent: Number(values.success ?? "95"), failureLimitPercent: Number(values.failure ?? "5") }, null);
         console.log(id);
         return;
@@ -172,19 +213,19 @@ async function main(argv: string[]): Promise<void> {
       case "rollout stop": {
         if (!rest[0]) throw new Refused("usage", 2, USAGE);
         const action = positionals[1] as "pause" | "resume" | "stop";
-        await changeRollout(pool, await userId(pool, values.as, "admin"), rest[0], action, null);
+        await changeRollout(pool, await authorize(values.as, "admin", values.code), rest[0], action, null);
         console.log(`Rollout ${action === "stop" ? "stopped" : action + "d"}.`);
         return;
       }
       case "cabinet in-office": {
         if (!rest[0] || (rest[1] !== "on" && rest[1] !== "off")) throw new Refused("usage", 2, USAGE);
-        await setInOffice(pool, await userId(pool, values.as, "admin"), rest[0], rest[1] === "on", null);
+        await setInOffice(pool, await authorize(values.as, "admin", values.code), rest[0], rest[1] === "on", null);
         console.log(rest[1] === "on" ? "In office." : "Not in office.");
         return;
       }
       case "package upload": {
         if (!rest[0] || !values.name || !values.version || !values.vendor || (values.type !== "driver" && values.type !== "msi")) throw new Refused("usage", 2, USAGE);
-        const adminId = await userId(pool, values.as, "admin");
+        const adminId = await authorize(values.as, "admin", values.code);
         mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
         const store = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
         const id = await startUpload(pool, adminId, { name: values.name, version: values.version, vendor: values.vendor, packageType: values.type,
@@ -195,17 +236,17 @@ async function main(argv: string[]): Promise<void> {
       }
       case "package approve":
         if (!rest[0]) throw new Refused("usage", 2, USAGE);
-        await approvePackage(pool, await userId(pool, values.as, "admin"), rest[0], null);
+        await approvePackage(pool, await authorize(values.as, "admin", values.code), rest[0], null);
         console.log("Approved.");
         return;
       case "package retire":
         if (!rest[0]) throw new Refused("usage", 2, USAGE);
-        await retirePackage(pool, await userId(pool, values.as, "admin"), rest[0], null);
+        await retirePackage(pool, await authorize(values.as, "admin", values.code), rest[0], null);
         console.log("Retired.");
         return;
       case "writes pause":
       case "writes resume": {
-        const adminId = await userId(pool, values.as, "admin");
+        const adminId = await authorize(values.as, "admin", values.code);
         const paused = command === "writes" && positionals[1] === "pause";
         if (values.client && values.cabinet) throw new Refused("usage", 2, "give --client or --cabinet, not both");
         const target = values.cabinet ? { cabinetId: values.cabinet } : values.client ? { clientId: values.client } : null;
@@ -225,7 +266,7 @@ async function main(argv: string[]): Promise<void> {
       }
       case "user resume-writes": {
         if (!values.username) throw new Refused("usage", 2, USAGE);
-        const adminId = await userId(pool, values.as, "admin");
+        const adminId = await authorize(values.as, "admin", values.code);
         await transaction(pool, async c => {
           const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [values.username]);
           if (!r.rows[0]) throw new Refused("not_found", 1, "no such user");
@@ -236,14 +277,17 @@ async function main(argv: string[]): Promise<void> {
       }
       case "user add": {
         if (!values.username || !values.name || !values.role || !(values.role in ROLE_RANK)) throw new Refused("usage", 2, USAGE);
+        // Without --as only while no active Admin exists (the first install); afterwards an Admin's code is needed like any other change.
+        const admins = Number((await pool.query<{ n: number }>("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'")).rows[0]!.n);
+        const by = admins === 0 && !values.as ? null : await authorize(values.as, "admin", values.code);
         const id = randomUUID();
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
           await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, 1)",
             [id, values.username, values.name, values.role, hash]);
-          await audit(c, { actorKind: "system", actorId: "platform-admin", action: "user.create", targetKind: "user", targetId: id, outcome: "succeeded",
-            details: { username: values.username, role: values.role } });
+          await audit(c, { actorKind: by ? "user" : "system", actorId: by ?? "platform-admin", action: "user.create", targetKind: "user", targetId: id, outcome: "succeeded",
+            details: { username: values.username, role: values.role, via: "cli", ...(by ? {} : { bootstrap: true }) } });
         });
         console.log(`User ${values.username} (${values.role}) created: ${id}`);
         console.log(`Temporary password (shown once; must be changed at first sign-in): ${temporary}`);
@@ -251,7 +295,7 @@ async function main(argv: string[]): Promise<void> {
       }
       case "user reset-password": {
         if (!values.username) throw new Refused("usage", 2, USAGE);
-        const adminId = await userId(pool, values.as, "admin");
+        const adminId = await authorize(values.as, "admin", values.code);
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
@@ -266,7 +310,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       case "token create": {
-        const { token, expiresAt } = await createBootstrapToken(pool, await userId(pool, values.as, "admin"));
+        const { token, expiresAt } = await createBootstrapToken(pool, await authorize(values.as, "admin", values.code));
         console.log(`Bootstrap token (shown once, valid until ${expiresAt.toISOString()}):\n${token}`);
         return;
       }
@@ -284,13 +328,13 @@ async function main(argv: string[]): Promise<void> {
         const body = consoleBodies.approve.parse({ client: values.client, site: values.site, cabinet: values.cabinet, role,
           baseline: decision === "inherited" || decision === "capture" ? { use: decision } : { use: "attach", versionId: decision }, stepUpToken: "c".repeat(43) });
         const r = await approveEnrollment(pool, await issuingKey(config), rest[0],
-          { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role, baseline: body.baseline }, await userId(pool, values.as, "admin"));
+          { clientName: body.client, siteName: body.site, cabinetName: body.cabinet, role: body.role, baseline: body.baseline }, await authorize(values.as, "admin", values.code));
         console.log(`Approved. Cabinet ${r.cabinetId}, certificate ${r.serial}. Baseline: ${r.baseline.decision}. The agent picks it up on its next enrollment poll.`);
         return;
       }
       case "reject":
         if (!rest[0]) throw new Refused("usage", 2, USAGE);
-        await rejectEnrollment(pool, rest[0], await userId(pool, values.as, "admin"));
+        await rejectEnrollment(pool, rest[0], await authorize(values.as, "admin", values.code));
         console.log("Rejected.");
         return;
       case "cabinets":
@@ -299,7 +343,7 @@ async function main(argv: string[]): Promise<void> {
         return;
       case "revoke":
         if (!rest[0]) throw new Refused("usage", 2, USAGE);
-        await revokeCabinet(pool, rest[0], await userId(pool, values.as, "admin"));
+        await revokeCabinet(pool, rest[0], await authorize(values.as, "admin", values.code));
         console.log("Revoked. The cabinet's next connection will be refused.");
         return;
       case "issue": {
@@ -310,7 +354,7 @@ async function main(argv: string[]): Promise<void> {
         const isWrite = isOperationName(operation) && catalog.get(operation)!.kind === "write";
         if (isWrite && !values.write) throw new Refused("usage", 2, `${operation} changes the cabinet; add --write to confirm`);
         if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Refused("usage", 2, "paramsJson must be a JSON object");
-        const as = await userId(pool, values.as, isWrite ? "tier2" : "tier1");
+        const as = await authorize(values.as, isWrite ? "tier2" : "tier1", values.code);
         const role = (await pool.query<{ role: Role }>("SELECT role FROM users WHERE id = $1", [as])).rows[0]!.role;
         const command = await issueFromConsole(pool, { userId: as, role }, cabinetId, operation, parsed as Record<string, unknown>, undefined, true);
         console.log(command.commandId);

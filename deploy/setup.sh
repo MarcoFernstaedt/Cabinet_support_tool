@@ -128,7 +128,7 @@ if [[ "${admins//[[:space:]]/}" == "0" ]]; then
   "${COMPOSE[@]}" exec -T server node /opt/cabinet/server/dist/src/cli.js user add --username "$ADMIN_USERNAME" --name "$ADMIN_NAME" --role admin
   echo "Write the temporary password down now. It is shown only once."
 else
-  say "An Admin already exists; none created. (Reset a password: docker compose exec server node /opt/cabinet/server/dist/src/cli.js user reset-password --username <user> --as <admin>)"
+  say "An Admin already exists; none created. (Reset a password: docker compose exec server node /opt/cabinet/server/dist/src/cli.js user reset-password --username <user> --as <admin> --code <their authenticator code>)"
 fi
 
 # 6. Backups and encryption at rest -------------------------------------------------------------------------------

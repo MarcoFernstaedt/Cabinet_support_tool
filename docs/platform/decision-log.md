@@ -6,6 +6,38 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D31. The operator command line acts only on the named person's authenticator code (2026-11-07)
+
+**Owner's decision.** Asked how the command line should prove who is acting (finding F3), the owner chose the recommendation, "Their
+authenticator code".
+
+**The decision.** Every `platform-admin` command that changes something needs `--as <username> --code <6 digits>`, and the code is checked
+as the console checks a step-up (02-security-model.md "Control 8"): one use per 30-second step, claimed in the same `totp_last_step` the
+console uses; a locked account refused; a wrong code counted toward the same lock (`recordAuthFailure`, now in
+`server/src/services/auth-failures.ts`, shared by both doors). Every attempt that reaches the code check is audited as `cli.authenticate`, `via: "cli"`,
+`proof: "authenticator"`; a refusal before it (no `--as`, a missing or malformed code, an unknown name, a lower role, no authenticator, a locked
+account) leaves no audit row. Read-only commands are unchanged. `user add` runs without `--as` only while there is no active Admin.
+
+**Why this, and not the alternatives.**
+- **Before, a name was the whole proof.** `--as` only looked the name up (`server/src/cli.ts`, the old `userId`), so anyone with a shell on
+  the server could act as any Admin, and the audit log named that Admin. The code makes the audit row true.
+- **A password** would be typed into a shell history or a process list. A code is useless a step later.
+- **Signed requests or a separate CLI key** would be a second credential to issue, store and revoke, for a tool used rarely.
+- **Leaving it to the shell's own access control** is what F3 found wanting: the platform's accounts, roles and lock would not apply.
+
+**What it costs.** Each change from a script needs a fresh code, so one account can make about two changes a minute (the current step and
+the next). The Windows CI job has its own test accounts' authenticators (`.github/ci/ci-authenticator.mjs`, never shipped), which wait for
+the next step when needed. If every Admin loses their authenticator there is no command line way back; this is open in
+09-open-decisions.md, with the recommendation to keep two Admins.
+
+**How it was proven.** `server/test/cli-authority.test.ts` runs the real command line against a test database: a right code acts and is
+audited; a missing, malformed, wrong, out-of-window, reused or someone else's code acts on nothing; five wrong codes lock the account,
+raise one security alert, and a right code is then refused; the first Admin needs no `--as`, the second does. With the code check taken
+out, three of its six tests fail. The CI helper was run here against a test database: enroll, then two changes and a user creation in a
+row, all accepted.
+
+---
+
 ## D30. The agent will send an application crash's faulting module and exception code (2026-11-07)
 
 **Owner's decision.** Asked whether the agent should send these for Application Error 1000 (the open question D29 left), the owner chose
