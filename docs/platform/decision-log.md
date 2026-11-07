@@ -20,7 +20,7 @@ more keyed `settings` lookup), and the existing rule applies: the most specific 
 **Where this differs from the option as worded.** The option said the watch-list setting "stays for additions and for turning one off at a
 site or cabinet". Both work, but through the levels' existing rule rather than as a union: a site's own list replaces the role's. A site adds
 a service with a list that includes the role's and the extra one (the console starts the list from the one it replaces), and turns one off
-with a list that leaves it out. A union would have needed a way to subtract, and per cabinet a resolved baseline on every heartbeat. The rule
+with a list that leaves it out. The client and site editors show each role list their cabinets fall back to, and a new list starts from them (added in review of #185: without it, a site watched only by its role read "no services are watched", and a list saved there to add one service dropped the rest). A union would have needed a way to subtract, and per cabinet a resolved baseline on every heartbeat. The rule
 "the most specific level wins, null inherits, [] watches nothing" is unchanged, and the hot path keeps one statement.
 
 **How it was proven.** `server/test/baselines.test.ts`:

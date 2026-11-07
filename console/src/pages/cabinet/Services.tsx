@@ -232,10 +232,12 @@ const mayEnd = (p: { processId: number; name: string }) => p.processId > 4 && ![
 type P = ProcessesListOutput["processes"][number];
 
 /** A watch list editor for a client, a site or the fleet default (one name per line). */
-export function WatchListEditor({ endpoint, own, inherited, what, editable, onSaved }: {
+export function WatchListEditor({ endpoint, own, inherited, what, editable, onSaved, startFrom }: {
   endpoint: string; own: string[] | null; inherited: ReactNode; what: string; editable: boolean; onSaved: () => void;
+  /** With no list of its own, the editor starts from the list it would replace (F7.R4, D34). */
+  startFrom?: string[];
 }) {
-  const [text, setText] = useState((own ?? []).join("\n"));
+  const [text, setText] = useState((own ?? startFrom ?? []).join("\n"));
   const [pending, setPending] = useState<string[] | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);

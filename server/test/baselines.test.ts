@@ -805,6 +805,14 @@ test("approving a role baseline makes its required services the role's watch lis
   const mine = await watchLevels(db.app, cab);
   assert.deepEqual([mine.source, mine.effective], ["role", ["Spooler"]]);
   assert.equal((await watchLevels(db.app, sat)).source === "role", false, "a satellite is not watched by the standalone role");
+  // The site's and client's watch-list editors are told the role lists their cabinets fall back to (review of #185): without them, a site
+  // whose cabinets are watched by their role read "no services are watched", and a list saved there to add one service dropped the rest.
+  const t1 = await account("tier1");
+  const siteView = (await call("GET", `/api/sites/${siteId}/watched-services`, undefined, t1)).body;
+  assert.deepEqual(siteView.roles, { standalone: ["Spooler"] }, "the satellite's role has no list, so it is not shown");
+  assert.deepEqual((await call("GET", `/api/clients/${clientId}/watched-services`, undefined, t1)).body.roles, { standalone: ["Spooler"] });
+  const { siteId: emptySite } = await newSite(`W2 ${tag}`);
+  assert.deepEqual((await call("GET", `/api/sites/${emptySite}/watched-services`, undefined, t1)).body.roles, {}, "a site with no standalone cabinet is not told the standalone list");
   // A level with its own list replaces the role's, as every narrower level does: that is how one is turned off (an empty list) or added to.
   await setWatched(db.app, a1.id, "site", siteId, []);
   assert.deepEqual([(await watchLevels(db.app, cab)).source, (await watchLevels(db.app, cab)).effective], ["site", []]);

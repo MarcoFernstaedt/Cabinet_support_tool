@@ -33,7 +33,11 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     return watchLevels(o.pool, id(request));
   });
 
-  /** One client's or site's own list, and the fleet default (for the editor's "inherited" line). */
+  /**
+   * One client's or site's own list, the levels above it, and the role lists its cabinets fall back to (F7.R4, D34): for each role an
+   * active cabinet there has, the services that role's baseline requires running. The editor shows them, and starts a new list from what it
+   * would replace, so a list made here never drops a role's services unseen.
+   */
   for (const [level, table] of [["client", "clients"], ["site", "sites"]] as const) {
     app.get(`/api/${table}/:id/watched-services`, async request => {
       await o.guards.role(request, "tier1");
@@ -45,7 +49,13 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
         [id(request)])).rows[0];
       if (!row) throw new Refused("not_found", 404, `no such ${level}`);
       const fleet = (await o.pool.query<{ value: string[] }>("SELECT [value] FROM settings WHERE [key] = 'services.watched'")).rows[0]?.value ?? null;
-      return { own: parseJson<string[]>(row.own), client: level === "site" ? parseJson<string[]>(row.parent) : null, fleet };
+      const roleRows = (await o.pool.query<{ role: string; names: string | null }>(
+        `SELECT r.role, (SELECT TOP (1) [value] FROM settings WHERE [key] = CONCAT('services.watched.role.', r.role)) AS names
+           FROM (SELECT DISTINCT k.role FROM cabinets k JOIN sites s ON s.id = k.site_id
+                  WHERE k.status = 'active' AND ${level === "client" ? "s.client_id" : "s.id"} = $1) r ORDER BY r.role`, [id(request)])).rows;
+      const roles: Record<string, string[]> = {};
+      for (const r of roleRows) { const names = parseJson<unknown>(r.names); if (Array.isArray(names)) roles[r.role] = names as string[]; }
+      return { own: parseJson<string[]>(row.own), client: level === "site" ? parseJson<string[]>(row.parent) : null, fleet, roles };
     });
     app.put(`/api/${table}/:id/watched-services`, async request => {
       const u = await o.guards.role(request, "tier2");

@@ -97,7 +97,7 @@ test("watch lists: the most specific level wins, null inherits, an empty list wa
   await call("PUT", `/api/cabinets/${cabinetId}/watched-services`, { names: null }, c2);
   assert.equal((await watchLevels(db.app, cabinetId)).source, "site", "null gives the level above back");
   const site = await call("GET", `/api/sites/${siteId}/watched-services`, undefined, c1);
-  assert.deepEqual(site.body, { own: [], client: ["BioScanSvc", "MSSQL$SQLEXPRESS"], fleet: ["Spooler"] });
+  assert.deepEqual(site.body, { own: [], client: ["BioScanSvc", "MSSQL$SQLEXPRESS"], fleet: ["Spooler"], roles: {} });
   const audited = (await db.app.query<any>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'watch.set'")).rows[0].n;
   assert.equal(audited, 5);
   await call("PUT", `/api/sites/${siteId}/watched-services`, { names: null }, c2);
