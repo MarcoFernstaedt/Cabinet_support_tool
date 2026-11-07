@@ -17,7 +17,7 @@ import type { CabinetDetail } from "./CabinetPage";
 
 type Service = ServicesListOutput["services"][number];
 type Watched = ServicesListOutput["watched"][number];
-interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; effective: string[]; source: string }
+interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; role?: string[] | null; effective: string[]; source: string }
 
 const STATE: Record<string, { label: string; tone: "ok" | "warn" | "crit" | "off" | "info" }> = {
   running: { label: "Running", tone: "ok" }, stopped: { label: "Stopped", tone: "off" }, start_pending: { label: "Starting", tone: "info" },
@@ -36,7 +36,7 @@ function PagedRows<T>({ rows, label, children }: { rows: readonly T[]; label: st
   return (<>{children(paged.rows)}<Pager {...paged} label={label} /></>);
 }
 
-const SOURCE: Record<string, string> = { cabinet: "this cabinet's own list", site: "the site's list", client: "the client's list", fleet: "the fleet default", none: "no list anywhere" };
+const SOURCE: Record<string, string> = { cabinet: "this cabinet's own list", site: "the site's list", client: "the client's list", fleet: "the fleet default", role: "the services its role's baseline requires running", none: "no list anywhere" };
 
 /** The services the cabinet keeps running, where the list comes from, and each one's status. */
 function WatchedPanel({ cabinet, levels, watched, onChanged }: { cabinet: CabinetDetail; levels: WatchLevels | null; watched: Watched[]; onChanged: () => void }) {

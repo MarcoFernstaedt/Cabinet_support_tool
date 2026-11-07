@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D34. A role baseline's required services are that role's watched services (2026-11-07)
+
+**Owner's decision.** Asked whether a role baseline's required services should also be watched (restarted when they stop), or stay
+separate from the watch list, the owner chose the recommendation: "Required = watched".
+
+**The decision.** When a role baseline is approved, its required running services become the watch list of that role, the widest level,
+below the fleet's. They are stored as `services.watched.role.<role>` in the approval's transaction and audited as `services.watched.role`.
+"Required running services" means required `services` items that are present, or matched without asking for them to be stopped or
+disabled. Only names the contract accepts count, at most 16. The heartbeat reads the role's list in the statement it already runs (one
+more keyed `settings` lookup), and the existing rule applies: the most specific level with a list wins, and only approved services are sent.
+
+**Where this differs from the option as worded.** The option said the watch-list setting "stays for additions and for turning one off at a
+site or cabinet". Both work, but through the levels' existing rule rather than as a union: a site's own list replaces the role's. A site adds
+a service with a list that includes the role's and the extra one (the console starts the list from the one it replaces), and turns one off
+with a list that leaves it out. A union would have needed a way to subtract, and per cabinet a resolved baseline on every heartbeat. The rule
+"the most specific level wins, null inherits, [] watches nothing" is unchanged, and the hot path keeps one statement.
+
+**How it was proven.** `server/test/baselines.test.ts`:
+- Which items count: required present or matched-running services count. Optional, stopped, disabled and absent ones do not, nor drivers,
+  names the contract refuses (a semicolon, a leading space, 81 characters), or a repeat. The list is sorted and capped at 16.
+- Through the real routes: approving a standalone role baseline stores `["Spooler"]` and audits it with the version. A standalone cabinet's
+  watch source is the role and a satellite's is not. A site's empty list replaces it.
+- The heartbeat sends nothing until the service is approved, then `["Spooler"]`. This check caught a column left out of the heartbeat's
+  outer select while it was being written.
+
+With the store step taken out of the approval, the second test fails.
+
+---
+
 ## D33. A cabinet's role carries its expected set, as a baseline level (2026-11-07)
 
 **Owner's decision.** Asked whether F7's role template is keyed by the three roles a cabinet already has (sync, satellite, standalone) or
