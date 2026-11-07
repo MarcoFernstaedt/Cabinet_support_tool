@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  Creates the code-signing publisher this fleet trusts — an offline root and an issuing certificate — and pins it in the
+  Creates the code-signing publisher this fleet trusts - an offline root and an issuing certificate - and pins it in the
   agent upgrade trust list an agent build compiles in (contracts/trust/upgrade/upgrade-keys.json).
 .DESCRIPTION
   docs/spec/07-upgrade-channel.md ("Signing flow") and finding F1. The decision behind this script, taken 7 November 2026:
@@ -18,7 +18,7 @@
     publisher-issuing.pfx     only with -PfxPassword, for signtool on a Windows build machine
 
   The private keys never belong in the repository, on a share, or in a backup that syncs; keep them offline and treat the
-  root's key as the highest authority in the fleet — it can mint a certificate that signs anything every cabinet installs.
+  root's key as the highest authority in the fleet - it can mint a certificate that signs anything every cabinet installs.
   Before writing anything the script proves the material it just made: a signature from the issuing key verifies against
   the issuing certificate, and the issuing certificate chains to the root as the only trusted anchor.
 .EXAMPLE
