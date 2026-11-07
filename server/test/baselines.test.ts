@@ -727,3 +727,40 @@ test("a role baseline applies to every cabinet of that role and no other, betwee
   await ingestAndEvaluate(db.app, standalone, [snap("services", [svc("Spooler"), svc(expected.slice("service:".length)), svc(tuned.slice("service:".length), "manual")], 5)], "agent");
   assert.ok(!(await evaluateHealth(db.app, standalone)).reasons.some(r => r.code === "required_item"));
 });
+
+test("the fleet view answers which cabinets of a client differ from their role, apart from what their site asks, and refuses a role or level it does not know", async () => {
+  const a1 = await account("admin"), a2 = await account("admin"), t1 = await account("tier1");
+  const tag = randomUUID().slice(0, 6);
+  const north = await newSite(`R3 ${tag}`);
+  const southId = randomUUID();
+  await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [southId, north.clientId, `South ${tag}`]);
+  const [n1, n2, s1] = [await newCabinet(north.siteId, `N1 ${tag}`), await newCabinet(north.siteId, `N2 ${tag}`), await newCabinet(southId, `S1 ${tag}`)];
+  const sat = await newCabinet(north.siteId, `SAT ${tag}`);
+  for (const k of [n1, n2, s1]) await db.app.query("UPDATE cabinets SET role = 'standalone' WHERE id = $1", [k]);
+  const roleSvc = `Role${tag}`, siteSvc = `Site${tag}`;
+  // The role asks for a service; the north site asks for another. n1 and s1 lack the role's; n2 has it; every cabinet lacks the site's.
+  await approve(a1, a2, { kind: "role", id: "standalone" }, { items: [{ category: "services", key: `service:${roleSvc}`, mode: "present" }] });
+  await approve(a1, a2, { kind: "site", id: north.siteId }, { items: [{ category: "services", key: `service:${siteSvc}`, mode: "present" }] });
+  await ingestAndEvaluate(db.app, n1, [snap("services", [svc("Spooler")], 0)], "agent");
+  await ingestAndEvaluate(db.app, n2, [snap("services", [svc("Spooler"), svc(roleSvc)], 0)], "agent");
+  await ingestAndEvaluate(db.app, s1, [snap("services", [svc("Spooler")], 0)], "agent");
+  await ingestAndEvaluate(db.app, sat, [snap("services", [svc("Spooler")], 0)], "agent");
+
+  const groups = async (q: string) => ((await call("GET", `/api/fleet/differences?${q}`, undefined, t1)).body.groups as { itemKey: string; cabinets: number }[])
+    .filter(g => g.itemKey.includes(tag)).map(g => [g.itemKey, g.cabinets]);
+  const c = `clientId=${north.clientId}`;
+  assert.deepEqual(await groups(`${c}&from=role`), [[`service:${roleSvc}`, 2]], "from the role: n1 and s1, not the site's item");
+  assert.deepEqual(await groups(`${c}&from=site`), [[`service:${siteSvc}`, 3]], "from the north site: its three cabinets, the satellite among them");
+  assert.deepEqual(await groups(`${c}&role=satellite`), [[`service:${siteSvc}`, 1]], "the satellite differs only from its site");
+  assert.deepEqual((await groups(c)).sort(), [[`service:${roleSvc}`, 2], [`service:${siteSvc}`, 3]], "without a filter, both");
+
+  const group = (await call("GET", `/api/fleet/differences/group?category=services&itemKey=${encodeURIComponent(`service:${roleSvc}`)}&${c}&from=role`, undefined, t1)).body;
+  assert.deepEqual(group.cabinets.map((k: { name: string }) => k.name).sort(), [`N1 ${tag}`, `S1 ${tag}`]);
+  assert.equal(group.unaffected, 2, "n2 reports services and meets its role; so does the satellite, which its role does not ask it for");
+  const sats = (await call("GET", `/api/fleet/differences/group?category=services&itemKey=${encodeURIComponent(`service:${roleSvc}`)}&${c}&role=satellite`, undefined, t1)).body;
+  assert.equal(sats.affected, 0);
+
+  for (const bad of ["role=kiosk", "role=Sync", "from=everything", "from=role'%20OR%201=1%20--", "role=", "from="])
+    assert.equal((await call("GET", `/api/fleet/differences?${c}&${bad}`, undefined, t1)).status, 400, bad);
+  assert.equal((await call("GET", `/api/fleet/differences/group?category=services&itemKey=service:x&from=kiosk`, undefined, t1)).status, 400);
+});

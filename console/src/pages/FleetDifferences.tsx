@@ -13,12 +13,18 @@ import { fullTime } from "../lib/time";
 interface Group { category: string; itemKey: string; field: string; cabinets: number; major: number; required: number }
 interface Overview { cabinetsReporting: number; cabinetsJudged: number; groups: Group[] }
 
+/** The narrowing a person can choose (F7.R3): cabinets of one role, and differences from what one level of baseline expects. */
+const ROLES: [string, string][] = [["", "Every role"], ["sync", "Sync"], ["satellite", "Satellite"], ["standalone", "Standalone"]];
+const LEVELS: [string, string][] = [["", "Any baseline"], ["role", "Their role's baseline"], ["global", "The fleet's baseline"], ["model", "Their model's baseline"],
+  ["client", "Their client's baseline"], ["site", "Their site's baseline"], ["cabinet", "Their own baseline"]];
+
 const query = (p: Record<string, string | undefined>) => { const q = new URLSearchParams(); for (const [k, v] of Object.entries(p)) if (v) q.set(k, v); const s = q.toString(); return s ? `?${s}` : ""; };
 
 export function FleetDifferences() {
-  const { path } = useRouter();
+  const { path, navigate } = useRouter();
   const search = new URLSearchParams(path.split("?")[1] ?? "");
-  const scope = { clientId: search.get("clientId") ?? undefined, siteId: search.get("siteId") ?? undefined };
+  const scope = { clientId: search.get("clientId") ?? undefined, siteId: search.get("siteId") ?? undefined, role: search.get("role") ?? undefined, from: search.get("from") ?? undefined };
+  const narrow = (k: "role" | "from", v: string) => navigate(`/fleet-differences${query({ ...scope, [k]: v || undefined })}`);
   const { data, problem } = useLoad<Overview>(`/api/fleet/differences${query(scope)}`);
   const [q, setQ] = useState("");
   const rows = (data?.groups ?? []).filter(g => !q.trim() || `${g.category} ${g.itemKey} ${g.field}`.toLowerCase().includes(q.trim().toLowerCase()));
@@ -28,6 +34,10 @@ export function FleetDifferences() {
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Differences from baselines" }]} />
       <h1>Differences from baselines</h1>
       <p className="muted">Each line is one way cabinets differ from the baseline that applies to them, with how many cabinets do. A difference on many cabinets at once is worth looking at first. It is a place to start, not a finding about the cause.</p>
+      <div className="row gap wrap">
+        <label className="field inline"><span>Cabinets</span><select value={scope.role ?? ""} onChange={e => narrow("role", e.target.value)}>{ROLES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+        <label className="field inline"><span>Differences from</span><select value={scope.from ?? ""} onChange={e => narrow("from", e.target.value)}>{LEVELS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+      </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && <p className="muted" role="status">{data.cabinetsReporting} cabinets report their configuration; {data.cabinetsJudged} of them have a baseline that applies. A cabinet that has not reported, or has no baseline, is not in these counts.</p>}
       {data && data.groups.length === 0 && <Empty>{data.cabinetsJudged === 0 ? "No cabinet is judged against a baseline yet." : "No cabinet differs from its baseline."}</Empty>}
@@ -55,12 +65,13 @@ interface GroupDetail { category: string; itemKey: string; field: string; affect
 export function FleetDifferenceGroup() {
   const { path } = useRouter();
   const search = new URLSearchParams(path.split("?")[1] ?? "");
-  const p = { category: search.get("category") ?? undefined, itemKey: search.get("itemKey") ?? undefined, field: search.get("field") ?? undefined, clientId: search.get("clientId") ?? undefined, siteId: search.get("siteId") ?? undefined };
+  const p = { category: search.get("category") ?? undefined, itemKey: search.get("itemKey") ?? undefined, field: search.get("field") ?? undefined, clientId: search.get("clientId") ?? undefined, siteId: search.get("siteId") ?? undefined,
+    role: search.get("role") ?? undefined, from: search.get("from") ?? undefined };
   const { data, problem } = useLoad<GroupDetail>(p.category && p.itemKey ? `/api/fleet/differences/group${query(p)}` : null);
   const paged = usePaged(data?.cabinets ?? []);
   return (
     <div className="page">
-      <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Differences from baselines", to: `/fleet-differences${query({ clientId: p.clientId, siteId: p.siteId })}` }, { label: "One difference" }]} />
+      <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Differences from baselines", to: `/fleet-differences${query({ clientId: p.clientId, siteId: p.siteId, role: p.role, from: p.from })}` }, { label: "One difference" }]} />
       <h1>{p.category ? `${categoryName(p.category)}: ${p.itemKey}` : "Difference"}{p.field && <> · {p.field}</>}</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
