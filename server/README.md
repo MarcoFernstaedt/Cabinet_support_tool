@@ -174,11 +174,12 @@ export CONSOLE_ORIGIN=http://localhost:8080 CONSOLE_PORT=8080 CONSOLE_SECRET_KEY
 npm start                                                           # agent API on :8443, console on http://localhost:8080
 
 npm run admin -- user add --username you --name "Your Name" --role admin   # prints a temporary password; sign in at the console
-npm run admin -- token create --as you        # give this and $DEV_PKI_DIR/dev-issuing-ca.cert.pem to the cabinet installer
+# Every command that changes something needs --as and --code: the 6-digit code from your authenticator (set up at your first console sign-in).
+npm run admin -- token create --as you --code <code>   # give this and $DEV_PKI_DIR/dev-issuing-ca.cert.pem to the cabinet installer
 npm run admin -- pending
-npm run admin -- approve <requestId> --as you --client "Client" --site "Site" --cabinet "Cabinet 1" --role standalone
+npm run admin -- approve <requestId> --as you --code <code> --client "Client" --site "Site" --cabinet "Cabinet 1" --role standalone
 npm run admin -- cabinets
-npm run admin -- issue <cabinetId> peripheral.status --as you
+npm run admin -- issue <cabinetId> peripheral.status --as you --code <code>
 npm run admin -- command <commandId>
 ```
 

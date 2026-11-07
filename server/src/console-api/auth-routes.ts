@@ -6,6 +6,7 @@ import { audit, transaction } from "../db/db.js";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passwords.js";
 import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
 import { networkOf, raiseSecurityAlertNow } from "../services/security.js";
+import { recordAuthFailure } from "../services/auth-failures.js";
 import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
 import { DEVICE_MAX_AGE_SECONDS, forgetTrustedDevices, recordSignIn, trustDevice, trustedAccounts } from "../auth/devices.js";
 import { DEVICE_COOKIE, readCookie, setCookie } from "../auth/cookies.js";
@@ -14,8 +15,7 @@ import * as totp from "../auth/totp.js";
 import { Refused } from "../services/errors.js";
 import { clearSessionCookie, setSessionCookie, type ConsoleApiOptions, type Guards } from "./server.js";
 
-export const MAX_FAILURES = 5;
-export const LOCK_MINUTES = 15;
+export { MAX_FAILURES, LOCK_MINUTES } from "../services/auth-failures.js";
 const ADDRESS_FAILURES_PER_15_MIN = 30;
 /** IPv6 is also counted per /48, a whole site's allocation, so a free /48 does not become 65,536 separate limits. */
 const SITE_FAILURES_PER_15_MIN = 120;
@@ -61,20 +61,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
    * locks it raises a security alert to Admins. Once a lock has run out the count starts again, so a later run of
    * failures locks (and alerts) again instead of re-locking on the first one, silently.
    */
-  const recordFailure = async (userId: string, kind: "failed_logins" | "failed_step_ups", source: string): Promise<void> => {
-    const r = (await o.pool.query<{ failed_logins: number; username: string }>(
-      `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END,
-                        locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END) >= $2
-                                            THEN DATEADD(minute, $3, SYSUTCDATETIME())
-                                            WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN NULL ELSE locked_until END
-        OUTPUT inserted.failed_logins, inserted.username
-        WHERE id = $1`, [userId, MAX_FAILURES, LOCK_MINUTES])).rows[0];
-    if (r && r.failed_logins === MAX_FAILURES)
-      await raiseSecurityAlertNow(o.pool, { kind, signature: `${kind}|${userId}`, userId,
-        title: kind === "failed_logins" ? `Repeated failed sign-ins on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`
-                                        : `Repeated failed step-up codes on ${r.username}; the account is locked for ${LOCK_MINUTES} minutes`,
-        detail: { failures: r.failed_logins, source } });
-  };
+  const recordFailure = (userId: string, kind: "failed_logins" | "failed_step_ups", source: string) => recordAuthFailure(o.pool, userId, kind, source);
 
   const describe = (u: SessionUser) => ({
     user: { id: u.userId, username: u.username, name: u.name, role: u.role, totpEnabled: u.totpEnabled, tourCompleted: u.tourCompleted, canApproveFixes: u.canApproveFixes },
