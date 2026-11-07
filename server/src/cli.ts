@@ -40,6 +40,7 @@ const USAGE = `platform-admin <command> [options]
   user add --username u --name "N" --role tier1|tier2|admin [--as <admin>]   prints a one-time temporary password; --as is needed once any Admin exists
   user reset-password --username u --as <admin>             new temporary password; ends the user's sessions
   token create --as <admin>                 one-time bootstrap token for one cabinet (valid 7 days)
+  token create --site <siteId> [--role R] [--cabinets 1-100] [--days 1-30] --as <admin>   a site installer's token (default 10 cabinets, 7 days)
   pending                                   enrollment requests waiting for approval
   approve <requestId> --as <admin> --client C --site S --cabinet N --role sync|satellite|standalone --baseline inherited|capture|<versionId>
                                             the baseline decision is required (docs/spec/15-baselines-and-config.md)
@@ -111,7 +112,7 @@ function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
 async function main(argv: string[]): Promise<void> {
   const { positionals, values } = parseArgs({
     args: argv, allowPositionals: true, strict: true,
-    options: { as: { type: "string" }, code: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
+    options: { as: { type: "string" }, code: { type: "string" }, cabinets: { type: "string" }, days: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
       client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
       version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" },
       manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" },
@@ -310,13 +311,18 @@ async function main(argv: string[]): Promise<void> {
         return;
       }
       case "token create": {
-        const { token, expiresAt } = await createBootstrapToken(pool, await authorize(values.as, "admin", values.code));
-        console.log(`Bootstrap token (shown once, valid until ${expiresAt.toISOString()}):\n${token}`);
+        // --site makes a site installer's token (F6.R1): for up to --cabinets cabinets of that site (and --role), for --days days.
+        const whole = (v: string | undefined) => v === undefined ? undefined : /^\d{1,3}$/.test(v) ? Number(v) : NaN;
+        if (values.role && !["sync", "satellite", "standalone"].includes(values.role)) throw new Refused("usage", 2, "--role is sync, satellite or standalone");
+        const scope = values.site ? { siteId: values.site, role: values.role as "sync" | "satellite" | "standalone" | undefined, cabinets: whole(values.cabinets), days: whole(values.days) } : undefined;
+        if (values.site && !/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(values.site)) throw new Refused("usage", 2, "--site is the site's ID");
+        const { token, expiresAt, cabinets } = await createBootstrapToken(pool, await authorize(values.as, "admin", values.code), undefined, scope);
+        console.log(`Bootstrap token (shown once, ${scope ? `for up to ${cabinets} cabinets of that site, ` : ""}valid until ${expiresAt.toISOString()}):\n${token}`);
         return;
       }
       case "pending":
         for (const p of await pendingRequests(pool))
-          console.log(`${p.id}  ${p.createdAt.toISOString()}  ${p.fingerprints.hostname}  serial ${p.fingerprints.serialNumber ?? "-"}  from ${p.sourceAddress ?? "-"}  agent ${p.fingerprints.agentVersion}`);
+          console.log(`${p.id}  ${p.createdAt.toISOString()}  ${p.fingerprints.hostname}  serial ${p.fingerprints.serialNumber ?? "-"}  from ${p.sourceAddress ?? "-"}  agent ${p.fingerprints.agentVersion}${p.intended ? `  for ${p.intended.client} / ${p.intended.site}${p.intended.role ? ` (${p.intended.role})` : ""}` : ""}`);
         return;
       case "approve": {
         const role = values.role;

@@ -69,6 +69,16 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "A setting the server needs for this is missing, so nothing was changed.",
     fix: "Ask whoever runs the server to set CONSOLE_SECRET_KEY as in deploy/README.md, then try again.",
   },
+  not_this_site: {
+    title: "Installed for another site",
+    detail: "This cabinet was installed with a site installer made for a different site.",
+    fix: "Approve it at the site its installer was made for, or reject it.",
+  },
+  not_this_role: {
+    title: "Installed for another role",
+    detail: "This cabinet's site installer is for cabinets of one role, and this approval chose another.",
+    fix: "Approve it with the role its installer names, or reject it.",
+  },
   totp_required: {
     title: "Second factor required",
     detail: "This account must enter an authenticator code to finish signing in.",

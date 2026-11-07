@@ -31,7 +31,7 @@
 
 ## Enrollment and certificates
 
-- Validate and consume the bootstrap token, store the request and fingerprints, place it in the pending queue.
+- Validate and consume the bootstrap token (a site installer's token counts one use per request, up to its limit), store the request and fingerprints, place it in the pending queue. A request from a site installer lists its intended client, site and role, which the approval form starts from and the approval is held to.
 - On admin approval with step-up, the admin assigns the client, site, cabinet name and role. The server then has the CSR signed by the issuing key in the KMS and returns the certificate on the agent's next enrollment poll.
 - On rejection, the request is closed and the token stays consumed.
 - Every agent connection is checked against the cabinet record: unknown or revoked certificate serials are refused.

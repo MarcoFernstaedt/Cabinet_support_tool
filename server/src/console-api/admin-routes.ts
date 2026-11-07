@@ -7,7 +7,7 @@ import { transaction } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { revokeCabinet } from "../services/cabinets.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
-import { approvalBaselinePreview, approvalSitePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment } from "../services/enrollment.js";
+import { approvalBaselinePreview, approvalSitePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment, revokeBootstrapToken, siteTokens } from "../services/enrollment.js";
 import { cabinetsInScope, evaluateBaselineDrift } from "../services/baseline-drift.js";
 import { evaluateHealth } from "../services/cabinet-health.js";
 import { reevaluations } from "./baseline-routes.js";
@@ -70,13 +70,32 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return { status: "rejected" };
   });
 
-  /** A one-time token for installing one cabinet, with the CA file the installer needs. Shown once. */
+  /**
+   * A token for installing one cabinet, or with `site` a site installer's token for up to `cabinets` cabinets of that site (F6.R1), with
+   * the CA file the installer needs. Shown once. The confirmation is bound to the site and its limits.
+   */
   app.post("/api/admin/bootstrap-tokens", async request => {
     const u = await o.guards.role(request, "admin");
-    const body = consoleBodies.stepUpOnly.parse(request.body);
+    const body = consoleBodies.installerRequest.parse(request.body);
     await stepUp(u.userId, boundTo(body.stepUpToken, body), "token.create", "fleet");
-    const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
-    return { token, expiresAt: expiresAt.toISOString(), platformCaPem: o.issuingKey.certificatePem };
+    const { token, expiresAt, id, cabinets } = await createBootstrapToken(o.pool, u.userId, undefined, body.site);
+    return { token, expiresAt: expiresAt.toISOString(), platformCaPem: o.issuingKey.certificatePem, ...(body.site ? { id, cabinets } : {}) };
+  });
+
+  /** The site installers of the last 30 days: where, for how many cabinets, how many have used them, and whether one was stopped. */
+  app.get("/api/admin/bootstrap-tokens", async request => {
+    await o.guards.role(request, "admin");
+    return { tokens: await siteTokens(o.pool) };
+  });
+
+  /** Stops a site installer early: no cabinet enrolls with it after this. Confirmed with a code, as every Admin action is. */
+  app.post("/api/admin/bootstrap-tokens/:id/revoke", async request => {
+    const u = await o.guards.role(request, "admin");
+    const tokenId = id(request);
+    const body = consoleBodies.stepUpOnly.parse(request.body);
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "token.revoke", tokenId);
+    await revokeBootstrapToken(o.pool, u.userId, tokenId);
+    return { status: "revoked" };
   });
 
   app.post("/api/admin/cabinets/:id/revoke", async request => {

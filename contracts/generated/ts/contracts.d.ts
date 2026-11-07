@@ -1287,6 +1287,22 @@ export interface IncidentQuery {
 }
 
 /**
+ * Makes an installer (or a bootstrap token). Without `site` it is for one cabinet. With `site` it is a site installer (finding F6.R1): for up to `cabinets` cabinets of that site, and of `role` when given, for `days` days, after which it stops; every cabinet that uses it still waits for an Admin's approval.
+ */
+export interface InstallerRequest {
+  /**
+   * A one-time step-up token bound to this exact action, site and limits included.
+   */
+  stepUpToken: string;
+  site?: {
+    siteId: string;
+    role?: "sync" | "satellite" | "standalone";
+    cabinets?: number;
+    days?: number;
+  };
+}
+
+/**
  * Creates or edits an issue type.
  */
 export interface IssueType {
@@ -2046,6 +2062,7 @@ export interface StepUpRequest {
     | "enrollment.approve"
     | "enrollment.reject"
     | "token.create"
+    | "token.revoke"
     | "demo.change"
     | "cabinet.revoke"
     | "settings.scanner"

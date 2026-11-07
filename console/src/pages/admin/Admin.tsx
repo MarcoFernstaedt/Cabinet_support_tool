@@ -51,7 +51,9 @@ export function AdminHome() {
 }
 
 export interface Pending { id: string; createdAt: string; sourceAddress: string | null;
-  fingerprints: { hostname: string; serialNumber: string | null; macAddresses: string[]; osVersion: string; agentVersion: string; onlineSince: string }; }
+  fingerprints: { hostname: string; serialNumber: string | null; macAddresses: string[]; osVersion: string; agentVersion: string; onlineSince: string };
+  /** Where a site installer said it belongs (F6.R1): the form starts from it, and the server refuses another site or role. */
+  intended?: { client: string; site: string; role: string | null } }
 
 export function PendingCabinets() {
   const { data, problem, reload } = useLoad<Pending[]>("/api/admin/enrollments");
@@ -78,7 +80,8 @@ function known(name: string, names: string[]): { exact: boolean; near: string | 
 
 
 export function PendingCard({ p, clients, onDone }: { p: Pending; clients: KnownClient[]; onDone: () => void }) {
-  const [form, setForm] = useState({ client: "", site: "", cabinet: p.fingerprints.hostname, role: "standalone", syncCabinetId: "", replacesCabinetId: "" });
+  // A cabinet installed with a site installer arrives with that site (and role) filled in; the server holds it to them (F6.R1).
+  const [form, setForm] = useState({ client: p.intended?.client ?? "", site: p.intended?.site ?? "", cabinet: p.fingerprints.hostname, role: p.intended?.role ?? "standalone", syncCabinetId: "", replacesCabinetId: "" });
   // Approving with a name that does not exist creates that client or site, so existing ones are offered and a new one is said out loud.
   const client = known(form.client, clients.map(c => c.name));
   const knownClient = clients.find(c => c.name === form.client.trim());

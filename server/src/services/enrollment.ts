@@ -20,16 +20,56 @@ import { noteRevocation } from "../agent-api/revocations.js";
 export const TOKEN_DAYS = 7;
 const hashToken = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
 
-/** Creates a single-use bootstrap token. The token is returned once and only its hash is stored. */
-export async function createBootstrapToken(pool: Pool, userId: string, days = TOKEN_DAYS): Promise<{ token: string; expiresAt: Date }> {
+/** The bounds of a site installer's token (F6.R1, decision-log D35): how many cabinets it is for, and for how long. */
+export const SITE_TOKEN = { maxCabinets: 100, defaultCabinets: 10, maxDays: 30, defaultDays: TOKEN_DAYS } as const;
+
+/** What a site installer is for: one site, optionally one role, and how many cabinets for how many days. */
+export interface SiteScope { siteId: string; role?: "sync" | "satellite" | "standalone" | undefined; cabinets?: number | undefined; days?: number | undefined }
+
+/**
+ * Creates a bootstrap token. The token is returned once and only its hash is stored. Without a site it is for one cabinet, as always;
+ * with one (a site installer) it is for up to `cabinets` cabinets of that site and role, until it runs out, expires or is revoked.
+ */
+export async function createBootstrapToken(pool: Pool, userId: string, days: number = TOKEN_DAYS, site?: SiteScope): Promise<{ token: string; expiresAt: Date; id: string; cabinets: number }> {
   const token = randomBytes(32).toString("base64url");
   const id = randomUUID();
-  const expiresAt = new Date(Date.now() + days * 86_400_000);
+  const lifeDays = site ? site.days ?? SITE_TOKEN.defaultDays : days;
+  const cabinets = site ? site.cabinets ?? SITE_TOKEN.defaultCabinets : 1;
+  if (site && (!Number.isInteger(cabinets) || cabinets < 1 || cabinets > SITE_TOKEN.maxCabinets))
+    throw new Refused("invalid_request", 400, `a site installer is for 1 to ${SITE_TOKEN.maxCabinets} cabinets`);
+  if (site && (!Number.isInteger(lifeDays) || lifeDays < 1 || lifeDays > SITE_TOKEN.maxDays))
+    throw new Refused("invalid_request", 400, `a site installer lasts 1 to ${SITE_TOKEN.maxDays} days`);
+  const expiresAt = new Date(Date.now() + lifeDays * 86_400_000);
   await transaction(pool, async c => {
-    await c.query("INSERT INTO bootstrap_tokens (id, token_hash, created_by, expires_at) VALUES ($1, $2, $3, $4)", [id, hashToken(token), userId, expiresAt]);
-    await audit(c, { actorKind: "user", actorId: userId, action: "token.create", targetKind: "token", targetId: id, outcome: "succeeded", details: { expiresAt: expiresAt.toISOString() } });
+    if (site && !(await c.query("SELECT 1 AS x FROM sites WHERE id = $1 AND removed_at IS NULL", [site.siteId])).rows[0])
+      throw new Refused("not_found", 404, "no such site");
+    await c.query("INSERT INTO bootstrap_tokens (id, token_hash, created_by, expires_at, site_id, role, max_uses) VALUES ($1, $2, $3, $4, $5, $6, $7)",
+      [id, hashToken(token), userId, expiresAt, site?.siteId ?? null, site?.role ?? null, cabinets]);
+    await audit(c, { actorKind: "user", actorId: userId, action: "token.create", targetKind: "token", targetId: id, outcome: "succeeded",
+      details: { expiresAt: expiresAt.toISOString(), ...(site ? { siteId: site.siteId.toLowerCase(), role: site.role ?? null, cabinets } : {}) } });
   });
-  return { token, expiresAt };
+  return { token, expiresAt, id, cabinets };
+}
+
+/** Stops a site installer's token now: no cabinet can enroll with it after this. Requests it already made stay pending. */
+export async function revokeBootstrapToken(pool: Pool, userId: string, tokenId: string): Promise<void> {
+  await transaction(pool, async c => {
+    const r = await c.query("UPDATE bootstrap_tokens SET revoked_at = SYSUTCDATETIME(), revoked_by = $2 WHERE id = $1 AND revoked_at IS NULL AND site_id IS NOT NULL", [tokenId, userId]);
+    if (r.rowCount !== 1) throw new Refused("not_found", 404, "no site installer token to revoke");
+    await audit(c, { actorKind: "user", actorId: userId, action: "token.revoke", targetKind: "token", targetId: tokenId.toLowerCase(), outcome: "succeeded" });
+  });
+}
+
+export interface SiteToken { id: string; siteId: string; site: string; client: string; role: string | null; cabinets: number; used: number; expiresAt: string; createdAt: string; revokedAt: string | null }
+
+/** The site installers made in the last 30 days, newest first, with how many of their cabinets have used them. */
+export async function siteTokens(db: Queryable): Promise<SiteToken[]> {
+  return (await db.query<{ id: string; site_id: string; site: string; client: string; role: string | null; max_uses: number; uses: number; expires_at: Date; created_at: Date; revoked_at: Date | null }>(
+    `SELECT TOP (200) t.id, t.site_id, s.name AS site, c.name AS client, t.role, t.max_uses, t.uses, t.expires_at, t.created_at, t.revoked_at
+       FROM bootstrap_tokens t JOIN sites s ON s.id = t.site_id JOIN clients c ON c.id = s.client_id
+      WHERE t.created_at > DATEADD(day, -30, SYSUTCDATETIME()) ORDER BY t.created_at DESC`)).rows
+    .map(r => ({ id: r.id.toLowerCase(), siteId: r.site_id.toLowerCase(), site: r.site, client: r.client, role: r.role, cabinets: Number(r.max_uses), used: Number(r.uses),
+      expiresAt: r.expires_at.toISOString(), createdAt: r.created_at.toISOString(), revokedAt: r.revoked_at?.toISOString() ?? null }));
 }
 
 /**
@@ -41,20 +81,24 @@ export async function submitEnrollment(pool: Pool, request: EnrollRequest, sourc
   return transaction(pool, async c => {
     // The token is checked before the certificate request, so nobody without a token makes the server verify signatures.
     // A bad request does not use the token up: the row is locked, and only a valid request marks it used.
-    const token = (await c.query<{ id: string }>(
-      "SELECT id FROM bootstrap_tokens WITH (UPDLOCK, ROWLOCK) WHERE token_hash = $1 AND used_at IS NULL AND expires_at > SYSUTCDATETIME()",
+    // A site installer's token takes up to max_uses cabinets; the lock makes two cabinets at once count as two (F6.R1).
+    const token = (await c.query<{ id: string; site_id: string | null }>(
+      `SELECT id, site_id FROM bootstrap_tokens WITH (UPDLOCK, ROWLOCK)
+        WHERE token_hash = $1 AND uses < max_uses AND revoked_at IS NULL AND expires_at > SYSUTCDATETIME()`,
       [hashToken(request.bootstrapToken)])).rows[0];
     if (!token) {
       throw new Refused("enrollment_refused", 403, "unknown, used or expired bootstrap token");
     }
     try { verifyCsr(request.csr); }
     catch (e) { if (e instanceof CsrError) throw new Refused("invalid_request", 400, e.message); throw e; }
-    await c.query("UPDATE bootstrap_tokens SET used_at = SYSUTCDATETIME() WHERE id = $1", [token.id]);
+    // used_at is when it was used up: at once for a one-cabinet token, at its last cabinet for a site installer's.
+    await c.query("UPDATE bootstrap_tokens SET uses = uses + 1, used_at = CASE WHEN uses + 1 >= max_uses THEN SYSUTCDATETIME() ELSE used_at END WHERE id = $1", [token.id]);
     const id = randomUUID();
     await c.query("INSERT INTO enrollment_requests (id, token_id, csr, fingerprints, source_address, status) VALUES ($1, $2, $3, $4, $5, 'pending')",
       [id, token.id, request.csr, safeJson(request.fingerprints), sourceAddress]);
     await audit(c, { actorKind: "agent", actorId: request.fingerprints.hostname, action: "enrollment.submit", targetKind: "enrollment", targetId: id, outcome: "succeeded",
-      details: { hostname: request.fingerprints.hostname, serialNumber: request.fingerprints.serialNumber, source: sourceAddress } });
+      details: { hostname: request.fingerprints.hostname, serialNumber: request.fingerprints.serialNumber, source: sourceAddress, tokenId: token.id.toLowerCase(),
+        ...(token.site_id ? { siteId: token.site_id.toLowerCase() } : {}) } });
     return id;
   });
 }
@@ -67,12 +111,18 @@ export async function enrollmentStatus(db: Queryable, requestId: string): Promis
   return { requestId, status: row.status === "rejected" ? "rejected" : "pending" };
 }
 
-export interface PendingRequest { id: string; createdAt: Date; sourceAddress: string | null; fingerprints: EnrollRequest["fingerprints"]; }
+/** Where a request's site installer said it belongs: a suggestion the approval form starts from, checked again on approval. */
+export interface IntendedPlace { client: string; site: string; role: string | null }
+export interface PendingRequest { id: string; createdAt: Date; sourceAddress: string | null; fingerprints: EnrollRequest["fingerprints"]; intended?: IntendedPlace }
 
 export async function pendingRequests(db: Queryable): Promise<PendingRequest[]> {
-  return (await db.query<{ id: string; created_at: Date; source_address: string | null; fingerprints: EnrollRequest["fingerprints"] }>(
-    "SELECT id, created_at, source_address, fingerprints FROM enrollment_requests WHERE status = 'pending' ORDER BY created_at")).rows
-    .map(r => ({ id: r.id, createdAt: r.created_at, sourceAddress: r.source_address, fingerprints: r.fingerprints }));
+  return (await db.query<{ id: string; created_at: Date; source_address: string | null; fingerprints: EnrollRequest["fingerprints"]; client: string | null; site: string | null; role: string | null }>(
+    `SELECT r.id, r.created_at, r.source_address, r.fingerprints, c.name AS client, s.name AS site, t.role
+       FROM enrollment_requests r LEFT JOIN bootstrap_tokens t ON t.id = r.token_id LEFT JOIN sites s ON s.id = t.site_id AND s.removed_at IS NULL
+       LEFT JOIN clients c ON c.id = s.client_id AND c.removed_at IS NULL
+      WHERE r.status = 'pending' ORDER BY r.created_at`)).rows
+    .map(r => ({ id: r.id, createdAt: r.created_at, sourceAddress: r.source_address, fingerprints: r.fingerprints,
+      ...(r.client && r.site ? { intended: { client: r.client, site: r.site, role: r.role } } : {}) }));
 }
 
 export interface Approval {
@@ -119,8 +169,9 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
   if (approval.syncCabinetId !== undefined && approval.role !== "satellite")
     throw new Refused("sync_not_allowed", 400, "only a satellite is given a sync cabinet", { reason: "Only a satellite is given a sync cabinet." });
   const result = await transaction(pool, async c => {
-    const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"] }>(
-      "SELECT csr, fingerprints FROM enrollment_requests WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND status = 'pending'", [requestId])).rows[0];
+    const request = (await c.query<{ csr: string; fingerprints: EnrollRequest["fingerprints"]; token_site: string | null; token_role: string | null }>(
+      `SELECT r.csr, r.fingerprints, t.site_id AS token_site, t.role AS token_role FROM enrollment_requests r WITH (UPDLOCK, ROWLOCK)
+         LEFT JOIN bootstrap_tokens t ON t.id = r.token_id WHERE r.id = $1 AND r.status = 'pending'`, [requestId])).rows[0];
     if (!request) throw new Refused("not_pending", 409, "that enrollment request is not pending");
     // Whether this approval creates the client: only a new client takes a scanner choice; an existing one keeps its own setting.
     const existed = !!(await c.query("SELECT 1 AS x FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0];
@@ -144,6 +195,14 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         [randomUUID(), client.id, approval.siteName]);
     } catch (e) { if (!isUniqueViolation(e)) throw e; }
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
+    // A cabinet installed with a site installer belongs to that site, and to its role when the installer named one (F6.R1). Placing it
+    // anywhere else is refused: the installer was made for there, and the person who made it confirmed that with a code.
+    if (request.token_site && request.token_site.toLowerCase() !== site.id.toLowerCase())
+      throw new Refused("not_this_site", 409, "this cabinet was installed with another site's installer",
+        { reason: "This cabinet was installed with another site's installer. Approve it at that site, or reject it." });
+    if (request.token_role && request.token_role !== approval.role)
+      throw new Refused("not_this_role", 409, `this cabinet's installer is for ${request.token_role} cabinets`,
+        { reason: `This cabinet's installer is for ${request.token_role} cabinets. Approve it with that role, or reject it.` });
     // A new site's own policies, confirmed with this approval and written with it (each audited as its own change).
     if (!siteExisted && approval.sitePolicies?.firewall) await writeSitePolicy(c, userId, site.id, approval.sitePolicies.firewall);
     if (!siteExisted && approval.sitePolicies?.timeZone) {
