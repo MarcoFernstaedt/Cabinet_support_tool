@@ -257,7 +257,11 @@ test("one report reads the incidents and the issue catalogue once, whatever it c
 test("an absent unit opens the incident, and the report of its return closes the same signature", async () => {
   const open: unknown[] = [];
   const incidents: Router = sql => (/FROM alerts a/.test(sql) ? { rows: open } : null);
+  // The close (closeAutomatically) gives back the row it closed, and the audit of it is appended (F4).
+  const close: Router = (sql, params) => (/DECLARE @closed TABLE/.test(sql) ? { rows: [{ id: "alert-1", cabinet_id: params[0], resolution: params[2] }] }
+    : /EXEC audit_append_many/.test(sql) ? { rows: [{ first: "7", last: "7" }] } : null);
   const rest = route(
+    close,
     sql => (/FROM cabinets cab/.test(sql) ? { rows: [levelsRow(stored(1))] } : null),
     incidents,
     sql => (/FROM issue_types/.test(sql) ? { rows: [{ key: "usb_missing", id: "id-missing", name: "Expected USB device not detected", severity: "minor" }] } : null),
@@ -283,6 +287,8 @@ test("an absent unit opens the incident, and the report of its return closes the
   assert.equal(resolves[0]!.params[1], signatures[0], "the resolution does not seek the signature the incident was opened under");
   assert.equal(resolves[0]!.params[2], USB_RESOLUTION_TEXT["usb-absent"], "the resolution text is not the one the rules carry for the absent rule");
   assert.equal(closed.resolved, 1, `the tally does not report the closure: ${JSON.stringify(closed)}`);
+  const audited = back.calls.filter(c => /EXEC audit_append_many/.test(c.sql)).map(c => JSON.parse(String(c.params[0])) as { action: string; targetId: string; details: string }[]);
+  assert.deepEqual(audited.flat().map(e => [e.action, e.targetId, JSON.parse(e.details).automatic]), [["alert.resolve", "alert-1", true]], "the close is not on the audit chain");
   assert.equal(closed.opened, 0, `a unit that is back opened something: ${JSON.stringify(closed)}`);
 
   // An incident the rules cannot attribute to a unit on this report is left alone: no resolve statement at all.
