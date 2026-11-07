@@ -63,6 +63,12 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "This action needs a fresh sign-in or a second factor.",
     fix: "Complete the confirmation prompt, then repeat the action.",
   },
+  // Only the operator command line raises it (server/src/cli.ts, F3), when the server's settings lack the key that opens authenticator secrets.
+  config: {
+    title: "The server is not fully configured",
+    detail: "A setting the server needs for this is missing, so nothing was changed.",
+    fix: "Ask whoever runs the server to set CONSOLE_SECRET_KEY as in deploy/README.md, then try again.",
+  },
   totp_required: {
     title: "Second factor required",
     detail: "This account must enter an authenticator code to finish signing in.",

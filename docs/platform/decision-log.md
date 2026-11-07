@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D33. A cabinet's role carries its expected set, as a baseline level (2026-11-07)
+
+**Owner's decision.** Asked whether F7's role template is keyed by the three roles a cabinet already has (sync, satellite, standalone) or
+is a named template an Admin creates and assigns, the owner chose the recommendation, "The three roles".
+
+**The decision.** A baseline can apply to a `role`. Its id is the role, and nothing but the three roles is accepted (contract, and the
+`baselines_role_check` constraint in migration 0024). It sits between the fleet's baseline and a model's. Admins make it, as for the fleet's
+and a model's. It applies to every active cabinet of that role, and is counted when a cabinet is approved with "use the baseline in force".
+
+**Why this, and not the alternatives.**
+- **No new step at setup.** Every cabinet has a role from the moment it is approved, so its expectations follow without an assignment. A
+  named template would be one more choice per cabinet or site, against F6's aim of fewer fields per cabinet.
+- **Everything baselines already do comes with it:** capture from a working cabinet, two-person approval, item-by-item inheritance, drift,
+  "degraded" with the item named, the fleet view and the timeline. A separate template system would have duplicated all of it.
+- **Between fleet and model**, because a role says what a cabinet does and a model says what hardware it is: a model baseline (a driver
+  version for that hardware) narrows a role's expectation, and a client, site or cabinet narrows both.
+- **What it does not cover:** cabinets of one role that run different workloads. If that appears, a narrower client or site baseline says
+  so; named templates remain the way to go further, and would need their own decision.
+
+**How it was proven.** `server/test/baselines.test.ts`:
+- Tier 2 is refused, and so are hostile role ids (an unknown role, the wrong case, empty, null, an injection string, a trailing space, 65
+  characters). The database refuses an unknown role written directly.
+- A role baseline applies to its role and not another; it sits after the fleet's and before a model's; a model's item replaces the
+  role's.
+- A cabinet missing the service its role requires is degraded, with the service named; once it runs it, the reason goes.
+
+With the role left out of a cabinet's scopes, the second test fails. `server/test/enrollment-baseline.test.ts`: a sync role baseline is
+"in force" for a sync approval (preview and approval) and refused as such for a standalone one.
 ## D32. What F4's audit sweep counts as a transition (2026-11-07)
 
 **The decision.** `server/test/audit-sweep.test.ts` reads the server's source. Every statement that changes a row's `state` or `status`,

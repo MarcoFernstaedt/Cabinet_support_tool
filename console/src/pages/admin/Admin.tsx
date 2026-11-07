@@ -115,7 +115,7 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   // The baseline decision every approval needs: the one in force by default, else the approver's choice.
   const [baselineChoice, setBaselineChoice] = useState<BaselineChoice>("");
   const [attachId, setAttachId] = useState("");
-  const baselineState = useBaselinePreview(p.id, form.client, form.site, setBaselineChoice);
+  const baselineState = useBaselinePreview(p.id, form.client, form.site, form.role, setBaselineChoice);
   const baselinePreview = baselineState.preview;
   const decision = baselinePreview ? decisionFrom(baselineChoice, attachId) : null;
   // A new site's policies: pre-filled from what it would inherit; the approver keeps that or sets the site's own.

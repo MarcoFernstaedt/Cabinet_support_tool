@@ -582,11 +582,12 @@ export interface AppControl {
 }
 
 /**
- * Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.
+ * Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, and the role when it is chosen, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.
  */
 export interface ApproveEnrollmentBaseline {
   client: string;
   site: string;
+  role?: "sync" | "satellite" | "standalone";
 }
 
 /**
@@ -608,7 +609,7 @@ export interface ApproveEnrollment {
   scanner?: ClientScannerChoice;
   sitePolicies?: SitePolicies;
   /**
-   * The baseline decision every approval needs (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). inherited: an approved baseline already applies (fleet, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.
+   * The baseline decision every approval needs (docs/spec/15-baselines-and-config.md "Baselines at enrollment"). inherited: an approved baseline already applies (fleet, role, client or site level), and the server checks that one does. attach: copy the named approved baseline version to the cabinet's site as the site's baseline. capture: the cabinet's first full configuration report becomes the site's baseline draft, which is then reviewed and approved with the two-person rule.
    */
   baseline:
     | {
@@ -813,10 +814,10 @@ export interface BaselineImport {
 }
 
 /**
- * Where a baseline applies: the whole fleet, a cabinet model, a client, a site or one cabinet. A model is named by its text; the others by their ID.
+ * Where a baseline applies: the whole fleet, every cabinet of one role (sync, satellite or standalone), a cabinet model, a client, a site or one cabinet. A role is named by the role, a model by its text, the others by their ID.
  */
 export interface BaselineScope {
-  kind: "global" | "model" | "client" | "site" | "cabinet";
+  kind: "global" | "role" | "model" | "client" | "site" | "cabinet";
   id: null | string;
 }
 
@@ -832,7 +833,7 @@ export interface BaselineUpdate {
  * Which baselines the list shows.
  */
 export interface BaselinesQuery {
-  scopeKind?: "global" | "model" | "client" | "site" | "cabinet";
+  scopeKind?: "global" | "role" | "model" | "client" | "site" | "cabinet";
   scopeId?: string;
 }
 

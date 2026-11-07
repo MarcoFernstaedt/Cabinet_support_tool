@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/baseline-scope.schema.json",
   "title": "baseline-scope",
-  "description": "Where a baseline applies: the whole fleet, a cabinet model, a client, a site or one cabinet. A model is named by its text; the others by their ID.",
+  "description": "Where a baseline applies: the whole fleet, every cabinet of one role (sync, satellite or standalone), a cabinet model, a client, a site or one cabinet. A role is named by the role, a model by its text, the others by their ID.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -14,6 +14,7 @@
       "type": "string",
       "enum": [
         "global",
+        "role",
         "model",
         "client",
         "site",
@@ -51,6 +52,23 @@
         "properties": {
           "id": {
             "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "role"
+          }
+        },
+        "type": "object"
+      },
+      "then": {
+        "properties": {
+          "id": {
+            "$ref": "../common.schema.json#/$defs/cabinetRole"
           }
         }
       }

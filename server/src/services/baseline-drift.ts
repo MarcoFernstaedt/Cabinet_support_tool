@@ -80,7 +80,7 @@ export async function driftFor(db: Queryable, cabinetId: string) {
 /** The active cabinets (that have reported a configuration) a baseline in this scope applies to. */
 export async function cabinetsInScope(db: Queryable, scope: { kind: string; id: string | null }): Promise<string[]> {
   const base = "SELECT DISTINCT k.id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN config_current c ON c.cabinet_id = k.id WHERE k.status = 'active'";
-  const q: [string, unknown[]] = scope.kind === "global" ? [base, []] : scope.kind === "model" ? [`${base} AND k.model = $1`, [scope.id]]
+  const q: [string, unknown[]] = scope.kind === "global" ? [base, []] : scope.kind === "role" ? [`${base} AND k.role = $1`, [scope.id]] : scope.kind === "model" ? [`${base} AND k.model = $1`, [scope.id]]
     : scope.kind === "client" ? [`${base} AND s.client_id = $1`, [scope.id]] : scope.kind === "site" ? [`${base} AND k.site_id = $1`, [scope.id]] : [`${base} AND k.id = $1`, [scope.id]];
   return (await db.query<{ id: string }>(q[0], q[1])).rows.map(r => r.id);
 }

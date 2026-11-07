@@ -20,8 +20,10 @@ export interface ResolvedHealth { maxOfflineMinutes: number; requireRequiredItem
 export interface Resolved { items: ResolvedItem[]; health: ResolvedHealth; healthOrigin: Partial<Record<keyof ResolvedHealth, Origin>>; scopes: Origin[] }
 
 export const DEFAULT_HEALTH: ResolvedHealth = { maxOfflineMinutes: 10, requireRequiredItems: true, requireNoCriticalAlerts: true };
-const ORDER: ScopeKind[] = ["global", "model", "client", "site", "cabinet"];
-const WIDE: ScopeKind[] = ["global", "model"];
+// A role baseline (F7, decision-log D33) sits between the fleet's and a model's: what every cabinet of that role should be.
+const ORDER: ScopeKind[] = ["global", "role", "model", "client", "site", "cabinet"];
+const WIDE: ScopeKind[] = ["global", "role", "model"];
+const ROLE_NAME: Record<string, string> = { sync: "Sync cabinets", satellite: "Satellite cabinets", standalone: "Standalone cabinets" };
 /** A baseline holds at most this many items (the contract's limit), also for a capture. */
 export const MAX_ITEMS = 5000;
 
@@ -36,6 +38,11 @@ export const normalScope = (scope: Scope): Scope => ({ kind: scope.kind, id: sco
 export async function scopeName(db: Queryable, scope: Scope): Promise<string> {
   if (scope.kind === "global") return "All cabinets";
   if (scope.kind === "model") return scope.id!;
+  if (scope.kind === "role") {
+    const name = ROLE_NAME[scope.id ?? ""];
+    if (!name) throw new Refused("not_found", 404, "no such role");
+    return name;
+  }
   const sql = { client: "SELECT name FROM clients WHERE id = $1 AND removed_at IS NULL",
     site: "SELECT CONCAT(c.name, N' / ', s.name) AS name FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1 AND s.removed_at IS NULL",
     cabinet: "SELECT name FROM cabinets WHERE id = $1" }[scope.kind];
@@ -46,14 +53,14 @@ export async function scopeName(db: Queryable, scope: Scope): Promise<string> {
 
 /** The scopes that apply to a cabinet, widest first. */
 export async function cabinetScopes(db: Queryable, cabinetId: string): Promise<Scope[]> {
-  const r = (await db.query<{ model: string | null; client_id: string; site_id: string }>(
-    "SELECT k.model, s.client_id, k.site_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0];
+  const r = (await db.query<{ role: string; model: string | null; client_id: string; site_id: string }>(
+    "SELECT k.role, k.model, s.client_id, k.site_id FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.id = $1", [cabinetId])).rows[0];
   if (!r) throw new Refused("not_found", 404, "no such cabinet");
-  return [{ kind: "global", id: null }, ...(r.model ? [{ kind: "model" as const, id: r.model }] : []), { kind: "client", id: r.client_id }, { kind: "site", id: r.site_id }, { kind: "cabinet", id: cabinetId }];
+  return [{ kind: "global", id: null }, { kind: "role", id: r.role }, ...(r.model ? [{ kind: "model" as const, id: r.model }] : []), { kind: "client", id: r.client_id }, { kind: "site", id: r.site_id }, { kind: "cabinet", id: cabinetId }];
 }
 
 function checkScopeRole(actor: Actor, scope: Scope): void {
-  if (WIDE.includes(scope.kind) && ROLE_RANK[actor.role] < ROLE_RANK.admin) throw new Refused("forbidden", 403, "only an Admin works with the baselines for all cabinets or a model");
+  if (WIDE.includes(scope.kind) && ROLE_RANK[actor.role] < ROLE_RANK.admin) throw new Refused("forbidden", 403, "only an Admin works with the baselines for all cabinets, a role or a model");
 }
 
 /** Every item belongs to its category and none repeats (the contract has already checked the shapes). */
@@ -88,7 +95,7 @@ export async function listBaselines(db: Queryable, filter: { scopeKind?: string 
             (SELECT v.id FROM baseline_versions v WHERE v.baseline_id = b.id AND v.status = 'pending') AS pending,
             (SELECT COUNT(*) FROM baseline_versions v WHERE v.baseline_id = b.id AND v.status = 'draft') AS drafts
        FROM baselines b WHERE (CAST($1 AS nvarchar(16)) IS NULL OR b.scope_kind = $1) AND (CAST($2 AS nvarchar(64)) IS NULL OR b.scope_id = $2)
-      ORDER BY CASE b.scope_kind WHEN 'global' THEN 0 WHEN 'model' THEN 1 WHEN 'client' THEN 2 WHEN 'site' THEN 3 ELSE 4 END, b.name`, [filter.scopeKind ?? null, filter.scopeId ?? null])).rows;
+      ORDER BY CASE b.scope_kind WHEN 'global' THEN 0 WHEN 'role' THEN 1 WHEN 'model' THEN 2 WHEN 'client' THEN 3 WHEN 'site' THEN 4 ELSE 5 END, b.name`, [filter.scopeKind ?? null, filter.scopeId ?? null])).rows;
   return rows.map(r => ({ id: r.id, scope: { kind: r.scope_kind, id: r.scope_id }, name: r.name, createdAt: r.created_at.toISOString(), approvedVersion: r.approved, approvedAt: r.approved_at?.toISOString() ?? null,
     pendingVersionId: r.pending, drafts: Number(r.drafts) }));
 }
@@ -221,7 +228,7 @@ export async function attachChoices(db: Queryable, limit = 100) {
   const rows = (await db.query<{ version_id: string; version: number; scope_kind: ScopeKind; name: string }>(
     `SELECT TOP (${Math.max(1, Math.min(200, Math.floor(limit)))}) v.id AS version_id, v.[version], b.scope_kind, b.name
        FROM baselines b JOIN baseline_versions v ON v.baseline_id = b.id AND v.status = 'approved'
-      WHERE b.scope_kind IN ('global', 'model', 'client', 'site') ORDER BY v.decided_at DESC`)).rows;
+      WHERE b.scope_kind IN ('global', 'role', 'model', 'client', 'site') ORDER BY v.decided_at DESC`)).rows;
   return rows.map(r => ({ versionId: r.version_id, version: r.version, scope: r.scope_kind, name: r.name }));
 }
 
@@ -234,7 +241,7 @@ export async function attachToSite(c: Queryable, userId: string, siteId: string,
   await lockBaselines(c);
   const src = (await c.query<{ content: BaselineContent; version: number; scope_kind: ScopeKind; scope_id: string | null; name: string }>(
     `SELECT v.content, v.[version], b.scope_kind, b.scope_id, b.name FROM baseline_versions v JOIN baselines b ON b.id = v.baseline_id
-      WHERE v.id = $1 AND v.status = 'approved' AND b.scope_kind IN ('global', 'model', 'client', 'site')`, [versionId])).rows[0];
+      WHERE v.id = $1 AND v.status = 'approved' AND b.scope_kind IN ('global', 'role', 'model', 'client', 'site')`, [versionId])).rows[0];
   if (!src) throw new Refused("not_approved", 409, "that baseline version is not an approved baseline that can be attached",
     { reason: "That baseline is not approved, or a newer version replaced it. Choose one from the list again." });
   const scope: Scope = { kind: "site", id: siteId.toLowerCase() };

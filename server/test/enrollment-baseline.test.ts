@@ -250,7 +250,7 @@ test("only an Admin previews or approves, and the preview's query is checked aga
     const p = await call("GET", `/api/admin/enrollments/${requestId}/baseline?client=A&site=B`, undefined, who);
     assert.equal(p.status, 403, JSON.stringify(p.body));
   }
-  for (const q of ["client=A", "client=A&site=%3Cscript%3E", "client=A&site=B&role=sync", "client=&site=B", "client=A%07&site=B", `client=${"x".repeat(129)}&site=B`]) {
+  for (const q of ["client=A", "client=A&site=%3Cscript%3E", "client=A&site=B&role=kiosk", "client=A&site=B&role=Sync", "client=A&site=B&extra=1", "client=&site=B", "client=A%07&site=B", `client=${"x".repeat(129)}&site=B`]) {
     const p = await call("GET", `/api/admin/enrollments/${requestId}/baseline?${q}`, undefined, ada);
     assert.equal(p.status, 400, `${q} → ${JSON.stringify(p.body)}`);
   }
@@ -283,4 +283,25 @@ test("the database refuses a decision row the code never writes", async () => {
   ] as const)
     await assert.rejects(insert(decision, attached, state, draft), `${decision}/${attached}/${state}/${draft} must be refused`);
   await insert("capture", null, "waiting", null);
+});
+
+// Role baselines (F7, decision-log D33). Last in this file: a role baseline applies fleet-wide to its role, so it must not change what the
+// tests above see. The role is known when a cabinet is approved, so a role baseline is one an approval can rely on.
+test("a role baseline counts as the baseline in force for a cabinet approved with that role, and only that role", async () => {
+  await approvedBaseline({ kind: "role", id: "sync" }, [{ category: "services", key: "service:SyncOnly", mode: "present" }]);
+  const syncReq = await pending(), standaloneReq = await pending();
+  const place = { client: "Role Health " + randomBytes(2).toString("hex"), site: "North" };
+  const preview = await call("GET", `/api/admin/enrollments/${syncReq}/baseline?${new URLSearchParams({ ...place, role: "sync" })}`, undefined, ada);
+  assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  assert.deepEqual(preview.body.inForce.map((o: { kind: string; name: string }) => [o.kind, o.name]), [["role", "Sync cabinets"]]);
+  assert.equal((await call("GET", `/api/admin/enrollments/${syncReq}/baseline?${new URLSearchParams({ ...place, role: "kiosk" })}`, undefined, ada)).status, 400,
+    "a role the contract does not know is refused");
+  // Another role has no baseline in force here: "inherited" is refused for it.
+  const refused = await approve(standaloneReq, { ...place, cabinet: "Standalone 1", role: "standalone", baseline: { use: "inherited" } });
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal(refused.body.error, "no_approved_baseline");
+  const ok = await approve(syncReq, { ...place, cabinet: "Sync 1", role: "sync", baseline: { use: "inherited" } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.deepEqual(ok.body.baseline.inForce.map((o: { kind: string }) => o.kind), ["role"]);
+  assert.equal((await condition(ok.body.cabinetId)).baseline.inForce, true);
 });
