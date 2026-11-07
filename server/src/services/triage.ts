@@ -103,8 +103,10 @@ export async function triage(db: Queryable, q: TriageQuery, now = Date.now()) {
     "SELECT event_id, source, JSON_VALUE(detail, '$.message') AS message FROM events WHERE event_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [un.map(u => u.last_event).filter(Boolean)])).rows;
   const parsed = un.map(u => {
     const ev = events.find(e => e.event_id === u.last_event);
-    // The signature is "unrecognized:<log>|<source>|<event id>" (alerts.ts); read by splitting, never by a pattern.
-    const body = u.signature.slice("unrecognized:".length), first = body.indexOf("|"), last = body.lastIndexOf("|");
+    // The signature is "unrecognized:<log>|<source>|<event id>", for an application crash followed by "~<program>"
+    // (alerts.ts, D29); read by splitting, never by a pattern.
+    const whole = u.signature.slice("unrecognized:".length), tilde = whole.indexOf("~", Math.max(0, whole.lastIndexOf("|"))), body = tilde >= 0 ? whole.slice(0, tilde) : whole;
+    const first = body.indexOf("|"), last = body.lastIndexOf("|");
     const log = ev?.source?.log ?? (first > 0 ? body.slice(0, first) : ""), source = ev?.source?.source ?? (first >= 0 && last > first ? body.slice(first + 1, last) : "");
     const eventId = ev?.source?.eventId ?? Number(last >= 0 ? body.slice(last + 1) : NaN);
     return { u, log, source, eventId, message: ev?.message ?? null, level: ev?.source?.level ?? null };

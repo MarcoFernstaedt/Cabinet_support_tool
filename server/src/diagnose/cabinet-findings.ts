@@ -434,7 +434,7 @@ function logs(e: CabinetEvidence, make: Make): Part {
     }
     const top = [...names.entries()].sort((a, b) => b[1] - a[1]);
     f.push(make({ id: "log-app-crashes", key: "log-app-crashes", area: "logs", severity: crashes.length >= 3 ? "warning" : "info", certainty: "confirmed", title: `${top[0]![0]} crashed${crashes.length > 1 ? ` ${crashes.length} times` : ""} in the last 24 hours`,
-      evidence: lines(top.map(([n, c]) => `${n}: ${c} ${c === 1 ? "crash" : "crashes"}`)), fix: "A program that crashes repeatedly needs an update or a reinstall; the faulting module in the event tells the vendor where.", priority: 44 }));
+      evidence: lines(top.map(([n, c]) => `${n}: ${c} ${c === 1 ? "crash" : "crashes"}`)), fix: "A program that crashes repeatedly needs an update or a reinstall; the faulting module that names the cause is on the cabinet's own event log, not in what the platform receives.", priority: 44 }));
   }
   const rest = entries.filter((_, i) => !used.has(i));
   if (rest.length > 0) {
