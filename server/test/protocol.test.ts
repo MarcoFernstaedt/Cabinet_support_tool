@@ -16,7 +16,7 @@ import { buildAgentApi, parseAcks, SourceBuckets, sourceKey, TokenBucket, type A
 import { Presence } from "../src/agent-api/presence.js";
 import { developmentIssuingKey, developmentServerCertificate } from "../src/pki/issuing.js";
 import type { IssuingKey } from "../src/pki/x509.js";
-import { commandRecord, issueCommand } from "../src/services/commands.js";
+import { commandRecord, expireCommands, issueCommand } from "../src/services/commands.js";
 import { approveEnrollment, createBootstrapToken } from "../src/services/enrollment.js";
 import { checkExpiringCertificates, listCabinets, revokeCabinet } from "../src/services/cabinets.js";
 import { anyRolloutRunning } from "../src/services/rollouts.js";
@@ -182,7 +182,10 @@ test("an expired command is not offered again, and a repeat refused as replayed 
   // Never confirmed, its lease over and its lifetime gone: it is shown as expired, not as running for the next 35 minutes.
   await new Promise(r => setTimeout(r, 1100));
   await call("GET", "/agent/v1/commands", undefined, cab);
+  await expireCommands(db.app);
   assert.equal((await commandRecord(db.app, late.commandId))?.status, "expired");
+  assert.deepEqual((await db.app.query<{ details: Record<string, unknown> }>("SELECT details FROM audit_log WHERE action = 'command.expire' AND target_id = $1",
+    [late.commandId.toLowerCase()])).rows.map(r => r.details.why), ["unconfirmed"]);
   // A result that still arrives (the cabinet did get it) is kept.
   assert.equal((await call("POST", "/agent/v1/results", resultFor(late.commandId), cab)).status, 200);
   assert.equal((await commandRecord(db.app, late.commandId))?.status, "succeeded");

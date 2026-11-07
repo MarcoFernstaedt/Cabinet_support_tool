@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D32. What F4's audit sweep counts as a transition (2026-11-07)
+
+**The decision.** `server/test/audit-sweep.test.ts` reads the server's source. Every statement that changes a row's `state` or `status`,
+and every `DELETE`, must sit in a function that writes an audit row, or close alerts through `closeAutomatically`. Otherwise it must be
+listed in the test with its reason. Four kinds are listed and not audited row by row:
+- **A delivery lease** (a command's `delivered`, renewed on each re-offer). The command's issue, result and expiry are audited.
+- **One step's progress inside a run** (a fleet job's target, a re-apply step, a rollout offer, a diagnosis's own state). The run's start
+  and end, and every command it issues, are audited.
+- **Derived or cached rows** recomputed from others (drift, daily error counts, healthy marks and configuration versions past their cap).
+- **Telemetry retention** (notifications, raw samples folded into hourly rows, operations counters). The nightly run is audited as
+  `retention.run` with each count, and batch retention as `retention.batch`.
+
+**Why.** F4 asks for every automatic and destructive transition. Read literally ("every row change"), it would put one audit row on
+every poll and every heartbeat. The chain is serialized through one head row (`audit_append` takes `UPDLOCK, HOLDLOCK` on it), so that
+would make the audit log the platform's bottleneck. The four kinds above either are not decisions, or are already covered by an audited
+row that says what happened. Everything a person relies on as an outcome is audited: an alert closed, a command expired, a job ended.
+
+**The cost moved off the poll.** The long poll used to mark expired commands itself, with two bare `UPDATE`s. Auditing them there would
+need a table variable on every poll, which the poll's own comment rules out (tempdb queued at 10,000 cabinets). The minute job now
+expires all three cases (`expireCommands`) and audits each with why. The poll still never hands over an expired command, so the only
+visible change is that one can read as queued or delivered for up to a minute. The poll runs two fewer statements when it has work.
+
+**How it was proven.** The sweep test passes, and with one converted close put back to a bare `UPDATE` (`crashes.ts`) it fails, naming
+that line. `closeAutomatically` is tested to write one row per alert closed, none when nothing closed, to roll back with its caller, and
+to refuse to run without its `OUTPUT` clause.
+
+---
+
 ## D31. The operator command line acts only on the named person's authenticator code (2026-11-07)
 
 **Owner's decision.** Asked how the command line should prove who is acting (finding F3), the owner chose the recommendation, "Their

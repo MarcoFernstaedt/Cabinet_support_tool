@@ -191,9 +191,17 @@ export async function runJob(pool: Pool, jobId: string, timing: Timing = DEFAULT
       if (batch.length === 0) break;
       await followUp(pool, jobId, job.operation, batch, timing, { userId: job.created_by, role: job.role });
     }
-    await pool.query(`UPDATE fleet_job_targets SET state = 'cancelled', detail = 'The job was cancelled before this cabinet was reached.', updated_at = SYSUTCDATETIME()
-                       WHERE job_id = $1 AND state = 'pending'`, [jobId]);
-    await pool.query("UPDATE fleet_jobs SET state = CASE WHEN state = 'cancelled' THEN 'cancelled' ELSE 'done' END, finished_at = SYSUTCDATETIME() WHERE id = $1", [jobId]);
+    // The job's end is an automatic transition, audited with it in one transaction (F4); the targets it never reached say so.
+    await transaction(pool, async c => {
+      const notReached = (await c.query(`UPDATE fleet_job_targets SET state = 'cancelled', detail = 'The job was cancelled before this cabinet was reached.', updated_at = SYSUTCDATETIME()
+                         WHERE job_id = $1 AND state = 'pending'`, [jobId])).rowCount ?? 0;
+      const ended = (await c.query<{ state: string }>(
+        "UPDATE fleet_jobs SET state = CASE WHEN state = 'cancelled' THEN 'cancelled' ELSE 'done' END, finished_at = SYSUTCDATETIME() OUTPUT inserted.state WHERE id = $1 AND finished_at IS NULL",
+        [jobId])).rows[0];
+      if (ended)
+        await audit(c, { actorKind: "system", actorId: "fleet-jobs", action: "fleet.job.finish", targetKind: "job", targetId: jobId, outcome: "succeeded",
+          details: { state: ended.state, notReached, automatic: true } });
+    });
   } catch (e) {
     log(`fleet job ${jobId} stopped: ${(e as Error).message}`);
   } finally {

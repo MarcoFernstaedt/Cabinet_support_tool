@@ -1,4 +1,4 @@
-// The USB layer's SQL, kept as data in a module that imports nothing but the pure policy module.
+// The USB layer's SQL, kept as data in a module that imports nothing but the pure policy module and the pure CLOSED_OUTPUT clause.
 //
 // Why it is here and not inline in usb-store.ts: usb-store.ts is the one file in the layer that imports the SQL driver,
 // so anything it holds can only be exercised against a live SQL Server. A statement and its parameters kept here can be
@@ -8,6 +8,7 @@
 //
 // The keys written here are the ones usb-policy.ts builds, so the four joins below and the writes in usb-store.ts agree
 // on one spelling: `usb.policy` for the fleet, `usb.policy.<level>.<lowercased id>` otherwise.
+import { CLOSED_OUTPUT } from "./closed-output.js";
 import { USB_POLICY_SETTING_KEY, usbPolicySettingKey, type UsbScopeLevel } from "./usb-policy.js";
 
 /** Every USB incident's alert signature starts with this; usb-rules.ts's usbIncidentKey() is the other half of it. */
@@ -71,9 +72,10 @@ export const usbOpenIncidentsParams = (cabinetId: string): readonly unknown[] =>
 
 /**
  * Closes one USB incident whose condition is gone. Shaped like alerts.ts's resolveOfflineFor(): state, resolved_at and
- * resolution in one update, over the open rows only, seeking by cabinet and signature.
+ * resolution in one update, over the open rows only, seeking by cabinet and signature. It runs through closeAutomatically (F4), which
+ * audits the close.
  */
-export const usbResolveIncidentSql = `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $3
+export const usbResolveIncidentSql = `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $3 ${CLOSED_OUTPUT}
                 FROM alerts a WITH (FORCESEEK)
                WHERE a.cabinet_id = $1 AND a.signature = $2 AND a.state <> 'resolved'`;
 
