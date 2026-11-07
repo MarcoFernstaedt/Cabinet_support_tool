@@ -44,20 +44,30 @@ export { isCategory };
 
 // ---- The fleet's differences from baselines -----------------------------------------------------------------------------------
 
-export interface DifferenceScope { clientId?: string | undefined; siteId?: string | undefined }
-const IN_SCOPE = "(CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))";
+/**
+ * Which cabinets, and which of their differences: one client or site, cabinets of one role, and only differences from what one level of
+ * baseline expects (its `origin`). "Which cabinets of this client differ from their role" is `{ clientId, role?, from: "role" }` (F7.R3).
+ */
+export interface DifferenceScope { clientId?: string | undefined; siteId?: string | undefined; role?: string | undefined; from?: string | undefined }
+const scopeParams = (s: DifferenceScope): unknown[] => [s.clientId ?? null, s.siteId ?? null, s.role ?? null, s.from ?? null];
+/** The cabinets in scope: $1 client, $2 site, $3 role. */
+const IN_SCOPE = `(CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))
+  AND (CAST($3 AS nvarchar(16)) IS NULL OR k.role = $3)`;
+/** A difference row from the level asked for ($4), or from any. */
+const FROM_LEVEL = (d: string) => `(CAST($4 AS nvarchar(16)) IS NULL OR JSON_VALUE(${d}.origin, '$.kind') = $4)`;
 
 /** The differences from baselines found anywhere in the fleet (or one client or site), most widespread first, with how many cabinets show each. */
 export async function fleetDifferences(db: Queryable, scope: DifferenceScope) {
   const rows = (await db.query<{ category: string; item_key: string; field: string; cabinets: number; major: number; required: number }>(
     `SELECT TOP (500) d.category, d.item_key, d.field, COUNT(*) AS cabinets, SUM(CASE WHEN d.severity = 'major' THEN 1 ELSE 0 END) AS major, SUM(CASE WHEN d.[required] = 1 THEN 1 ELSE 0 END) AS [required]
        FROM cabinet_drift d JOIN cabinets k ON k.id = d.cabinet_id JOIN sites s ON s.id = k.site_id
-      WHERE k.status = 'active' AND ${IN_SCOPE}
-      GROUP BY d.category, d.item_key, d.field ORDER BY COUNT(*) DESC, d.category, d.item_key, d.field`, [scope.clientId ?? null, scope.siteId ?? null])).rows;
+      WHERE k.status = 'active' AND ${IN_SCOPE} AND ${FROM_LEVEL("d")}
+      GROUP BY d.category, d.item_key, d.field ORDER BY COUNT(*) DESC, d.category, d.item_key, d.field`, scopeParams(scope))).rows;
   const checked = (await db.query<{ n: number; withBaseline: number }>(
     `SELECT COUNT(*) AS n, SUM(CASE WHEN h.state IN ('healthy', 'degraded') THEN 1 ELSE 0 END) AS withBaseline
        FROM cabinets k JOIN sites s ON s.id = k.site_id LEFT JOIN cabinet_health h ON h.cabinet_id = k.id
-      WHERE k.status = 'active' AND EXISTS (SELECT 1 FROM config_current c WHERE c.cabinet_id = k.id) AND ${IN_SCOPE}`, [scope.clientId ?? null, scope.siteId ?? null])).rows[0]!;
+      WHERE k.status = 'active' AND EXISTS (SELECT 1 FROM config_current c WHERE c.cabinet_id = k.id) AND ${IN_SCOPE}`,
+    scopeParams(scope))).rows[0]!;
   return {
     cabinetsReporting: Number(checked.n), cabinetsJudged: Number(checked.withBaseline ?? 0),
     groups: rows.map(r => ({ category: r.category, itemKey: r.item_key, field: r.field, cabinets: Number(r.cabinets), major: Number(r.major), required: Number(r.required) })),
@@ -66,20 +76,20 @@ export async function fleetDifferences(db: Queryable, scope: DifferenceScope) {
 
 /** The cabinets that differ in one way, each with what the baseline expects and what it reports, and the cabinets that report the same item and do not differ. */
 export async function fleetDifferenceGroup(db: Queryable, q: { category: string; itemKey: string; field?: string | undefined } & DifferenceScope) {
-  const params = [q.clientId ?? null, q.siteId ?? null, q.category, q.itemKey, q.field ?? ""];
+  const params = [...scopeParams(q), q.category, q.itemKey, q.field ?? ""];
   const affected = (await db.query<{ id: string; name: string; site_id: string; site: string; client: string; model: string | null; expected: unknown; actual: unknown; mode: string; severity: string; first_seen: Date; online: boolean }>(
     `SELECT TOP (1000) k.id, k.name, s.id AS site_id, s.name AS site, c.name AS client, k.model, d.expected, d.actual, d.mode, d.severity, d.first_seen,
             CAST(CASE WHEN k.last_heartbeat_at > DATEADD(minute, -10, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS bit) AS online
        FROM cabinet_drift d JOIN cabinets k ON k.id = d.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE k.status = 'active' AND d.category = $3 AND d.item_key = $4 AND d.field = $5 AND ${IN_SCOPE}
+      WHERE k.status = 'active' AND d.category = $5 AND d.item_key = $6 AND d.field = $7 AND ${IN_SCOPE} AND ${FROM_LEVEL("d")}
       ORDER BY c.name, s.name, k.name`, params)).rows;
   const total = (await db.query<{ n: number }>(
     `SELECT COUNT(*) AS n FROM cabinet_drift d JOIN cabinets k ON k.id = d.cabinet_id JOIN sites s ON s.id = k.site_id
-      WHERE k.status = 'active' AND d.category = $3 AND d.item_key = $4 AND d.field = $5 AND ${IN_SCOPE}`, params)).rows[0]!;
+      WHERE k.status = 'active' AND d.category = $5 AND d.item_key = $6 AND d.field = $7 AND ${IN_SCOPE} AND ${FROM_LEVEL("d")}`, params)).rows[0]!;
   const unaffected = (await db.query<{ n: number }>(
     `SELECT COUNT(*) AS n FROM config_current cc JOIN cabinets k ON k.id = cc.cabinet_id JOIN sites s ON s.id = k.site_id
-      WHERE k.status = 'active' AND cc.category = $3 AND ${IN_SCOPE}
-        AND NOT EXISTS (SELECT 1 FROM cabinet_drift d WHERE d.cabinet_id = k.id AND d.category = $3 AND d.item_key = $4 AND d.field = $5)`, params)).rows[0]!;
+      WHERE k.status = 'active' AND cc.category = $5 AND ${IN_SCOPE}
+        AND NOT EXISTS (SELECT 1 FROM cabinet_drift d WHERE d.cabinet_id = k.id AND d.category = $5 AND d.item_key = $6 AND d.field = $7 AND ${FROM_LEVEL("d")})`, params)).rows[0]!;
   const jsonValue = (raw: unknown): unknown => { if (typeof raw !== "string") return raw ?? null; try { return JSON.parse(raw) as unknown; } catch { return null; } };
   return {
     category: q.category, itemKey: q.itemKey, field: q.field ?? "", affected: Number(total.n), listed: affected.length, unaffected: Number(unaffected.n),

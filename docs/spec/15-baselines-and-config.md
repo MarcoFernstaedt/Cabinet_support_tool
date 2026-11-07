@@ -88,7 +88,7 @@ Reading is Tier 1; every query string and body is checked against its contract.
 - `GET /api/baselines`, `/api/baselines/:id`, `/api/baselines/versions/:id` (with the diff against the previous version)
 - `POST /api/baselines/drafts`, `/capture`, `/import`; `PUT /api/baselines/versions/:id` (Tier 2); `POST .../versions/:id/propose`, `/withdraw` (Tier 2); `POST .../versions/:id/approve`, `/reject` (Admin, step-up)
 - `GET /api/cabinets/:id/baseline`, `/config`, `/condition`, `/drift`, `/config-changes`, `/config-history`, `/compare-healthy`
-- `GET /api/fleet/differences` and `/api/fleet/differences/group`: the same difference counted over the fleet, a client or a site, with the cabinets that have it and the number that report the item and do not.
+- `GET /api/fleet/differences` and `/api/fleet/differences/group`: the same difference counted over the fleet, a client or a site, with the cabinets that have it and the number that report the item and do not. Two optional narrowings (F7.R3): `role`, only cabinets of that role; and `from`, only differences from what one level of baseline expects (the level each difference's origin names). `?clientId=…&from=role` answers "which cabinets of this client differ from their role", apart from what their site or they themselves are asked. The cabinets-reporting count follows `role`, not `from`.
 - Agent: `POST /agent/v1/config`.
 
 (The cabinet's load samples keep `/api/cabinets/:id/health`; the configuration health is `/condition`.)
@@ -99,7 +99,7 @@ Reading is Tier 1; every query string and body is checked against its contract.
 - Admin, **Pending cabinets**: the approval shows which baseline applies at the chosen client and site; with none, Approve waits until the approver attaches an approved baseline or asks for a capture. The site's cabinet list has a Baseline column.
 - Cabinet, **Baseline** tab: Differs from baseline, Since last healthy, History, Baseline in force; "Read its configuration now"; capture a baseline (Tier 2).
 - Cabinet, **Compare**: modes "another cabinet", "its baseline", "its last healthy state". **What changed** also lists the configuration changes. **Standards** has a Configuration baseline line.
-- **Differences** (main menu): the fleet's differences grouped, then one group.
+- **Differences** (main menu): the fleet's differences grouped, then one group, narrowed by role and by the level of baseline a difference comes from.
 - Admin, **Baselines**: the list, import, a baseline's versions, and the version review (diff, draft editor, propose, withdraw, Admin decision).
 - All long lists use the shared pager.
 
