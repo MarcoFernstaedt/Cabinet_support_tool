@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D30. The agent will send an application crash's faulting module and exception code (2026-11-07)
+
+**Owner's decision.** Asked whether the agent should send these for Application Error 1000 (the open question D29 left), the owner chose
+the recommendation: "go with your recommended decision, and ensure that you document the reason for that choice."
+
+**The decision.** For Application Error 1000 only, the agent sends the faulting module and the exception code as event fields, the way it
+already sends Kernel-Power 41's fields (D19). Each value is bounded and checked against the event schema before it leaves the cabinet. The
+server adds them to the crash's signature and title. Application Hang 1002 stays program-only, because its message holds no module or code.
+
+**Why this, and not the alternatives.**
+- **The detail decides the fix.** Today two crashes of one program share one alert whatever the cause. A crash in `ucrtbase.dll` with
+  0xc0000409 (the program corrupted its own memory) and a crash in a driver's DLL with 0xc0000005 (often the driver) need different people.
+  Grouping them hides the second behind the first.
+- **It reuses a path that already exists and is checked.** Kernel-Power 41's fields already go through `EventDetail.Fields`, the contract
+  and the server's validation. No new kind of data leaves the cabinet: the module name and the code are already in the event Windows
+  wrote, only on a later line than the agent sends today.
+- **It is a read, not a write.** It changes what the agent reports, not what it does to the cabinet. It is still an agent release, so it
+  waits for the signed release channel (F1) like every other agent change.
+- **Rejected: send the whole message.** It is unbounded text, it would grow every event row for every source, and the capacity budget
+  counts event rows. Two named, bounded fields cost almost nothing.
+- **Rejected: leave it program-only.** That is honest but leaves the hidden-cause case above unsolved, which is the reason the owner asked
+  for crashes to be raised in the first place.
+
+**Order.** The server side, which reads the fields when present and keeps the program-only signature when absent, can land first. The agent
+side ships with the first signed release after F1. Until then nothing changes on a cabinet.
+
+---
+
 ## D29. Application crashes and hangs are known by their program, so different programs never fold together (2026-11-04)
 
 **Spec.** Roadmap Phase 3 lists "application-crash correlation (Application Error and hang events are not mapped)". This follows the

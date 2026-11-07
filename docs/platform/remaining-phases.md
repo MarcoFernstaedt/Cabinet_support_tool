@@ -321,3 +321,39 @@ order they are being fixed.
 
 An earlier answer of mine counted "2 roadmap phases plus a 6-phase engine" — that double-counted the same work. The count
 is **5 phases**, and the table above is the reason.
+
+## The build spec's findings (F1 to F23), added 2026-11-07
+
+The owner's brief of 7 November 2026 (read at `main` `84f4a7e`) adds findings F1 to F23 to the work left. Each is done one finding, or one
+requirement, per PR, in this order. The order replaces the order above where they overlap. No item below is done until its "proves it"
+holds and its numbers were run. The brief itself is not copied into the repo: `docs/spec` stays the source of truth, and each finding
+changes it with the behaviour.
+
+| # | Work | Findings | State |
+|---|---|---|---|
+| 0 | Production trust: publisher pinned, approved-list keys, a signing pipeline that cannot emit unsigned binaries, one observed upgrade | F1 | Open. R1, the pinned certificate, needs the release-signing purchase (gate 1). R3 and R4 are code. |
+| 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | Open |
+| 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | Open |
+| 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | Open |
+| 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | Open |
+| 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | Open |
+| 6 | Service dependencies, start order, recovery actions | F14 | Open |
+| 7 | The chain under the workload: database, its error log, the monitoring agent | F15 | Open |
+| 8 | Process history: trends, leak and wedge, tree, holder | F13 | Open |
+| 9 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | F16 | Open |
+| 10 | Fixes carried, verified, fleet-run; the watchdog | F18 | Open |
+| 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | Open |
+| 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
+| 13 | Sharpening the two no-expectation detectors | F17 | Open |
+| 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | Open |
+| 15 | Our own remote access | F22 | **Parked** by the owner, 2026-11-06 |
+| -- | The installer carries an address a cabinet can dial | F23 | **Closed** 2026-11-07 (#171) |
+
+**Ordering rule (from the brief):**
+- Nothing that changes a cabinet ships before F1 and F2.
+- Templates (F7) come before anything that needs a declared expectation.
+- No new sampler ships before its rows per cabinet per day, retention and rollup are counted against the capacity budget.
+- Nothing is split into a separate service before F21.R1 and F21.R2.
+
+**Held back by the ordering rule:** the agent sending an application crash's faulting module and exception code (decided 2026-11-07, D30)
+is an agent release, so it reaches cabinets only once F1 is closed.
