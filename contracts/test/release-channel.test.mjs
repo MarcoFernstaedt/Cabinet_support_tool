@@ -6,7 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createHash, X509Certificate } from "node:crypto";
-import { existsSync, mkdtempSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readFileSync, copyFileSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -53,7 +53,7 @@ test("a cabinet release build that allows unsigned development upgrades fails to
   assert.ok(r.codes.includes("CAB0001"), r.out);
 });
 
-test("a publisher the agent could not load fails the build: its root missing, unnamed, not a certificate, or not the pinned hash", { skip }, () => {
+test("a publisher the agent could not load fails the build: no name or organization, its root missing, unnamed, not a certificate, or not the pinned hash", { skip }, () => {
   inFolder(trust([publisher()]), r => { assert.deepEqual(r.codes, ["CAB0002"], "the root file is not beside the list"); assert.match(r.out, /is not in/); });
   inFolder(trust([publisher({ rootFile: "" })]), r => { assert.deepEqual(r.codes, ["CAB0002"], "no root file named"); assert.match(r.out, /names no root file/); });
   const notPem = join(tmpdir(), `not-a-cert-${process.pid}.pem`);
@@ -61,6 +61,8 @@ test("a publisher the agent could not load fails the build: its root missing, un
   try { inFolder(trust([publisher()], { "agent-root.pem": notPem }), r => { assert.deepEqual(r.codes, ["CAB0002"]); assert.match(r.out, /not a PEM certificate/); }); }
   finally { rmSync(notPem, { force: true }); }
   inFolder(trust([publisher({ root: "0".repeat(64) })], { "agent-root.pem": PEM }), r => { assert.deepEqual(r.codes, ["CAB0002"]); assert.match(r.out, /not the pinned root/); });
+  inFolder(trust([publisher({ organization: "" })], { "agent-root.pem": PEM }), r => { assert.deepEqual(r.codes, ["CAB0002"]); assert.match(r.out, /no common name or no organization/); });
+  inFolder(trust([publisher({ commonName: "" })], { "agent-root.pem": PEM }), r => assert.deepEqual(r.codes, ["CAB0002"]));
   // One good publisher does not cover a broken second one.
   inFolder(trust([publisher(), publisher({ commonName: "Second", rootFile: "missing.pem" })], { "agent-root.pem": PEM }), r => assert.deepEqual(r.codes, ["CAB0002"]));
 });

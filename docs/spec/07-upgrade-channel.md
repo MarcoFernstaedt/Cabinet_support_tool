@@ -34,12 +34,19 @@ An agent built for cabinets has to be able to check every release it is offered.
 - **No code-signing publisher the agent can load is pinned** in `contracts/trust/upgrade/upgrade-keys.json` (error CAB0002). That
   is any of the following:
   - the list is empty, and such an agent would refuse every upgrade at the publisher check;
+  - a publisher has no common name or no organization;
   - a publisher names no root file, or its root file is not beside the list;
   - the root file is not a PEM certificate;
   - its SHA-256 (of the certificate, in lower-case hex) is not the entry's `root`.
 
-  These are the checks `UpgradeTrust.Load` makes when the broker starts. An entry that fails them would stop the broker on every
-  cabinet, so the build refuses it rather than ship it.
+  These are the root checks `UpgradeTrust`'s constructor makes when the broker starts. An entry that fails them would stop the
+  broker on every cabinet, so the build refuses it rather than ship it.
+
+  **What this check does not prove:** that the list is valid against its contract
+  (`contracts/schemas/agent/upgrade-keys.schema.json`, for example no extra properties and at most two publishers).
+  `UpgradeTrust.Load` checks that first, and a list that fails it stops the broker too. The contracts suite validates the
+  repository's file against that schema; a release built from any other trust folder (the signing pipeline, F1.R2) must run the
+  same validation before it builds.
 - **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
   that are not code-signed.
 

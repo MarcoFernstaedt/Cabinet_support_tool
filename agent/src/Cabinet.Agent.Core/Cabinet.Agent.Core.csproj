@@ -45,11 +45,13 @@
   <!--
     F1.R3 (docs/spec/07-upgrade-channel.md "A build that ships to cabinets"): a build for the cabinet release channel
     (-p:CabinetReleaseChannel=production, set by the signing pipeline) must carry a code-signing publisher the agent can
-    actually load, because the broker reads the compiled trust when it starts (UpgradeTrust.Compiled) and an entry it cannot
-    load stops it. So the build fails, before compiling, unless at least one publisher is pinned and every publisher's root
-    file is named, present beside upgrade-keys.json, a PEM certificate, and hashes (SHA-256 of the certificate, lower-case hex)
-    to the entry's "root": the same checks UpgradeTrust.Load and its constructor make. It also fails when unsigned development
-    upgrades are allowed. Development and test builds leave the property unset and are unaffected.
+    load, because the broker reads the compiled trust when it starts (UpgradeTrust.Compiled) and an entry it cannot load stops
+    it. So the build fails, before compiling, unless at least one publisher is pinned and every publisher names a common name
+    and an organization, and a root file that is present beside upgrade-keys.json, is a PEM certificate, and hashes (SHA-256
+    of the certificate, lower-case hex) to the entry's "root": the root checks UpgradeTrust's constructor makes. It does NOT
+    validate the list against its contract (contracts/schemas/agent/upgrade-keys.schema.json), which UpgradeTrust.Load also
+    requires: that is the contracts suite's check of the repository's file, and a release built from another folder must pass
+    it too. It also fails when unsigned development upgrades are allowed. Development and test builds leave the property unset.
   -->
   <UsingTask TaskName="CheckUpgradeTrust" TaskFactory="RoslynCodeTaskFactory" AssemblyFile="$(MSBuildToolsPath)/Microsoft.Build.Tasks.Core.dll">
     <ParameterGroup>
@@ -75,7 +77,8 @@
         if (entries.Count == 0) { Problem = "no code-signing publisher is pinned; the agent would refuse every upgrade"; return true; }
         foreach (string entry in entries)
         {
-          string name = Field(entry, "commonName"), file = Field(entry, "rootFile"), root = Field(entry, "root");
+          string name = Field(entry, "commonName"), org = Field(entry, "organization"), file = Field(entry, "rootFile"), root = Field(entry, "root");
+          if (name.Length == 0 || org.Length == 0) { Problem = "a publisher entry has no common name or no organization"; return true; }
           if (file.Length == 0) { Problem = "publisher '" + name + "' names no root file"; return true; }
           string path = Path.Combine(TrustDir, Path.GetFileName(file));
           if (!File.Exists(path)) { Problem = "publisher '" + name + "': its root file " + file + " is not in " + TrustDir; return true; }
