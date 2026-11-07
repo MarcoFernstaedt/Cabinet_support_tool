@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-difference-group-query.schema.json",
   "title": "fleet-difference-group-query",
-  "description": "One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site.",
+  "description": "One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site, optionally only cabinets of one role and only differences from one level of baseline.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -25,6 +25,22 @@
     },
     "siteId": {
       "$ref": "../common.schema.json#/$defs/uuid"
+    },
+    "role": {
+      "description": "Only cabinets of this role (finding F7).",
+      "$ref": "../common.schema.json#/$defs/cabinetRole"
+    },
+    "from": {
+      "description": "Only differences from what this level of baseline expects, such as the role's: \"which cabinets differ from their role\" (finding F7).",
+      "type": "string",
+      "enum": [
+        "global",
+        "role",
+        "model",
+        "client",
+        "site",
+        "cabinet"
+      ]
     }
   }
 }

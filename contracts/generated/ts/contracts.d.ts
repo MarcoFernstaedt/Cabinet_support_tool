@@ -1179,7 +1179,7 @@ export interface FleetCabinetsQuery {
 }
 
 /**
- * One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site.
+ * One difference from the baselines, seen across the fleet: an item and, when named, one of its fields, over all cabinets, one client or one site, optionally only cabinets of one role and only differences from one level of baseline.
  */
 export interface FleetDifferenceGroupQuery {
   /**
@@ -1204,14 +1204,30 @@ export interface FleetDifferenceGroupQuery {
   field?: string;
   clientId?: string;
   siteId?: string;
+  /**
+   * Only cabinets of this role (finding F7).
+   */
+  role?: "sync" | "satellite" | "standalone";
+  /**
+   * Only differences from what this level of baseline expects, such as the role's: "which cabinets differ from their role" (finding F7).
+   */
+  from?: "global" | "role" | "model" | "client" | "site" | "cabinet";
 }
 
 /**
- * Which cabinets the fleet's differences from their baselines are counted over: all, one client or one site.
+ * Which cabinets the fleet's differences from their baselines are counted over: all, one client or one site, optionally only cabinets of one role and only differences from one level of baseline.
  */
 export interface FleetDifferencesQuery {
   clientId?: string;
   siteId?: string;
+  /**
+   * Only cabinets of this role (finding F7).
+   */
+  role?: "sync" | "satellite" | "standalone";
+  /**
+   * Only differences from what this level of baseline expects, such as the role's: "which cabinets differ from their role" (finding F7).
+   */
+  from?: "global" | "role" | "model" | "client" | "site" | "cabinet";
 }
 
 /**
