@@ -27,7 +27,6 @@ const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "services/replacement-reapply.ts", has: "SET state = 'skipped'", why: "as above" },
   { file: "services/replacement-reapply.ts", has: "UPDATE replacement_reapply_steps SET state = $3", why: "as above" },
   { file: "services/rollouts.ts", has: "UPDATE rollout_targets SET state = 'offered'", why: "the upgrade offered to one cabinet of a rollout whose start, pause and stop are audited, and whose outcome per cabinet is (upgrade.outcome)" },
-  { file: "db/migrate.ts", has: "UPDATE security_alerts SET occurrences", why: "raises (counts) a security alert for a failed migration; it changes no state" },
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE id_hash", why: "sign-out; its only caller (auth-routes.ts) audits it in the same transaction" },
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE user_id", why: "ends a user's sessions; every caller (users.ts, cli.ts) audits the change that ends them in the same transaction" },
   { file: "services/approved-apps.ts", has: "DELETE FROM settings", why: "clears the fleet's list inside writeLevel, whose callers audit the change in the same transaction" },
@@ -44,8 +43,14 @@ const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "services/ops-meter.ts", has: "DELETE FROM ops_counters", why: "operations counters past 90 days; the nightly run is audited as retention.run with the count" },
 ];
 
-/** A statement that changes a row's state or status, or deletes rows. */
-const CHANGE = /UPDATE\s+\w+(\s+WITH\s*\([^)]*\))?\s+SET\b[^;`"]*\b(a\.)?(state|status)\s*=|\bDELETE\s+(TOP\s*\(\$?\w+\)\s+)?(\w+\s+)?FROM\b/;
+/**
+ * A statement that changes a row's state or status, or deletes rows. It is matched across lines (SQL is written over several), from
+ * UPDATE through its SET clause only (a state named after WHERE, FROM or OUTPUT is a condition, not a change), or DELETE … FROM.
+ */
+const SET_CLAUSE = "(?:(?!\\b(?:WHERE|FROM|OUTPUT)\\b)[^;`\"])*?";
+const CHANGE = new RegExp(`\\bUPDATE\\s+\\w+(?:\\s+WITH\\s*\\([^)]*\\))?\\s+SET\\b${SET_CLAUSE}\\b(?:a\\.)?(?:state|status)\\s*=|\\bDELETE\\s+(?:TOP\\s*\\(\\$?\\w+\\)\\s+)?(?:\\w+\\s+)?FROM\\b`, "g");
+/** Whether a statement, wherever it starts and however it is laid out, is one CHANGE matches. */
+const changes = (sql: string): boolean => { CHANGE.lastIndex = 0; return CHANGE.test(sql); };
 /** Where a top-level function starts: a declaration at the start of a line. */
 const DECLARATION = /^(export )?(async )?function |^(export )?const \w+ = (async )?\(/;
 const AUDITS = /\baudit(Many)?\(/;
@@ -63,16 +68,20 @@ function unaudited(): { found: string[]; listedButGone: string[] } {
   const found: string[] = [], seen = new Set<number>();
   for (const path of sources(SRC)) {
     const file = relative(SRC, path).split("\\").join("/");
-    const lines = readFileSync(path, "utf8").split("\n");
+    const text = readFileSync(path, "utf8");
+    const lines = text.split("\n");
     const starts = lines.flatMap((l, i) => DECLARATION.test(l) ? [i] : []);
-    lines.forEach((line, i) => {
-      if (!CHANGE.test(line)) return;
-      const listed = NOT_TRANSITIONS.findIndex(n => n.file === file && line.includes(n.has));
-      if (listed >= 0) { seen.add(listed); return; }
-      if (lines.slice(i, i + 3).join(" ").includes("CLOSED_OUTPUT")) return;
+    CHANGE.lastIndex = 0;
+    for (let m = CHANGE.exec(text); m !== null; m = CHANGE.exec(text)) {
+      const i = text.slice(0, m.index).split("\n").length - 1;              // the line the statement starts on
+      const end = text.slice(m.index).search(/[;`"]/);
+      const statement = text.slice(text.lastIndexOf("\n", m.index) + 1, end === -1 ? undefined : m.index + end); // its line, through the end of the statement
+      const listed = NOT_TRANSITIONS.findIndex(n => n.file === file && (lines[i]!.includes(n.has) || statement.includes(n.has)));
+      if (listed >= 0) { seen.add(listed); continue; }
+      if (statement.includes("CLOSED_OUTPUT") || lines.slice(i, i + 3).join(" ").includes("CLOSED_OUTPUT")) continue;
       const from = [...starts].reverse().find(s => s <= i) ?? 0, to = starts.find(s => s > i) ?? lines.length;
-      if (!AUDITS.test(lines.slice(from, to).join("\n"))) found.push(`${file}:${i + 1} ${line.trim().slice(0, 100)}`);
-    });
+      if (!AUDITS.test(lines.slice(from, to).join("\n"))) found.push(`${file}:${i + 1} ${lines[i]!.trim().slice(0, 100)}`);
+    }
   }
   return { found, listedButGone: NOT_TRANSITIONS.filter((_, i) => !seen.has(i)).map(n => `${n.file}: ${n.has}`) };
 }
@@ -83,12 +92,20 @@ test("every state change and every delete in the server is audited, or listed wi
   assert.deepEqual(listedButGone, [], "a listed exception no longer exists in the code; take it off the list");
 });
 
-test("the sweep sees what it is meant to: an unaudited close, an unaudited delete, and nothing that only reads", () => {
+test("the sweep sees what it is meant to: an unaudited close or delete, laid out on one line or several, and nothing that only reads", () => {
   for (const sql of ["UPDATE alerts SET state = 'resolved' WHERE id = $1", "UPDATE a SET a.state = 'x' FROM alerts a", "UPDATE commands SET result = 1, status = 'expired'",
-    "UPDATE alerts WITH (FORCESEEK) SET state = 'resolved'", "DELETE FROM sessions", "DELETE TOP ($1) FROM events WHERE x", "DELETE d FROM cabinet_drift d"])
-    assert.ok(CHANGE.test(sql), sql);
-  for (const sql of ["SELECT state FROM alerts WHERE status = 'open'", "UPDATE alerts SET last_seen = SYSUTCDATETIME() WHERE state <> 'resolved'", "INSERT INTO alerts (state) VALUES ('open')"])
-    assert.ok(!CHANGE.test(sql), sql);
+    "UPDATE alerts WITH (FORCESEEK) SET state = 'resolved'", "DELETE FROM sessions", "DELETE TOP ($1) FROM events WHERE x", "DELETE d FROM cabinet_drift d",
+    // Written across lines, as SQL usually is (review of #176).
+    "UPDATE alerts\n    SET state = 'resolved',\n        resolved_at = SYSUTCDATETIME()\n  WHERE id = 'x'",
+    "UPDATE alerts SET resolved_at = SYSUTCDATETIME(),\n                  state = 'resolved'\n WHERE id = $1",
+    "UPDATE a\n   SET a.status = 'removed'\n  FROM cabinets a",
+    "DELETE\n  FROM sessions\n WHERE user_id = $1"])
+    assert.ok(changes(sql), sql);
+  for (const sql of ["SELECT state FROM alerts WHERE status = 'open'", "UPDATE alerts SET last_seen = SYSUTCDATETIME() WHERE state <> 'resolved'", "INSERT INTO alerts (state) VALUES ('open')",
+    // A state or status after the SET clause is a condition, not a change, whatever the layout.
+    "UPDATE alerts SET last_seen = SYSUTCDATETIME()\n WHERE state = 'open'", "UPDATE commands SET ack_at = @now\n  WHERE status = 'delivered'",
+    "UPDATE alerts SET title = $2 OUTPUT inserted.state INTO @o WHERE id = $1"])
+    assert.ok(!changes(sql), sql);
 });
 
 let db: TestDatabase;
