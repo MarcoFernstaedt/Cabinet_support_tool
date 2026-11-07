@@ -150,8 +150,15 @@ test("the disk-filling forecast resolves itself once the system drive stops fill
   await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [id]);
   await db.app.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
                       SELECT $1, DATEADD(hour, -h, SYSUTCDATETIME()), 10, 40, 55 FROM (SELECT TOP (56) 3 + (ROW_NUMBER() OVER (ORDER BY (SELECT NULL)) - 1) * 6 AS h FROM sys.all_objects a CROSS JOIN sys.all_objects b) x`, [id]);
+  const alertId = (await db.app.query<{ id: string }>("SELECT id FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'", [id])).rows[0]!.id;
   await heartbeat(id, [drive({ serialNumber: "WD-TEST-REC" })]);
   assert.equal((await db.app.query("SELECT 1 FROM alerts WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'", [id])).rowCount, 0);
+  // F4: the automatic closure is on the audit chain, once, naming the alert and that no person did it.
+  const audited = (await db.app.query<{ actor_kind: string; details: Record<string, unknown> }>(
+    "SELECT actor_kind, details FROM audit_log WHERE action = 'alert.resolve' AND target_kind = 'alert' AND target_id = $1", [alertId.toLowerCase()])).rows;
+  assert.equal(audited.length, 1);
+  assert.equal(audited[0]!.actor_kind, "system");
+  assert.equal(audited[0]!.details.automatic, true);
 });
 
 test("a drive is judged against the thresholds in force: an Admin's higher wear line makes the same report Healthy", async () => {

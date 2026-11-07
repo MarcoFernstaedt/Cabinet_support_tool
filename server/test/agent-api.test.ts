@@ -393,6 +393,13 @@ test("a delivered command that is never answered expires, and a late result is s
   await asOwner(db, c => c.query("UPDATE commands SET delivered_at = DATEADD(minute, -36, SYSUTCDATETIME()) WHERE id = $1", [command.commandId]));
   assert.equal(await expireUnanswered(db.app), 1);
   assert.equal((await commandRecord(db.app, command.commandId))?.status, "expired");
+  // F4: the automatic expiry is on the audit chain, once, against the command.
+  const audited = (await db.app.query<{ actor_kind: string; details: Record<string, unknown> }>(
+    "SELECT actor_kind, details FROM audit_log WHERE action = 'command.expire' AND target_kind = 'command' AND target_id = $1", [command.commandId.toLowerCase()])).rows;
+  assert.equal(audited.length, 1);
+  assert.equal(audited[0]!.actor_kind, "system");
+  assert.equal(audited[0]!.details.operation, "system.info");
+  assert.equal(await expireUnanswered(db.app), 0, "an expired command is not expired, or audited, again");
   const now = new Date().toISOString();
   const late = await call("POST", "/agent/v1/results", { commandId: command.commandId, status: "failed", startedAt: now, finishedAt: now,
     error: { code: "timeout", message: "late" } }, cab);

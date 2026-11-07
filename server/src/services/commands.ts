@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
-import { audit, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { ingestAndEvaluate } from "./config-service.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
@@ -231,6 +231,17 @@ export const UNANSWERED_AFTER_MINUTES = 35;
  * long-poll answer may have been lost on the way, or the cabinet went offline). Runs with the minute job.
  */
 export async function expireUnanswered(pool: Pool): Promise<number> {
-  return (await pool.query(
-    `UPDATE commands SET status = 'expired' WHERE status = 'delivered' AND delivered_at < DATEADD(minute, -$1, SYSUTCDATETIME())`, [UNANSWERED_AFTER_MINUTES])).rowCount ?? 0;
+  // Every command this automatic step expires leaves its own audit entry, in the same transaction as the change (F4). The changed rows
+  // are collected into a table variable (OUTPUT INTO), which SQL Server allows whatever triggers the table carries.
+  return transaction(pool, async tx => {
+    const expired = (await tx.query<{ id: string; cabinet_id: string; operation: string }>(
+      `DECLARE @o TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64));
+       UPDATE commands SET status = 'expired' OUTPUT inserted.id, inserted.cabinet_id, inserted.operation INTO @o (id, cabinet_id, operation)
+        WHERE status = 'delivered' AND delivered_at < DATEADD(minute, -$1, SYSUTCDATETIME());
+       SELECT id, cabinet_id, operation FROM @o;`, [UNANSWERED_AFTER_MINUTES])).rows;
+    if (expired.length > 0)
+      await auditMany(tx, expired.map(r => ({ actorKind: "system", actorId: "command-expiry", action: "command.expire", targetKind: "command", targetId: r.id.toLowerCase(),
+        outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation, unansweredMinutes: UNANSWERED_AFTER_MINUTES, automatic: true } })));
+    return expired.length;
+  });
 }
