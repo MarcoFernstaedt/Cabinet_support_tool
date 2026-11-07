@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment-baseline.schema.json",
   "title": "approve-enrollment-baseline",
-  "description": "Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, and the role when it is chosen,, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.",
+  "description": "Query string of GET /api/admin/enrollments/:id/baseline and /site-policies: the client and site an approval would use, and the role when it is chosen, so the approval can show which approved baseline would apply and which firewall policy and time zone the site would inherit. Reading it changes nothing; the approval checks everything again.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
