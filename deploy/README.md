@@ -165,7 +165,7 @@ To also change the names or secrets, delete `deploy/.env` before step 2.
 
 `compose.yaml` is generic and holds nothing specific to one machine. Anything local goes in files git ignores:
 
-- `deploy/.env`: names, addresses, secrets, and the optional switches `CONSOLE_BASE`, `CONSOLE_ORIGIN`, `AGENT_BIND_IP`, `CONSOLE_BIND_IP` and `ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES`.
+- `deploy/.env`: names, addresses, secrets, and the optional switches `CONSOLE_BASE`, `CONSOLE_ORIGIN`, `AGENT_BIND_IP`, `CONSOLE_BIND_IP`, `AGENT_PUBLIC_HOST`, `AGENT_PUBLIC_PORT` and `ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES`.
 - `deploy/compose.override.yaml`: changes to the services themselves. Docker Compose reads it automatically next to `compose.yaml`, and `setup.sh` passes it too.
 - `deploy/Caddyfile.local`: a different console front, mounted by the override.
 
