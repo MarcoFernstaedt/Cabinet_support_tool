@@ -3,12 +3,12 @@
 // projected forward so a drive that is filling up is flagged weeks before it is full.
 import type { DriveHealthReport } from "../contracts.js";
 import { audit, auditMany, type Queryable } from "../db/db.js";
-
-const FORECAST_CLEARED = "The system drive is no longer filling up.";
 import { inTransaction, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 import { assessDrive, daysUntilEmpty, higher, riskClass, slopePerDay, type Assessment, type DriveSample, type Level, type RiskClass } from "./trends.js";
 import { driveThresholds } from "./settings.js";
+
+const FORECAST_CLEARED = "The system drive is no longer filling up.";
 
 const DAY = 86_400_000;
 /** At most one sample per drive in this time, so a repeated report adds nothing. */

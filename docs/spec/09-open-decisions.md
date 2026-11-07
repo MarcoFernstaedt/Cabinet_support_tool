@@ -954,3 +954,21 @@ Answered by the owner (2026-11-04): everyone may restart a cabinet, since it is 
 
 Application crashes are now grouped by program (D29). The agent sends only the first line of an event's message, and for an Application Error 1000 the faulting module and exception code are on later lines, so they never reach the server. Two crashes of the same program for different reasons (say, a bad driver and an out-of-memory) therefore share one alert. **Recommendation:** the agent sends those two values as event fields for Application Error 1000 only, as it already does for Kernel-Power 41 (D19), with each value bounded and checked against the event schema; the server then adds them to the signature and the title. It needs an agent release and a test on a real cabinet. **Answered by the owner (2026-11-07):** go with the recommendation, with the reasons recorded. Decided as D30 in docs/platform/decision-log.md. The agent side reaches cabinets with the first signed release after F1.
 
+## Automatic closes not yet on the audit chain (F4, November 2026)
+
+05-server-spec.md asks that every alert the platform closes by itself is audited as `alert.resolve` (actor `system`, `automatic: true`) in
+the same transaction. Two do: a site back online and a disk no longer filling up. These still close with no audit row, found in review of
+#174 and checked against the code at `29f02b8`:
+
+- the alert fold, when an event says the issue is over (`server/src/services/alerts.ts:192`)
+- a cabinet heard from again, "The cabinet is back online." (`alerts.ts:695` and `:699`)
+- a reboot loop that healed (`crashes.ts:65`)
+- a clock that came right (`time.ts:61`)
+- a firewall matching its policy again (`firewall-policy.ts:110`)
+- file versions matching the baseline again (`filefacts-ingest.ts:232`)
+- a network diagnosis clearing it (`diagnose/network.ts:206`)
+- an alert regrouped under another (`rules.ts:357`)
+- a security alert clearing itself (`ops-health.ts:130`)
+
+**Not a product decision, work left:** each goes on the chain in the F4 piece that follows, with the sweep test F4 asks for (no state change
+without an audit row), so a new close cannot be added without one.
