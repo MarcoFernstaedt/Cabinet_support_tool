@@ -76,8 +76,9 @@ function required(name: string): string {
 /**
  * The person a command acts as, proven by their own authenticator code (F3, docs/spec/02-security-model.md "The operator command line"):
  * access to the server's shell is not authority. The code is checked as the console checks a step-up: single use (the step is claimed
- * atomically), the account's lock honoured, and a wrong code counted toward it. Every attempt is audited as cli.authenticate, with the
- * path ("cli") and the proof ("authenticator"), so the audit chain says how each command line action was authorised.
+ * atomically), the account's lock honoured, and a wrong code counted toward it. Every attempt that reaches the code check is audited as cli.authenticate, with the
+ * path ("cli") and the proof ("authenticator"), so the audit chain says how each command line action was authorised; a refusal before the check
+ * leaves no row.
  */
 function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
   return async (username: string | undefined, minimumRole: "tier1" | "tier2" | "admin", code: string | undefined): Promise<string> => {

@@ -14,8 +14,9 @@ authenticator code".
 **The decision.** Every `platform-admin` command that changes something needs `--as <username> --code <6 digits>`, and the code is checked
 as the console checks a step-up (02-security-model.md "Control 8"): one use per 30-second step, claimed in the same `totp_last_step` the
 console uses; a locked account refused; a wrong code counted toward the same lock (`recordAuthFailure`, now in
-`server/src/services/auth-failures.ts`, shared by both doors). Every attempt is audited as `cli.authenticate`, `via: "cli"`,
-`proof: "authenticator"`. Read-only commands are unchanged. `user add` runs without `--as` only while there is no active Admin.
+`server/src/services/auth-failures.ts`, shared by both doors). Every attempt that reaches the code check is audited as `cli.authenticate`, `via: "cli"`,
+`proof: "authenticator"`; a refusal before it (no `--as`, a missing or malformed code, an unknown name, a lower role, no authenticator, a locked
+account) leaves no audit row. Read-only commands are unchanged. `user add` runs without `--as` only while there is no active Admin.
 
 **Why this, and not the alternatives.**
 - **Before, a name was the whole proof.** `--as` only looked the name up (`server/src/cli.ts`, the old `userId`), so anyone with a shell on

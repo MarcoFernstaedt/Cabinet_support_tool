@@ -1,6 +1,6 @@
 // F3 (docs/spec/02-security-model.md "The operator command line"): shell access to the server is not authority. Every command line action
 // that changes something needs the named person's own authenticator code, checked like a console step-up: used once, refused when wrong,
-// missing or malformed, refused while the account is locked, and each failure counted toward the lock. Each attempt is audited.
+// missing or malformed, refused while the account is locked, and each failure counted toward the lock. Every attempt that reaches the code check is audited, a refusal before it is not.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -71,10 +71,12 @@ test("a missing, malformed, wrong or reused code changes nothing; a name alone i
   assert.equal(cli("token", "create", "--as", "cli.admin2", "--code", good).status, 0);
   assert.equal(cli("token", "create", "--as", "cli.admin2", "--code", good).status, 2, "a code is used once");
   assert.equal(await tokens(), before + 1);
-  // The wrong-window code and the reused one were counted toward the lock and audited as refused.
+  // The wrong-window code and the reused one were counted toward the lock and audited as refused. The good code in between reset the
+  // counter, so one failure is left and both refusals are on the chain.
   const failures = Number((await db.app.query<{ n: number }>("SELECT failed_logins AS n FROM users WHERE id = $1", [a.id])).rows[0]!.n);
-  assert.ok(failures >= 1, `failures counted: ${failures}`);
-  assert.ok((await audits(a.id, "cli.authenticate")).some(x => x.outcome === "refused"));
+  assert.equal(failures, 1, `failures counted: ${failures}`);
+  const refused = (await audits(a.id, "cli.authenticate")).filter(x => x.outcome === "refused").length;
+  assert.equal(refused, 2, `refusals audited: ${refused}`);
 });
 
 test("five wrong codes lock the account for the console too, and a locked account cannot act from the command line even with the right code", async () => {

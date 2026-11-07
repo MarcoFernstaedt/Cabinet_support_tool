@@ -69,8 +69,9 @@ The agent can change things on client machines, so the whole system is a potenti
 - **The operator command line.** Access to the server's shell is not authority. Every `platform-admin` command that changes something takes
   `--as <username> --code <6 digits>`: the code from that person's own authenticator, checked as a step-up is. A code is used once (its
   step is claimed atomically, shared with the console), a locked account is refused, a missing or malformed code is refused before any check, and a wrong or reused
-  code counts toward the same lock as the console's step-up failures (five lock the account for 15 minutes and raise a security alert). Each attempt, passed
-  or refused, is audited as `cli.authenticate` with `via: "cli"` and `proof: "authenticator"`. Commands that only read take no `--as`.
+  code counts toward the same lock as the console's step-up failures (five lock the account for 15 minutes and raise a security alert). Every attempt it checks a code for, passed or refused, is audited as `cli.authenticate` with `via: "cli"` and
+  `proof: "authenticator"`; an attempt refused before that (no `--as`, a missing or malformed code, an unknown name, a role below the command's, no
+  authenticator set up, an account still locked) is refused with nothing on the audit chain. Commands that only read take no `--as`.
   The one exception is the first Admin: `user add` runs without `--as` only while no active Admin exists (the install), and that row is
   audited with `bootstrap: true`; afterwards creating a user needs an Admin's code like any other change.
 
