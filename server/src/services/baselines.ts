@@ -2,6 +2,8 @@
 // are never overwritten. Scopes widen to narrow: global, model, client, site, cabinet; a narrower scope replaces a wider one item by
 // item, and every resolved expectation says where it came from. A capture from a cabinet is only a draft: it becomes a baseline when
 // it is reviewed, proposed and approved by an Admin. Nothing here changes a cabinet.
+import { roleWatchKey, roleWatched } from "./watched-services.js";
+import { upsertSetting } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import type { BaselineContent, BaselineScope } from "@mashura/cabinet-contracts/types";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
@@ -428,6 +430,15 @@ export async function decide(pool: Pool, admin: Actor, versionId: string, approv
       const current = (await c.query<{ id: string }>("SELECT id FROM baseline_versions WHERE baseline_id = $1 AND status = 'approved'", [v.baseline_id])).rows[0]?.id ?? null;
       if (current !== v.previous_version_id) throw new Refused("stale_base", 409, "a newer version was approved since this one was made; make it again from the current version");
       if (current) await c.query("UPDATE baseline_versions SET status = 'superseded' WHERE id = $1", [current]);
+      // A role baseline also says which services every cabinet of that role keeps running (F7.R4, D34): its required running services
+      // become the role's watched services, in the same transaction and audited with the approval.
+      if (v.scope_kind === "role") {
+        const content = (await c.query<{ content: BaselineContent }>("SELECT content FROM baseline_versions WHERE id = $1", [versionId])).rows[0]!.content;
+        const names = roleWatched(content);
+        await upsertSetting(c, roleWatchKey(v.scope_id!), names, admin.userId);
+        await audit(c, { actorKind: "user", actorId: admin.userId, action: "services.watched.role", targetKind: "baseline", targetId: v.baseline_id, outcome: "succeeded",
+          details: { role: v.scope_id, names, versionId } });
+      }
     }
     await c.query("UPDATE baseline_versions SET status = $2, decided_by = $3, decided_at = SYSUTCDATETIME(), decision_note = $4 WHERE id = $1", [versionId, approve ? "approved" : "rejected", admin.userId, note.trim()]);
     await audit(c, { actorKind: "user", actorId: admin.userId, action: approve ? "baseline.approve" : "baseline.reject", targetKind: "baseline", targetId: v.baseline_id, outcome: "succeeded",

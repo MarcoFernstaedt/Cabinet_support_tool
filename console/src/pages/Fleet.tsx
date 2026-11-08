@@ -324,13 +324,19 @@ export function TimeZoneEditor({ id, heading, endpoint, current, inherited, what
 
 /** The services this client's (or site's) cabinets keep running (milestone 10); Tier 2 and up change the list. */
 export function WatchedServices({ level, id, name, editable }: { level: "clients" | "sites"; id: string; name: string; editable: boolean }) {
-  const { data, reload } = useLoad<{ own: string[] | null; client: string[] | null; fleet: string[] | null }>(`/api/${level}/${id}/watched-services`);
+  const { data, reload } = useLoad<{ own: string[] | null; client: string[] | null; fleet: string[] | null; roles?: Record<string, string[]> }>(`/api/${level}/${id}/watched-services`);
+  const roles = Object.entries(data?.roles ?? {});
+  // With no client or fleet list, each cabinet falls back to its role's list (F7.R4, D34): say so, role by role, rather than "none".
   const above = data?.client ? <>the client's list applies (<code>{data.client.join(", ") || "none"}</code>).</>
-    : data?.fleet ? <>the fleet default applies (<code>{data.fleet.join(", ") || "none"}</code>).</> : null;
+    : data?.fleet ? <>the fleet default applies (<code>{data.fleet.join(", ") || "none"}</code>).</>
+    : roles.length > 0 ? <>each cabinet keeps its role's required services running ({roles.map(([r, n], i) => <span key={r}>{i > 0 && "; "}{r}: <code>{n.join(", ") || "none"}</code></span>)}). A list saved here replaces them for every cabinet here, so it starts from all of them.</>
+    : null;
+  // A new list starts from the one it replaces, so adding a service never drops what was already kept running.
+  const startFrom = data?.client ?? data?.fleet ?? [...new Set(roles.flatMap(([, n]) => n))];
   return (
     <section className="panel" aria-labelledby={`${level}-watched`}>
       <h2 id={`${level}-watched`}>Watched services for {name}</h2>
-      {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above}
+      {data && <WatchListEditor endpoint={`/api/${level}/${id}/watched-services`} own={data.own} inherited={above} startFrom={startFrom}
         what={level === "clients" ? `every cabinet of ${name}` : `every cabinet at ${name}`} editable={editable} onSaved={reload} />}
     </section>
   );
