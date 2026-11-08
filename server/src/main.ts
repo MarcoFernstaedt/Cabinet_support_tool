@@ -30,6 +30,7 @@ import { DemoSimulator } from "./demo/demo.js";
 import { checkQuietLoops } from "./services/crashes.js";
 import { sweepCrashIncidents } from "./services/crash-incidents.js";
 import { sweepHealth } from "./services/cabinet-health.js";
+import { leased, takeLease } from "./services/job-lease.js";
 import { resumeJobs } from "./services/fleet-jobs.js";
 import { startDueReapplies } from "./services/replacement-reapply.js";
 
@@ -120,7 +121,10 @@ if (runsServices) {
   // Contact includes long polls (Presence writes them each minute), so 1.1 agents heartbeating every 5 minutes stay online.
   fleetContact.start();
   let minutes = 0;
-  const offlineJob = setInterval(() => {
+  // One writer per job across server instances (F21.R1, decision-log D49): each job runs only while this instance holds its lease. A
+  // lease outlasts the job's interval, so its holder keeps it; another instance takes it over once a holder stops renewing.
+  const lease = (name: string, ms: number) => () => takeLease(jobs, name, ms);
+  const everyMinute = leased(jobs, "jobs.minute", 150_000, () => {
     checkOffline(jobs).catch(failed("offline alert check"));
     checkSiteOutages(jobs).catch(failed("site outage check"));
     // The same problem at many sites at once is one fleet alert with a report (D22).
@@ -133,22 +137,25 @@ if (runsServices) {
     sweepHealth(jobs).catch(failed("health sweep"));
     // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
     if (minutes++ % 60 === 0) checkExpiringCertificates(jobs).catch(failed("certificate expiry check"));
-  }, 60_000);
+  });
+  const offlineJob = setInterval(() => { void everyMinute().catch(failed("minute jobs lease")); }, 60_000);
 
   // Simulated cabinets answer only while an Admin has demo mode on (docs/platform/demo.md).
-  const demo = new DemoSimulator(jobs, message => logError(message));
+  const demo = new DemoSimulator(jobs, message => logError(message)).onlyWhile(() => takeLease(jobs, "jobs.demo", 15_000));
   demo.start();
 
   // Fleet jobs that were running when the server stopped carry on where they left off.
-  resumeJobs(jobs, undefined, message => logError(message)).catch(failed("resuming fleet jobs"));
+  void leased(jobs, "jobs.resume-fleet-jobs", 600_000, () => resumeJobs(jobs, undefined, message => logError(message)))().catch(failed("resuming fleet jobs"));
   // A replacement's settings are put back once its new agent reports; one that was running when the server stopped carries on.
-  const reapplyJob = setInterval(() => { startDueReapplies(jobs, undefined, message => logError(message)).catch(failed("replacement re-apply")); }, 15_000);
+  const reapply = leased(jobs, "jobs.reapply", 45_000, () => startDueReapplies(jobs, undefined, message => logError(message)));
+  const reapplyJob = setInterval(() => { void reapply().catch(failed("replacement re-apply")); }, 15_000);
 
   // The daily audit chain check (a break raises a security alert) and retention.
-  const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt });
+  const stopDaily = scheduleDailyJobs(jobs, message => logError(message), { at: config.maintenanceAt,
+    runIf: job => takeLease(jobs, `jobs.${job}`, job === "daily" ? 6 * 3_600_000 : 2 * 3_600_000) });
   // Database size, free disk, backup age and CA expiry: one open operations alert per kind, shown in the console (no outbound notification).
-  const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem });
-  const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt });
+  const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem }, 600_000, lease("jobs.ops-checks", 1_500_000));
+  const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt, runIf: lease("jobs.error-trends", 6 * 3_600_000) });
   stopServices = () => { clearInterval(offlineJob); clearInterval(reapplyJob); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
 }
 

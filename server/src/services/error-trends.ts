@@ -106,12 +106,14 @@ export async function runErrorTrends(pool: Pool, o: { now?: number; actor?: { us
 }
 
 /** Runs the error trends every night, twenty minutes after the retention job, so the two do not compete. */
-export function scheduleTroubleshootingJobs(pool: Pool, log: (message: string) => void, options: { at?: string } = {}): () => void {
+export function scheduleTroubleshootingJobs(pool: Pool, log: (message: string) => void, options: { at?: string; runIf?: () => Promise<boolean> } = {}): () => void {
+  // With more than one server instance, only the holder of the job's lease runs it (F21.R1, job-lease.ts).
+  const allowed = options.runIf ?? (async () => true);
   const base = parseDailyTime(options.at);
   const at = { hour: (base.hour + (base.minute + 20 >= 60 ? 1 : 0)) % 24, minute: (base.minute + 20) % 60 };
   let timer: NodeJS.Timeout | null = null;
   const plan = () => {
-    timer = setTimeout(() => { void runErrorTrends(pool).catch(() => log("Error trends failed to run.")).finally(plan); }, Math.max(1_000, nextRunAt(at).getTime() - Date.now()));
+    timer = setTimeout(() => { void allowed().catch(() => false).then(ok => ok ? runErrorTrends(pool) : undefined).catch(() => log("Error trends failed to run.")).finally(plan); }, Math.max(1_000, nextRunAt(at).getTime() - Date.now()));
     timer.unref();
   };
   plan();

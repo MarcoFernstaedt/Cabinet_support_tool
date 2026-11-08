@@ -595,6 +595,9 @@ export class DemoSimulator {
   }
   private stopped = false;
   private readonly answers = new Set<NodeJS.Timeout>();
+  /** With more than one server instance, only the holder of the simulator's lease answers simulated cabinets (F21.R1, job-lease.ts). */
+  private holds: () => Promise<boolean> = async () => true;
+  onlyWhile(holds: () => Promise<boolean>): this { this.holds = holds; return this; }
   /** Stops ticking and drops the answers still waiting to be sent; a tick already running ends quietly. */
   stop(): void {
     this.stopped = true;
@@ -622,6 +625,7 @@ export class DemoSimulator {
     this.busy = true;
     try {
       if (!(await demoEnabled(this.pool))) return;
+      if (!(await this.holds().catch(() => false))) return;
       const waiting = (await this.pool.query<{ id: string }>(
         `SELECT DISTINCT c.cabinet_id AS id FROM commands c JOIN cabinets k ON k.id = c.cabinet_id
           WHERE c.status = 'queued' AND k.demo_scenario IS NOT NULL AND k.demo_scenario NOT IN (SELECT value FROM OPENJSON($1))`, [LOOPING])).rows;

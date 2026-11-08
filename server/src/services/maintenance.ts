@@ -288,10 +288,13 @@ export const chainCheckMode = (day: Date): "full" | "incremental" => (day.getDay
  * Runs the chain check and retention every day at a fixed quiet time (`at`, server local time, default 02:30), the chain check whole once a
  * week; the notifications table is trimmed every hour.
  */
-export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, options: { at?: string } = {}): () => void {
+export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, options: { at?: string; runIf?: (job: "daily" | "hourly") => Promise<boolean> } = {}): () => void {
   const at = parseDailyTime(options.at);
   let timer: NodeJS.Timeout | null = null;
+  // With more than one server instance, only the holder of each job's lease runs it (F21.R1, job-lease.ts).
+  const allowed = options.runIf ?? (async () => true);
   const run = async () => {
+    if (!(await allowed("daily").catch(() => false))) return;
     const mode = chainCheckMode(new Date());
     await verifyChainAndAlert(pool, mode === "full" ? "weekly" : "daily", mode)
       .then(c => { if (!c.ok) log(`Audit chain broken at entry ${c.firstBadSeq}.`); }, () => log("Audit chain check failed to run."));
@@ -305,7 +308,7 @@ export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, op
     timer.unref();
   };
   plan();
-  const hourly = setInterval(() => { pruneNotifications(pool).catch(() => log("Pruning notifications failed to run.")); }, 3_600_000);
+  const hourly = setInterval(() => { void allowed("hourly").catch(() => false).then(ok => ok ? pruneNotifications(pool) : 0).catch(() => log("Pruning notifications failed to run.")); }, 3_600_000);
   hourly.unref();
   return () => { if (timer) clearTimeout(timer); clearInterval(hourly); };
 }

@@ -176,8 +176,9 @@ export async function runOpsChecks(pool: Pool, o: CheckOptions = {}): Promise<St
 }
 
 /** Runs the checks soon after start and then every 10 minutes; a failed run is logged and tried again. */
-export function scheduleOpsChecks(pool: Pool, log: (message: string) => void, o: CheckOptions = {}, everyMs = 600_000): () => void {
-  const run = () => { runOpsChecks(pool, o).catch(() => log("Operations checks failed to run.")); };
+export function scheduleOpsChecks(pool: Pool, log: (message: string) => void, o: CheckOptions = {}, everyMs = 600_000, runIf: () => Promise<boolean> = async () => true): () => void {
+  // With more than one server instance, only the holder of the job's lease runs it (F21.R1, job-lease.ts).
+  const run = () => { void runIf().catch(() => false).then(ok => ok ? runOpsChecks(pool, o) : []).catch(() => log("Operations checks failed to run.")); };
   const first = setTimeout(run, 30_000);
   const timer = setInterval(run, everyMs);
   first.unref(); timer.unref();

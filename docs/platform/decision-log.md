@@ -6,6 +6,42 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D49. One writer per background job across instances: a lease per job (2026-11-08)
+
+**What the code did** (F21.R1): `server/src/main.ts` runs every background job in the primary process (node:cluster workers serve
+agents only), so one host never runs a job twice. Nothing stopped two instances on two hosts from both running every job: two offline
+checks, two retention runs, two demo simulators answering the same commands, two resumes of the same fleet job.
+
+**The decision** (mine, within the brief's "single-writer under a named lock or a job row"): a job row, not a held lock.
+- **A lease per job.** `job_leases` (migration 0030) holds one row per job name with its holder and when the lease runs out. An instance
+  runs the job only while it holds the lease and renews it every run. Each lease outlasts its interval, so the holder keeps it.
+- **Takeover only after a lapse.** Another instance takes a lease only once the holder has stopped renewing and the lease has run out:
+  after a crash or a shutdown, at most one lease length later.
+- **One statement, two cannot win.** Taking and renewing is one `MERGE … WITH (HOLDLOCK)`, so two instances asking at the same moment
+  cannot both get it.
+- **A failed read is "not held".** The job is skipped that time, never run by two.
+- **Why not `sp_getapplock` held for the job.** A session-owned lock needs one connection kept for the whole job, and a long job (retention,
+  the chain check) would pin it. A transaction-owned lock would put the job inside one transaction. A lease row needs neither, and survives
+  a dead holder by running out.
+- **Covered:** the minute loop, the replacement re-apply, resuming fleet jobs at start, the daily chain check and retention, the hourly
+  prune, the operations checks, the error trends and the demo simulator.
+- **Not covered:** per-poll and per-request work (agents, console), which is not a background job. A fleet job's own batches already run
+  under row locks once started.
+
+**Cost.** One indexed statement per job run: about one a minute, plus one a second while demo mode is on.
+
+**How it was proven.** `server/test/job-lease.test.ts`, on a real SQL Server:
+- 25 rounds of two instances asking for one lease at the same moment: exactly one wins each time.
+- The holder renews, and the other is refused while the lease runs. Once it has run out the other takes it over, and the first is then
+  refused.
+- A job run by two instances' loops for 10 rounds runs 10 times, always by the same instance. When that one stops it moves to the other.
+- A lease that cannot be read runs nothing.
+
+The red check: with `takeLease` granting every request, tests 1 to 3 fail. `maintenance.test.ts` and `demo.test.ts` still pass with
+the guards in place.
+
+---
+
 ## D47. A close found by the cabinet's reading names the fix it verifies, with before and after (2026-11-08)
 
 **What the code did** (F18.R1): an alert whose condition the cabinet's own reading shows gone was already closed by the platform, and the
