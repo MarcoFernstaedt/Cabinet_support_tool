@@ -50,7 +50,12 @@ test("a fleet alert's report stages a recovery of the still-affected cabinets th
     await page.waitForURL(/\/fleet-operations/);
     // Fleet operations opens on that site with exactly its two still-affected cabinets chosen, of its three.
     await page.getByRole("status").filter({ hasText: /2 of 3 selected/ }).waitFor();
-    const ticked = await page.locator("tbody tr").filter({ has: page.locator("input[type=checkbox]:checked") }).allInnerTexts();
+    // That line counts the selection carried in the link and the site's cabinet count, both known before the site's cabinets have loaded;
+    // the rows come after. Read them once two ticked rows are on the page, not as soon as the line shows (under load, the table was still
+    // empty then and this read []).
+    const tickedRows = page.locator("tbody tr").filter({ has: page.locator("input[type=checkbox]:checked") });
+    await tickedRows.nth(1).waitFor();
+    const ticked = await tickedRows.allInnerTexts();
     assert.deepEqual(ticked.map(t => t.match(/STAGE \d-\d/)?.[0]).sort(), ["STAGE 0-1", "STAGE 0-2"]);
   } finally {
     await browser.close();
