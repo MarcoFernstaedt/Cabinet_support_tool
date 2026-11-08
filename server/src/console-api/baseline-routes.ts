@@ -126,7 +126,7 @@ export async function baselineRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   });
   app.get("/api/cabinets/:id/compare-healthy", async request => {
     await o.guards.role(request, "tier1");
-    return (await compareWithHealthy(o.pool, await cabinet(id(request)))) ?? { markId: null, markedAt: null, changes: [], unavailable: [] };
+    return (await compareWithHealthy(o.pool, await cabinet(id(request)))) ?? { markId: null, markedAt: null, changes: [], unavailable: [], changedAndBack: [], interimComplete: true };
   });
 
   // ---- The fleet ------------------------------------------------------------------------------

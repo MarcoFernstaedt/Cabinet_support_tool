@@ -4,6 +4,7 @@
 // client, site and cabinet). When a healthy cabinet's configuration is not the one the last mark recorded, a new mark is stored.
 import { lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { ISSUE } from "./rules.js";
+import { platformSettings } from "./settings.js";
 import { resolveForCabinet, type ResolvedHealth } from "./baselines.js";
 import { diffItems, type ItemChange } from "./config-diff.js";
 import { CATEGORIES, currentItems, unpackItems, type Category } from "./config-ingest.js";
@@ -112,8 +113,18 @@ export async function healthFor(db: Queryable, cabinetId: string): Promise<Healt
 
 export interface CategoryChange extends ItemChange { category: string }
 
-/** What differs between the last healthy mark and the configuration now, by category and item. */
-export async function compareWithHealthy(db: Queryable, cabinetId: string): Promise<{ markId: number; markedAt: string; changes: CategoryChange[]; unavailable: string[] } | null> {
+/** An item recorded as changed since the healthy mark that is back as it was then: invisible to the end-state comparison (F8.R3). */
+export interface ChangedAndBack { category: string; key: string; changes: number; lastAt: string }
+
+/**
+ * What differs between the last healthy mark and the configuration now, by category and item, and what changed in between and came back
+ * (F8.R3). The end-state comparison reads the two snapshots item by item; it cannot see an item that changed and changed back, or a
+ * category that returned to the marked version, so the change records since the mark are read too and every item they name that is not
+ * in the end-state list is reported with how many times it changed. `interimComplete` is false when the mark is older than the change
+ * records are kept (the platform's events retention), so the list can be missing older changes.
+ */
+export async function compareWithHealthy(db: Queryable, cabinetId: string): Promise<{ markId: number; markedAt: string; changes: CategoryChange[]; unavailable: string[];
+  changedAndBack: ChangedAndBack[]; interimComplete: boolean } | null> {
   const mark = (await db.query<{ id: string; marked_at: Date; versions: Record<string, number> }>(
     "SELECT m.id, m.marked_at, m.versions FROM healthy_marks m JOIN cabinet_health h ON h.last_mark_id = m.id WHERE h.cabinet_id = $1", [cabinetId])).rows[0];
   if (!mark) return null;
@@ -127,7 +138,18 @@ export async function compareWithHealthy(db: Queryable, cabinetId: string): Prom
     if (!old) { unavailable.push(category); continue; }
     for (const ch of diffItems(unpackItems(old.items), cur.items)) changes.push({ ...ch, category });
   }
-  return { markId: Number(mark.id), markedAt: mark.marked_at.toISOString(), changes, unavailable };
+  // The change records since the mark, one row per item: what the end state already shows is left out, and so is a category that could
+  // not be compared (its interim changes are not "back as they were": nobody can say).
+  const shown = new Set(changes.map(c => `${c.category}|${c.key}`));
+  const interim = (await db.query<{ category: string; item_key: string; n: number; last_at: Date }>(
+    `SELECT TOP (500) category, item_key, COUNT(*) AS n, MAX(observed_at) AS last_at FROM config_changes
+      WHERE cabinet_id = $1 AND observed_at > $2 GROUP BY category, item_key ORDER BY MAX(observed_at) DESC`, [cabinetId, mark.marked_at])).rows;
+  const changedAndBack = interim
+    .filter(r => mark.versions[r.category] !== undefined && !unavailable.includes(r.category) && !shown.has(`${r.category}|${r.item_key}`))
+    .map(r => ({ category: r.category, key: r.item_key, changes: Number(r.n), lastAt: r.last_at.toISOString() }));
+  const keptDays = (await platformSettings(db)).retention.eventsDays;
+  const interimComplete = mark.marked_at.getTime() > Date.now() - keptDays * 86_400_000;
+  return { markId: Number(mark.id), markedAt: mark.marked_at.toISOString(), changes, unavailable, changedAndBack, interimComplete };
 }
 
 /**
