@@ -299,16 +299,22 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
   // A command expires 2 minutes after it was issued; the agent's answer can arrive a little after that.
   const deadline = Date.now() + 150_000;
   while (waiting.size > 0 && Date.now() < deadline) {
-    const rows = (await pool.query<{ id: string; status: string; result: { error?: { code: string; message: string } } | null; result_at: Date | null }>(
-      "SELECT id, status, result, result_at FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [[...waiting.keys()]])).rows;
+    const rows = (await pool.query<{ id: string; status: string; result: { error?: { code: string; message: string } } | null; result_at: Date | null; delivered: boolean | number }>(
+      `SELECT id, status, result, result_at, CAST(CASE WHEN delivered_at IS NULL THEN 0 ELSE 1 END AS bit) AS delivered
+         FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`, [[...waiting.keys()]])).rows;
     for (const r of rows) {
       const t = waiting.get(r.id)!;
       if (r.status === "succeeded") {
         await setTarget(pool, jobId, t.cabinet_id, "succeeded", "The cabinet made the change; waiting for its next report to verify it.");
         answered.push({ cabinet_id: t.cabinet_id, params: t.params, at: r.result_at ?? new Date() });
         waiting.delete(r.id);
+      } else if (r.status === "expired" && !(r.delivered === true || r.delivered === 1)) {
+        // Never taken: the cabinet was out of contact for the whole job, so nothing was tried on it (F18.R2).
+        await setTarget(pool, jobId, t.cabinet_id, "offline", "The cabinet was out of contact and never took the command; nothing was changed on it. Run the job again for it once it is back.");
+        waiting.delete(r.id);
       } else if (FAILED_STATUSES.has(r.status)) {
-        const why = r.status === "expired" ? "The cabinet did not answer before the command expired." : r.result?.error ? `${r.result.error.code}: ${r.result.error.message}` : `The command ${r.status}.`;
+        const why = r.status === "expired" ? "The cabinet took the command but did not answer before it expired; check whether the change was made."
+          : r.result?.error ? `${r.result.error.code}: ${r.result.error.message}` : `The command ${r.status}.`;
         await setTarget(pool, jobId, t.cabinet_id, "failed", why);
         waiting.delete(r.id);
       }
@@ -431,7 +437,7 @@ export async function recentJobs(db: Queryable) {
   return (await db.query<{ id: string; operation: string; state: string; created_at: Date; total: number; name: string; verified: string; failed: string }>(
     `SELECT TOP (20) j.id, j.operation, j.state, j.created_at, j.total, u.name,
             (SELECT COUNT(*) FROM fleet_job_targets t WHERE t.job_id = j.id AND t.state = 'verified') AS verified,
-            (SELECT COUNT(*) FROM fleet_job_targets t WHERE t.job_id = j.id AND t.state IN ('failed', 'not_verified')) AS failed
+            (SELECT COUNT(*) FROM fleet_job_targets t WHERE t.job_id = j.id AND t.state IN ('failed', 'not_verified', 'offline')) AS failed
        FROM fleet_jobs j JOIN users u ON u.id = j.created_by ORDER BY j.created_at DESC`)).rows
     .map(r => ({ id: r.id, operation: r.operation, state: r.state, startedAt: r.created_at.toISOString(), total: r.total, startedBy: r.name,
       verified: Number(r.verified), problems: Number(r.failed) }));
