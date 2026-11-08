@@ -39,7 +39,7 @@ stays as its time for existing readers. The cabinet timeline already used `cabin
 The test in `scale.test.ts` that pinned the old value ("now when online and clear, the start of the oldest open alert otherwise") is
 replaced by this one, since that is the behavior F8.R1 removes.
 
-The red check: with the page's old computation restored, the first test fails.
+The red check: with the page's old computation restored, both tests fail.
 
 ---
 
