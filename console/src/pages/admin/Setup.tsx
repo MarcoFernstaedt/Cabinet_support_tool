@@ -113,6 +113,9 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
               <label className="field inline"><span>Site</span><select required value={siteId} onChange={e => setSiteId(e.target.value)}>
                 <option value="">Choose</option>
                 {(clients.data ?? []).flatMap(c => c.sites.map(s => <option key={s.id} value={s.id}>{c.name} / {s.name}</option>))}</select></label>
+              {/* A failed read of the sites says so, with a way to ask again, instead of an empty list and a disabled button. */}
+              {clients.problem && <p className="error small" role="alert">Could not read the sites: {clients.problem}{" "}
+                <button type="button" className="btn small" onClick={() => clients.reload()}>Try again</button></p>}
               <label className="field inline"><span>Role</span><select value={role} onChange={e => setRole(e.target.value)}>
                 <option value="">Chosen at approval</option><option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
               <label className="field inline"><span>Cabinets</span><input type="number" min={1} max={100} value={cabinets} onChange={e => setCabinets(Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))))} /></label>
