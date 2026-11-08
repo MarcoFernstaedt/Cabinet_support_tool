@@ -89,3 +89,18 @@ test("once none of its cabinets has a blue-screen alert open, the pass resolves 
   // Resolved, it does not open again on the next pass while none of them is crashing.
   assert.equal((await clusterNewCrashKinds(db.app)).opened, 0);
 });
+
+test("only BugCheck and WER entries are crashes, as on the kinds list: an event ID 1001 from another source linked to a blue-screen alert is not counted (review of #206)", async () => {
+  const [a, b] = await cabinets(2);
+  const SPLIT = msg("0x000000ef", ["0xffffb00a1c2d3e4f", "0x0", "0x0", "0x0"]);
+  await crash(a!, 20, SPLIT);
+  // Cabinet b: a blue-screen alert, and a 1001 from another source carrying the same message, linked to it.
+  const alert = randomUUID();
+  await db.app.query(`INSERT INTO alerts (id, cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
+    VALUES ($1, $2, '00000000-0000-4000-8000-000000000109', 'major', 'issue:00000000-0000-4000-8000-000000000109', 'System crash', SYSUTCDATETIME(), SYSUTCDATETIME())`, [alert, b]);
+  await db.app.query(`INSERT INTO events (event_id, cabinet_id, kind, occurred_at, source, detail, alert_id)
+    VALUES ($1, $2, 'error', DATEADD(minute, -10, SYSUTCDATETIME()), $3, $4, $5)`,
+    [randomUUID(), b, JSON.stringify({ log: "System", source: "Some-Other-Reporter", eventId: 1001, level: "error", recordId: 9 }), JSON.stringify({ message: SPLIT }), alert]);
+  await clusterNewCrashKinds(db.app);
+  assert.deepEqual(await pattern("crash:0x000000EF"), [], "one cabinet's BugCheck is not a cluster");
+});

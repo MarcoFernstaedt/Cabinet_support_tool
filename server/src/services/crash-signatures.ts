@@ -102,7 +102,7 @@ export function isSignatureKey(key: string): boolean {
 }
 
 /** The BugCheck sources that write the stop code; Kernel-Power 41 and EventLog 6008 say a restart was unexpected but not why. */
-const SOURCES = ["bugcheck", "microsoft-windows-wer-systemerrorreporting"];
+export const SOURCES = ["bugcheck", "microsoft-windows-wer-systemerrorreporting"] as const;
 
 export interface Crash { cabinetId: string; at: Date; sig: CrashSignature }
 

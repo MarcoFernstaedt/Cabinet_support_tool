@@ -6,7 +6,7 @@
 // counted up while it spreads, and resolved by this pass once none of its cabinets still has a blue-screen alert open: the minute sweep
 // cannot see a kind on an alert, so it leaves these keys to this pass. Demo cabinets are left out. Nothing here runs anything on a cabinet.
 import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
-import { oneCrashEach, type Crash, type CrashSignature } from "./crash-signatures.js";
+import { oneCrashEach, SOURCES, type Crash, type CrashSignature } from "./crash-signatures.js";
 import { FLEET_CHANNEL, ring } from "./fleet-patterns.js";
 import { ISSUE } from "./rules.js";
 import { platformSettings } from "./settings.js";
@@ -24,15 +24,18 @@ const DAY = 86_400_000;
 
 interface Kind { sig: CrashSignature; crashes: Crash[]; cabinets: Set<string>; first: Date; last: Date }
 
-/** The crashes the platform alerted on since `from`, on active real cabinets, one per crash, grouped by kind. */
+/**
+ * The crashes the platform alerted on since `from`, on active real cabinets, one per crash, grouped by kind. Only the two sources the kinds
+ * list reads (BugCheck and WER), so this pass and that list count the same crashes even if another source is ever mapped to a blue screen.
+ */
 async function crashKinds(db: Queryable, from: Date): Promise<Map<string, Kind>> {
   const rows = (await db.query<{ cabinet_id: string; occurred_at: Date; message: string | null; src: string }>(
     `SELECT e.cabinet_id, e.occurred_at, LOWER(JSON_VALUE(e.source, '$.source')) AS src,
             (SELECT j.message FROM OPENJSON(e.detail) WITH (message nvarchar(max) '$.message') j) AS message
        FROM events e JOIN alerts a ON a.id = e.alert_id JOIN cabinets k ON k.id = e.cabinet_id
       WHERE a.issue_type_id = $1 AND e.occurred_at >= $2 AND k.status = 'active' AND k.demo_scenario IS NULL
-        AND TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) = 1001
-      ORDER BY e.cabinet_id, e.occurred_at`, [ISSUE.crash, from])).rows;
+        AND LOWER(JSON_VALUE(e.source, '$.source')) IN ($3, $4) AND TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) = 1001
+      ORDER BY e.cabinet_id, e.occurred_at`, [ISSUE.crash, from, ...SOURCES])).rows;
   const kinds = new Map<string, Kind>();
   for (const c of oneCrashEach(rows)) {
     const k = kinds.get(c.sig.key) ?? kinds.set(c.sig.key, { sig: c.sig, crashes: [], cabinets: new Set(), first: c.at, last: c.at }).get(c.sig.key)!;
