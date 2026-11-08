@@ -47,7 +47,7 @@ Thumbs.db
 # Simulated demo agent identities (synthetic, per machine)
 tools/demo-agent/.demo-agent-state.json
 # Node packages and build output for the spec rebuild (contracts/, server/, console/)
-node_modules/
+node_modules
 server/dist/
 agent/out/
 server/.dev-pki/

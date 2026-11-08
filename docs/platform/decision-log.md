@@ -35,6 +35,36 @@ The red checks:
 - judging without the configuration part counted as met makes all three server tests fail (no cabinet without a baseline is healthy);
 - dropping the site check makes the first fail (offered again while the site's draft exists);
 - hiding the offer in the console makes the browser test fail.
+## D52. A new kind of blue screen on two cabinets is its own fleet pattern (2026-11-08)
+
+**What the code did** (F17, "cluster new crash signatures"): crash signatures (D26) group blue screens by stop code and the exception or
+subtype, and the Incidents page lists the kinds with a 24-hour trend. But a blue-screen alert is one per cabinet whatever the kind
+(issue type 109, folded), so the fleet pattern for blue screens (`fleet-patterns.ts`, `KEY` is `issue:<id>`) held every kind at once, and
+opened only at the site threshold. A new failure that starts on a few cabinets after a driver or update read as more of the usual crashes
+until someone opened the kinds list.
+
+**The decision** (mine, within the brief):
+- **A fleet pattern per new kind.** Once an hour a pass groups the crashes the platform alerted on by signature. A kind new to the fleet
+  (its first crash at most 7 days old) that has reached 2 or more cabinets opens one major pattern, keyed `crash:<signature>`, while one
+  of those cabinets still has a blue-screen alert open.
+- **Why 2 cabinets and 7 days.** One cabinet's new crash is already its own major alert; the second cabinet is what makes it a cluster.
+  Seven days matches the rising mark's week (D50). "New" looks back 90 days, as far as events are kept; crash events are kept whole.
+- **Why major.** Blue screens are major alerts; a new one spreading is not less.
+- **Read through the alerts.** The pass reads only BugCheck 1001 events linked to a blue-screen alert (the filtered `events_alert` index),
+  never a scan of all events, so its cost follows the number of crashes, not the fleet. No new table, column or stream.
+- **Its own resolution.** No alert carries a kind, so the minute sweep would resolve the pattern a minute after it opened. The sweep now
+  leaves `crash:` keys to this pass, which resolves one once none of its cabinets has a blue-screen alert open. That is a second
+  resolution path, the cost of not splitting blue-screen alerts by kind; splitting them would change every cabinet's crash alert and
+  crash incident (D21).
+- **The report.** A crash pattern's report reads its cabinets through their blue-screen alerts, so the common-factors comparison works as
+  for any pattern.
+- **Rejected:** a "new" mark on the kinds list only (nobody is told); a pattern per kind for every kind, new or not (the blue-screen
+  pattern already covers the usual ones, and it would double them).
+
+The red checks:
+- with the sweep's `crash:` exclusion removed, the first test fails: the sweep resolves the pattern;
+- with the pass never opening one, the first and third fail;
+- with "new" not required, the second fails: a kind first seen 10 days ago opens one.
 
 ## D51. The trends say where they were cut (2026-11-08)
 

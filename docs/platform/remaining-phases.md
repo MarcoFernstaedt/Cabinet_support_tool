@@ -344,7 +344,7 @@ changes it with the behaviour.
 | 10 | Fixes carried, verified, fleet-run; the watchdog | F18 | R1 a close found by the reading names the fix it verifies, with before and after (D47); R2 a fleet job names offline cabinets apart from failed ones (D46). Open: R3 the watchdog (agent) |
 | 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | F19.R7 firmware differing from its model's expectation is an alert (D48). Open: F19.R1-R6 (agent: driver store, rollout, rollback), F5 (a publisher entry needs a real cabinet's signer) |
 | 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
-| 13 | Sharpening the two no-expectation detectors | F17 | A rising unrecognised error opens a fleet pattern (D50); the trends say where they were cut (D51); a healthy cabinet at a site with no baseline offers to become it (D53). Open: new cabinet-level differences, crash-signature clustering |
+| 13 | Sharpening the two no-expectation detectors | F17 | A rising unrecognised error opens a fleet pattern (D50); the trends say where they were cut (D51); a new kind of blue screen on two cabinets is its own fleet pattern (D52); a healthy cabinet at a site with no baseline offers to become it (D53). Open: new cabinet-level differences |
 | 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | F21.R1 one writer per background job across instances (D49). Open: F20 (needs real cabinets per build family), F21.R2-R5 |
 | 15 | Our own remote access | F22 | **Parked** by the owner, 2026-11-06 |
 | -- | The installer carries an address a cabinet can dial | F23 | **Closed** 2026-11-07 (#171) |
