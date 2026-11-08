@@ -14,6 +14,7 @@ import { nothingToCompare, sinceHealthy } from "../services/since-healthy.js";
 import { Refused } from "../services/errors.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { siteBaselineOffer } from "../services/site-baseline-offer.js";
 
 const num = (v: string | undefined, d: number, max: number) => Math.max(1, Math.min(max, v === undefined ? d : Number(v)));
 
@@ -111,7 +112,8 @@ export async function baselineRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   app.get("/api/cabinets/:id/condition", async request => {
     await o.guards.role(request, "tier1");
     const cabinetId = await cabinet(id(request));
-    return { ...(await healthFor(o.pool, cabinetId)), baseline: await baselines.baselineStatus(o.pool, cabinetId) };
+    // And whether to offer this cabinet's configuration as its site's baseline: the site has none and the cabinet is healthy (F17, D53).
+    return { ...(await healthFor(o.pool, cabinetId)), baseline: await baselines.baselineStatus(o.pool, cabinetId), siteOffer: await siteBaselineOffer(o.pool, cabinetId) };
   });
   app.get("/api/cabinets/:id/drift", async request => { await o.guards.role(request, "tier1"); return { drift: await driftFor(o.pool, await cabinet(id(request))) }; });
   app.get("/api/cabinets/:id/config-changes", async request => {
