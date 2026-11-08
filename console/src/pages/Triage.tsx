@@ -28,7 +28,7 @@ interface Trends { computedThrough: string | null; computedAt: string | null; da
 function TrendLimits({ limits }: { limits: NonNullable<Trends["limits"]> }) {
   const cut = (what: string, l: Limit) => l.matched > l.shown ? `${what}: the ${l.shown} most important of ${l.matched} are shown.` : null;
   const lines = [cut("Issue types", limits.issues), cut("Errors", limits.errors),
-    limits.daysAtGroupLimit.length > 0 ? `On ${limits.daysAtGroupLimit.join(", ")} more than ${limits.groupsPerDay.toLocaleString("en-US")} different errors arrived; only the busiest ${limits.groupsPerDay.toLocaleString("en-US")} were counted.` : null]
+    limits.daysAtGroupLimit.length > 0 ? `On ${limits.daysAtGroupLimit.join(", ")} at least ${limits.groupsPerDay.toLocaleString("en-US")} different errors arrived; only the busiest ${limits.groupsPerDay.toLocaleString("en-US")} were counted.` : null]
     .filter((l): l is string => l !== null);
   if (lines.length === 0) return null;
   return <div className="notice warn small" role="note"><p>Not everything is listed. {lines.join(" ")} Choose a client or a mark to see the rest.</p></div>;
