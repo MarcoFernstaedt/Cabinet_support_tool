@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D45. "Nothing to compare" always says why (2026-11-08)
+
+**What the code did** (F8.R5): with no healthy mark, `/compare-healthy` returned an empty answer, and both tabs said "This cabinet has not
+been seen healthy" for every cause. That one sentence covered six different situations, each with a different next step:
+- not judged yet;
+- no configuration reported;
+- no approved baseline;
+- judged and never healthy;
+- healthy once with no mark kept;
+- a mark whose configuration is gone.
+
+The last one was shown as a list of "unavailable" categories under a heading that implied there was a comparison.
+
+**The decision** (mine, within the brief): one reader, `nothingToCompare`, in `since-healthy.ts`.
+- **No mark:** the reason is the health evaluation's own (F8.R1), else `no_mark`.
+- **A mark kept but every one of its categories unavailable:** `versions_pruned`.
+- **Something to compare:** null.
+
+Both routes return it, and both tabs show one sentence per reason, saying what would change it. The wording is defined once, in
+`ConfigParts.tsx`.
+
+**How it was proven.** `server/test/nothing-to-compare.test.ts`, through both routes, which must agree:
+- A new cabinet is `not_evaluated`. After the real evaluation of a cabinet that reported nothing, it is `no_configuration`. With
+  configuration and no baseline, the real evaluation gives `no_baseline`. A judged, never-healthy cabinet is `never_healthy`. A cabinet
+  healthy once with no mark is `no_mark`.
+- A mark pointing at a version no longer kept is `versions_pruned`. A mark of what is in force now is comparable, so null.
+
+The red check: with the reader always returning null, both tests fail.
+
+---
+
 ## D44. "What changed since it was healthy" is one route, ranked by closeness to the problem (2026-11-08)
 
 **What the code did** (F8.R4): the answer was spread over four routes and two tabs.
