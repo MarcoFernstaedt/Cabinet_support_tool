@@ -67,7 +67,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   // prev_at is when the previous uptime was reported (uptime_at), not the last contact: polls move last_heartbeat_at too.
   // The settings columns are named ks, ss, … here, which the data layer does not parse as JSON, so they are parsed below.
   const r = (await db.query<{ was_offline: number; offline_open: number; firewall_changed: number; prev_uptime: string | null; prev_at: Date | null; time_check: number;
-    ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null;
+    ks: string | null; ss: string | null; cs: string | null; fs: string | null; kw: string | null; sw: string | null; cw: string | null; fw: string | null; rw: string | null;
     ka: string | null; sa: string | null; ca: string | null; fa: string | null; scanner_used: boolean | number | null }>(
     // No table variable: on SQL Server each one declared by an ad-hoc batch is created in tempdb, and at 10,000 cabinets those creations
     // queued on tempdb's metadata pages. The previous values are read into scalar variables under an update lock instead, in one short
@@ -96,7 +96,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
      END CATCH;
      -- Whether an offline alert is open, so the heartbeat after a silence resolves it only when there is one to resolve.
      SELECT r.was_offline, CAST(CASE WHEN r.was_offline = 1 AND EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = $1 AND issue_type_id = $13 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS offline_open,
-            r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw, x.ka, x.sa, x.ca, x.fa, x.scanner_used
+            r.firewall_changed, r.prev_uptime, r.prev_at, r.time_check, x.ks, x.ss, x.cs, x.fs, x.kw, x.sw, x.cw, x.fw, x.rw, x.ka, x.sa, x.ca, x.fa, x.scanner_used
        FROM (SELECT CAST(CASE WHEN @hb IS NULL OR @hb < DATEADD(second, -$6, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS bit) AS was_offline,
                     CAST(CASE WHEN CAST($7 AS nvarchar(max)) IS NOT NULL AND @fw IS DISTINCT FROM CAST($7 AS nvarchar(max)) THEN 1 ELSE 0 END AS bit) AS firewall_changed,
                     @up AS prev_uptime, @upat AS prev_at,
@@ -108,6 +108,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'scanner.hardwareIds') AS fs,
                 k.watched_services AS kw, s.watched_services AS sw, c.watched_services AS cw,
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'services.watched') AS fw,
+                (SELECT TOP (1) [value] FROM settings WHERE [key] = CONCAT('services.watched.role.', k.role)) AS rw,
                 k.approved_apps AS ka, s.approved_apps AS sa, c.approved_apps AS ca,
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'apps.approved') AS fa, c.fingerprint_scanner AS scanner_used
            FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1) x;`,
@@ -120,9 +121,9 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });
   const scannerUsed = !(r?.scanner_used === false || r?.scanner_used === 0);
   const scanner = r ? effectiveScanner({ cabinet: parseJson<string[]>(r.ks), site: parseJson<string[]>(r.ss), client: parseJson<string[]>(r.cs), fleet: parseJson<string[]>(r.fs) }).effective : null;
-  const fleetWatched = r ? parseJson<unknown>(r.fw) : null;
+  const fleetWatched = r ? parseJson<unknown>(r.fw) : null, roleWatched = r ? parseJson<unknown>(r.rw) : null;
   const watched = r ? effectiveWatched({ cabinet: parseJson<string[]>(r.kw), site: parseJson<string[]>(r.sw), client: parseJson<string[]>(r.cw),
-    fleet: Array.isArray(fleetWatched) ? fleetWatched as string[] : null }).effective : [];
+    fleet: Array.isArray(fleetWatched) ? fleetWatched as string[] : null, role: Array.isArray(roleWatched) ? roleWatched as string[] : null }).effective : [];
   // The same levels resolve the approved programs the broker may control. A level whose stored list fails its own fingerprint, the
   // heartbeat contract's shape, or does not read as a list, resolves to an empty list (deny) rather than to the level above it, so a
   // damaged column can only narrow what the cabinet may do, and it cannot make the heartbeat answer fail its own contract.

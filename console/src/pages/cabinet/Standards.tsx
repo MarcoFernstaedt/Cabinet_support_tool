@@ -1,5 +1,5 @@
 // A cabinet's standards: every setting that says what "right" looks like for it (firewall policy, network baseline, time zone, sync cabinet, scanner,
-// watched services), with what it is meant to be, where that comes from (cabinet, site, client or the fleet default) and what the cabinet reports.
+// watched services), with what it is meant to be, where that comes from (cabinet, site, client, the fleet default or the role's baseline) and what the cabinet reports.
 // Click a line to open it: the standard at every level, the cabinet's own value, and the editor for each level the signed-in person may change.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLoad } from "../../lib/useLoad";
@@ -14,12 +14,12 @@ import { Link } from "../../lib/router";
 import type { CabinetDetail } from "./CabinetPage";
 
 interface CabinetPolicy { policy: Policy; source: "site" | "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
-interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; effective: string[]; source: string }
+interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; role?: string[] | null; effective: string[]; source: string }
 interface Reading { adapters: { connected: boolean; ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { servers: string[] } }[] }
 type State = "matches" | "differs" | "unknown" | "unset";
 interface Line { key: string; label: string; standard: ReactNode; source: string; actual: ReactNode; state: State; detail: ReactNode }
 
-const SOURCE: Record<string, string> = { cabinet: "This cabinet", site: "The site", client: "The client", fleet: "Fleet default", automatic: "Automatic", none: "Not set" };
+const SOURCE: Record<string, string> = { cabinet: "This cabinet", site: "The site", client: "The client", fleet: "Fleet default", role: "The role's baseline", automatic: "Automatic", none: "Not set" };
 const STATE: Record<State, { text: string; tone: "ok" | "warn" | "off" | "info" }> = {
   matches: { text: "Matches", tone: "ok" }, differs: { text: "Differs", tone: "warn" }, unknown: { text: "Not read", tone: "info" }, unset: { text: "Not set", tone: "off" } };
 

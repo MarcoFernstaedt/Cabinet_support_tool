@@ -17,7 +17,7 @@ import type { CabinetDetail } from "./CabinetPage";
 
 type Service = ServicesListOutput["services"][number];
 type Watched = ServicesListOutput["watched"][number];
-interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; effective: string[]; source: string }
+interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; role?: string[] | null; effective: string[]; source: string }
 
 const STATE: Record<string, { label: string; tone: "ok" | "warn" | "crit" | "off" | "info" }> = {
   running: { label: "Running", tone: "ok" }, stopped: { label: "Stopped", tone: "off" }, start_pending: { label: "Starting", tone: "info" },
@@ -36,7 +36,7 @@ function PagedRows<T>({ rows, label, children }: { rows: readonly T[]; label: st
   return (<>{children(paged.rows)}<Pager {...paged} label={label} /></>);
 }
 
-const SOURCE: Record<string, string> = { cabinet: "this cabinet's own list", site: "the site's list", client: "the client's list", fleet: "the fleet default", none: "no list anywhere" };
+const SOURCE: Record<string, string> = { cabinet: "this cabinet's own list", site: "the site's list", client: "the client's list", fleet: "the fleet default", role: "the services its role's baseline requires running", none: "no list anywhere" };
 
 /** The services the cabinet keeps running, where the list comes from, and each one's status. */
 function WatchedPanel({ cabinet, levels, watched, onChanged }: { cabinet: CabinetDetail; levels: WatchLevels | null; watched: Watched[]; onChanged: () => void }) {
@@ -232,10 +232,12 @@ const mayEnd = (p: { processId: number; name: string }) => p.processId > 4 && ![
 type P = ProcessesListOutput["processes"][number];
 
 /** A watch list editor for a client, a site or the fleet default (one name per line). */
-export function WatchListEditor({ endpoint, own, inherited, what, editable, onSaved }: {
+export function WatchListEditor({ endpoint, own, inherited, what, editable, onSaved, startFrom }: {
   endpoint: string; own: string[] | null; inherited: ReactNode; what: string; editable: boolean; onSaved: () => void;
+  /** With no list of its own, the editor starts from the list it would replace (F7.R4, D34). */
+  startFrom?: string[];
 }) {
-  const [text, setText] = useState((own ?? []).join("\n"));
+  const [text, setText] = useState((own ?? startFrom ?? []).join("\n"));
   const [pending, setPending] = useState<string[] | null | undefined>(undefined);
   const [problem, setProblem] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);

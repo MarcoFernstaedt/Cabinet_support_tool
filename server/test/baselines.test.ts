@@ -21,6 +21,11 @@ import { KEEP_VERSIONS, packItems, unpackItems, verifySnapshot, keyBelongs } fro
 import { evaluateHealth, judge, sweepHealth } from "../src/services/cabinet-health.js";
 import { computeDrift } from "../src/services/baseline-drift.js";
 import { diffContent } from "../src/services/baselines.js";
+import { roleWatched, roleWatchKey, setWatched, watchLevels } from "../src/services/watched-services.js";
+import { APPS_SET_ACTION, setApprovedApps } from "../src/services/approved-apps.js";
+import { issueStepUpToken } from "../src/auth/stepup.js";
+import { paramsHash } from "../src/auth/canonical.js";
+import { recordHeartbeat } from "../src/services/cabinets.js";
 import { issueCommand, storeResult, takeQueuedCommands } from "../src/services/commands.js";
 import { ConsoleHarness, ORIGIN, type Account } from "./console-harness.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
@@ -763,4 +768,62 @@ test("the fleet view answers which cabinets of a client differ from their role, 
   for (const bad of ["role=kiosk", "role=Sync", "from=everything", "from=role'%20OR%201=1%20--", "role=", "from="])
     assert.equal((await call("GET", `/api/fleet/differences?${c}&${bad}`, undefined, t1)).status, 400, bad);
   assert.equal((await call("GET", `/api/fleet/differences/group?category=services&itemKey=service:x&from=kiosk`, undefined, t1)).status, 400);
+});
+
+
+// ---- Watched services from the role (F7.R4, decision-log D34) -------------------------------------------------------------------
+
+test("a role's watched services are its required running services: not optional ones, not stopped or disabled ones, never a name the contract refuses, at most 16", () => {
+  const svc = (name: string, more: Record<string, unknown> = {}) => ({ category: "services", key: `service:${name}`, mode: "present", required: true, ...more });
+  assert.deepEqual(roleWatched({ items: [
+    svc("Spooler"), svc("BioScan", { mode: "match", expect: { startType: "automatic", state: "running" } }),
+    svc("Optional", { required: false }), svc("Stopped", { mode: "match", expect: { state: "stopped" } }), svc("Off", { mode: "match", expect: { startType: "disabled" } }),
+    svc("Gone", { mode: "absent" }), { category: "drivers", key: "driver:oem1.inf", mode: "present", required: true },
+    svc("bad;name"), svc(" lead"), svc("x".repeat(81)), svc("Spooler") ] }), ["BioScan", "Spooler"]);
+  const many = Array.from({ length: 30 }, (_, i) => svc(`Svc${String(i).padStart(2, "0")}`));
+  const watched = roleWatched({ items: many });
+  assert.equal(watched.length, 16);
+  assert.deepEqual(watched, [...watched].sort());
+  assert.deepEqual(roleWatched({ items: [] }), []);
+});
+
+test("approving a role baseline makes its required services the role's watch list: audited, used by its cabinets below any list of their own, and sent only when approved", async () => {
+  const a1 = await account("admin"), a2 = await account("admin");
+  const tag = randomUUID().slice(0, 6);
+  const { clientId, siteId } = await newSite(`W ${tag}`);
+  const cab = await newCabinet(siteId, `Watch ${tag}`);
+  await db.app.query("UPDATE cabinets SET role = 'standalone' WHERE id = $1", [cab]);
+  const sat = await newCabinet(siteId, `Watch sat ${tag}`);
+  const versionId = await approve(a1, a2, { kind: "role", id: "standalone" }, { items: [
+    { category: "services", key: "service:Spooler", mode: "present", required: true },
+    { category: "services", key: `service:Extra${tag}`, mode: "present" }] });
+  const stored = (await db.app.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [roleWatchKey("standalone")])).rows[0]!.value;
+  assert.deepEqual(typeof stored === "string" ? JSON.parse(stored) : stored, ["Spooler"]);
+  const audit = (await db.app.query<{ details: Record<string, unknown> }>("SELECT details FROM audit_log WHERE action = 'services.watched.role' ORDER BY seq DESC")).rows[0]!;
+  assert.deepEqual([audit.details.role, audit.details.names, audit.details.versionId], ["standalone", ["Spooler"], versionId]);
+
+  const mine = await watchLevels(db.app, cab);
+  assert.deepEqual([mine.source, mine.effective], ["role", ["Spooler"]]);
+  assert.equal((await watchLevels(db.app, sat)).source === "role", false, "a satellite is not watched by the standalone role");
+  // The site's and client's watch-list editors are told the role lists their cabinets fall back to (review of #185): without them, a site
+  // whose cabinets are watched by their role read "no services are watched", and a list saved there to add one service dropped the rest.
+  const t1 = await account("tier1");
+  const siteView = (await call("GET", `/api/sites/${siteId}/watched-services`, undefined, t1)).body;
+  assert.deepEqual(siteView.roles, { standalone: ["Spooler"] }, "the satellite's role has no list, so it is not shown");
+  assert.deepEqual((await call("GET", `/api/clients/${clientId}/watched-services`, undefined, t1)).body.roles, { standalone: ["Spooler"] });
+  const { siteId: emptySite } = await newSite(`W2 ${tag}`);
+  assert.deepEqual((await call("GET", `/api/sites/${emptySite}/watched-services`, undefined, t1)).body.roles, {}, "a site with no standalone cabinet is not told the standalone list");
+  // A level with its own list replaces the role's, as every narrower level does: that is how one is turned off (an empty list) or added to.
+  await setWatched(db.app, a1.id, "site", siteId, []);
+  assert.deepEqual([(await watchLevels(db.app, cab)).source, (await watchLevels(db.app, cab)).effective], ["site", []]);
+  await setWatched(db.app, a1.id, "site", siteId, null);
+
+  // The heartbeat answer sends a watched service only when it is approved for the cabinet.
+  const beat = async () => (await recordHeartbeat(db.app, cab, { agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false })).watched;
+  assert.deepEqual(await beat(), [], "nothing is approved: nothing is sent, the role's list included");
+  const entries = [{ key: "app:spooler", kind: "service", name: "Print Spooler", path: "C:\\Windows\\System32\\spoolsv.exe", serviceName: "Spooler" }];
+  const admin = { userId: a1.id, role: "admin" as const };
+  await setApprovedApps(db.app, admin, "client", clientId, entries,
+    await issueStepUpToken(db.app, a1.id, APPS_SET_ACTION.client, clientId, paramsHash({ level: "client", id: clientId, entries })));
+  assert.deepEqual(await beat(), ["Spooler"]);
 });
