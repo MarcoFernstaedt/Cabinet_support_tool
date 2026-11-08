@@ -20,7 +20,19 @@ interface Triage { generatedAt: string; days: number; trendsAsOf: string | null;
 interface Trend { key: string; mark: "new" | "rising" | null; cabinets: number; events: number; last7: number; prev7: number; series: { cabinets: number[]; events: number[] } }
 interface IssueTrend extends Trend { issueTypeId: string; name: string; severity: string }
 interface ErrorTrend extends Trend { log: string; source: string; eventId: number; issueName: string | null; unrecognized: boolean; sample: string | null }
-interface Trends { computedThrough: string | null; computedAt: string | null; days: string[]; issues: IssueTrend[]; errors: ErrorTrend[]; running: boolean }
+interface Limit { shown: number; matched: number; limit: number }
+interface Trends { computedThrough: string | null; computedAt: string | null; days: string[]; issues: IssueTrend[]; errors: ErrorTrend[]; running: boolean;
+  limits?: { issues: Limit; errors: Limit; groupsPerDay: number; daysAtGroupLimit: string[] } }
+
+/** Where a list was cut, said on screen (F17): how many matched and how many are shown, and the days that kept only the busiest groups. */
+function TrendLimits({ limits }: { limits: NonNullable<Trends["limits"]> }) {
+  const cut = (what: string, l: Limit) => l.matched > l.shown ? `${what}: the ${l.shown} most important of ${l.matched} are shown.` : null;
+  const lines = [cut("Issue types", limits.issues), cut("Errors", limits.errors),
+    limits.daysAtGroupLimit.length > 0 ? `On ${limits.daysAtGroupLimit.join(", ")} at least ${limits.groupsPerDay.toLocaleString("en-US")} different errors arrived; only the busiest ${limits.groupsPerDay.toLocaleString("en-US")} were counted.` : null]
+    .filter((l): l is string => l !== null);
+  if (lines.length === 0) return null;
+  return <div className="notice warn small" role="note"><p>Not everything is listed. {lines.join(" ")} Choose a client or a mark to see the rest.</p></div>;
+}
 
 type View = "queue" | "unrecognized" | "trends" | "incidents";
 
@@ -160,6 +172,7 @@ function TrendsView({ filter, clientId, days }: { filter: string; clientId: stri
     {refreshNote && <p className="small" role="status">{refreshNote}</p>}
     {problem && <p className="error" role="alert">{problem}</p>}
     {data && <p className="small muted">{data.computedThrough ? `Computed through ${data.computedThrough} (${data.computedAt ? ago(data.computedAt) : "never"}); the figures are per day received, updated each night. Cabinets are those on the busiest day.` : "The trends have not been computed yet; they are computed each night."}</p>}
+    {data?.limits && <TrendLimits limits={data.limits} />}
     {data && data.issues.length > 0 && (
       <section className="panel" aria-labelledby="issue-trends"><h2 id="issue-trends">Issue types</h2>
         <table className="table compact"><caption className="sr-only">Issue type trends</caption>

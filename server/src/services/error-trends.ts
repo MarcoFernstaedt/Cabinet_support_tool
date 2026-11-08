@@ -11,6 +11,9 @@ export const TREND_DAYS = 30;
 const KEEP_DAYS = 35;
 /** The most error groups kept for a day across all clients (the busiest first), so a flood of one-off messages cannot fill the table. */
 export const MAX_GROUPS_PER_DAY = 40_000;
+/** The most issue-type and error rows one trends answer lists, the most important first; the answer says how many matched. */
+export const ISSUE_TREND_LIMIT = 100;
+export const ERROR_TREND_LIMIT = 200;
 /** Fewer events than this in the last 7 days is never "rising": two becoming five is noise. */
 export const RISING_MIN_EVENTS = 5;
 /** "New" needs a history to be new against. */
@@ -189,9 +192,18 @@ export async function errorTrends(db: Queryable, q: ErrorTrendQuery) {
   const markOk = (m: Mark) => (q.mark === undefined || q.mark === "all" ? true : m === q.mark);
   const markRank = (m: Mark) => (m === "new" ? 0 : m === "rising" ? 1 : 2);
   const order = (a: TrendRow, b: TrendRow) => markRank(a.mark) - markRank(b.mark) || b.cabinets - a.cabinets || b.events - a.events || (a.key < b.key ? -1 : 1);
+  const issuesShown = issues.filter(i => markOk(i.mark) && i.events > 0).sort(order);
+  const errorsShown = errors.filter(e => markOk(e.mark) && e.events > 0 && (q.unrecognized === undefined ? true : e.unrecognized === (q.unrecognized === "true"))).sort(order);
+  // The limits are part of the answer (F17, "keep the limit on screen"): how many matched, how many are shown, and the days that kept
+  // only the busiest groups, so a cut list is never read as the whole.
+  const capped = (await db.query<{ day: Date }>(
+    `SELECT [day] FROM error_daily WHERE [day] >= $1 GROUP BY [day] HAVING COUNT(*) >= $2 ORDER BY [day]`, [from, MAX_GROUPS_PER_DAY])).rows.map(r => dayKey(r.day));
   return { ...empty,
-    issues: issues.filter(i => markOk(i.mark) && i.events > 0).sort(order).slice(0, 100),
-    errors: errors.filter(e => markOk(e.mark) && e.events > 0 && (q.unrecognized === undefined ? true : e.unrecognized === (q.unrecognized === "true"))).sort(order).slice(0, 200) };
+    issues: issuesShown.slice(0, ISSUE_TREND_LIMIT),
+    errors: errorsShown.slice(0, ERROR_TREND_LIMIT),
+    limits: { issues: { shown: Math.min(issuesShown.length, ISSUE_TREND_LIMIT), matched: issuesShown.length, limit: ISSUE_TREND_LIMIT },
+      errors: { shown: Math.min(errorsShown.length, ERROR_TREND_LIMIT), matched: errorsShown.length, limit: ERROR_TREND_LIMIT },
+      groupsPerDay: MAX_GROUPS_PER_DAY, daysAtGroupLimit: capped } };
 }
 
 /** The marks for the groups the triage queue shows (it ranks live alerts; the trend says whether each is new or growing). */

@@ -6,6 +6,29 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D51. The trends say where they were cut (2026-11-08)
+
+**What the code did** (F17, "keep the limit on screen"): the trends answer was cut silently:
+- 100 issue types and 200 errors in `errorTrends`;
+- the 40,000 busiest error groups a day in `computeTrendDay`.
+
+A cut list read as the whole, so an error ranked 201st or dropped on a flood day was invisible without a sign that anything was missing.
+
+**The decision** (mine, within the brief):
+- **The answer carries its limits.** For each list, how many are shown and how many matched, and the days at the per-day group limit.
+- **The page says so.** The Error trends view shows a note only when something was cut, with the way to narrow it: a client or a mark.
+- **The limits stay.** They keep one answer and one night bounded; what changes is that they are never silent.
+
+**Cost.** One grouped count over `error_daily` for the 30-day window, beside the reads the answer already makes.
+
+**How it was proven.** `server/test/trend-limits.test.ts`:
+- 205 different errors give 200 listed and `{ shown: 200, matched: 205, limit: 200 }`, with no day at the group limit.
+- A day with 40,000 groups is named in `daysAtGroupLimit`.
+
+The red check: with "matched" reported as the rows shown, the first test fails.
+
+---
+
 ## D49. One writer per background job across instances: a lease per job (2026-11-08)
 
 **What the code did** (F21.R1): `server/src/main.ts` runs every background job in the primary process (node:cluster workers serve
