@@ -1,5 +1,6 @@
 // A cabinet's standards: every setting that says what "right" looks like for it (firewall policy, network baseline, time zone, sync cabinet, scanner,
-// watched services), with what it is meant to be, where that comes from (cabinet, site, client, the fleet default or the role's baseline) and what the cabinet reports.
+// watched services, approved programs, file-facts paths, USB watch), with what it is meant to be, where that comes from (cabinet, site, client, the fleet default or
+// the role's) and what the cabinet reports. Where each setting comes from is the server's own resolution (F6.R5, /setting-origins), the one each is enforced with.
 // Click a line to open it: the standard at every level, the cabinet's own value, and the editor for each level the signed-in person may change.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useLoad } from "../../lib/useLoad";
@@ -16,10 +17,24 @@ import type { CabinetDetail } from "./CabinetPage";
 interface CabinetPolicy { policy: Policy; source: "site" | "client" | "fleet"; reported: Record<"domain" | "private" | "public", boolean> | null; differs: boolean | null; readOnly: boolean | null }
 interface WatchLevels { cabinet: string[] | null; site: string[] | null; client: string[] | null; fleet: string[] | null; role?: string[] | null; effective: string[]; source: string }
 interface Reading { adapters: { connected: boolean; ipv4: { dhcp: boolean; addresses: { address: string; prefixLength: number }[]; gateways: string[] }; dns: { servers: string[] } }[] }
+/** One setting's origin as the server resolves it: the level that applies, every level that sets it, and those whose value was refused. */
+interface Origin { setting: string; source: string; setAt: string[]; rejected: string[]; count: number | null }
 type State = "matches" | "differs" | "unknown" | "unset";
 interface Line { key: string; label: string; standard: ReactNode; source: string; actual: ReactNode; state: State; detail: ReactNode }
 
-const SOURCE: Record<string, string> = { cabinet: "This cabinet", site: "The site", client: "The client", fleet: "Fleet default", role: "The role's baseline", automatic: "Automatic", none: "Not set" };
+const SOURCE: Record<string, string> = { cabinet: "This cabinet", site: "The site", client: "The client", fleet: "Fleet default", role: "The role", model: "The model", default: "Built-in default",
+  automatic: "Automatic", none: "Not set" };
+const LEVEL: Record<string, string> = { cabinet: "this cabinet", site: "the site", client: "the client", model: "the model", role: "the role", fleet: "the fleet default" };
+/** "Also set at the client and the fleet default", and which levels were refused, for a line's dialog. */
+function levelsText(o: Origin | undefined): ReactNode {
+  if (!o) return null;
+  const others = o.setAt.filter(l => l !== o.source && !o.rejected.includes(l));
+  return <>
+    {others.length > 0 && <p className="muted small">Also set at {others.map(l => LEVEL[l] ?? l).join(", ")}; the most specific level applies.</p>}
+    {o.rejected.length > 0 && <p className="error small" role="note">The value stored at {o.rejected.map(l => LEVEL[l] ?? l).join(", ")} was refused when read: it was changed outside
+      the platform, so it allows nothing until an Admin sets it again.</p>}
+  </>;
+}
 const STATE: Record<State, { text: string; tone: "ok" | "warn" | "off" | "info" }> = {
   matches: { text: "Matches", tone: "ok" }, differs: { text: "Differs", tone: "warn" }, unknown: { text: "Not read", tone: "info" }, unset: { text: "Not set", tone: "off" } };
 
@@ -33,9 +48,11 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
   const watched = useLoad<WatchLevels>(`/api/cabinets/${cabinet.id}/watched-services`);
   const base = useLoad<{ scopes: { kind: string; name: string; version: number; baselineId: string }[] }>(`/api/cabinets/${cabinet.id}/baseline`);
   const cond = useLoad<{ state: string; reasons: { text: string }[] }>(`/api/cabinets/${cabinet.id}/condition`);
+  const originsLoad = useLoad<{ settings: Origin[] }>(`/api/cabinets/${cabinet.id}/setting-origins`);
+  const origin = (setting: string) => originsLoad.data?.settings.find(o => o.setting === setting);
   const diagnosis = useLoad<{ latest: { readings?: Reading } | null }>(`/api/cabinets/${cabinet.id}/diagnose/network`);
   const [open, setOpen] = useState<string | null>(null);
-  const reloadAll = () => { site.reload(); fw.reload(); time.reload(); watched.reload(); diagnosis.reload(); base.reload(); cond.reload(); onChanged(); };
+  const reloadAll = () => { site.reload(); fw.reload(); time.reload(); watched.reload(); diagnosis.reload(); base.reload(); cond.reload(); originsLoad.reload(); onChanged(); };
   const s = site.data;
 
   const lines: Line[] = [];
@@ -45,6 +62,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     detail: <>
       <p>Windows Firewall profiles on this cabinet are meant to be: <strong>{describePolicy(fw.data.policy)}</strong> ({SOURCE[fw.data.source]!.toLowerCase()}).</p>
       {fw.data.reported && <p>It reports: <strong>{profiles(fw.data.reported)}</strong>.</p>}
+      {levelsText(origin("firewallPolicy"))}
       <p className="muted small">Editing the policy changes no cabinet; apply it from the Firewall tab or from a diagnosis. Requires an authenticator code.</p>
       <SiteFirewallPolicy siteId={cabinet.site.id} name={cabinet.site.name} editable={atLeast(me, "admin")} />
       <p><Link to={`/cabinets/${cabinet.id}/firewall`}>Open this cabinet's firewall</Link></p></>,
@@ -68,19 +86,21 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     lines.push({
       key: "timezone", label: "Time zone", source: SOURCE[s.timeZoneApplies?.source ?? "none"]!, standard: s.timeZoneApplies?.zone ? zoneName(s.timeZoneApplies.zone) : "Not set",
       actual: zone ? zoneName(zone.timeZoneId) : "Not reported yet", state: !s.timeZoneApplies?.zone ? "unset" : !zone ? "unknown" : zone.zoneWrong ? "differs" : "matches",
-      detail: <><SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} applies={s.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
+      detail: <>{levelsText(origin("timeZone"))}<SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} applies={s.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/time`}>Open this cabinet's time</Link></p></>,
     });
     const sync = cabinet.sync;
     const target = sync?.role === "satellite" ? sync.syncCabinet : null;
     lines.push({
-      key: "sync", label: "Sync cabinet", source: sync?.role === "satellite" && target ? SOURCE.cabinet! : SOURCE.none!,
+      key: "sync", label: "Sync cabinet",
+      source: sync?.role === "satellite" && target ? `${SOURCE.cabinet!}; ports: ${(SOURCE[s.sync.portsSource] ?? s.sync.portsSource).toLowerCase()}` : SOURCE.none!,
       standard: sync?.role === "sync" ? `This is a sync cabinet${sync.address ? ` at ${sync.address}` : ""}`
         : sync?.role === "satellite" ? (target ? `${target.name}${target.address ? ` at ${target.address}` : ", address not reported yet"}, ports ${s.sync.effectivePorts.join(", ") || "none"}` : "Not assigned")
         : "Not used",
       actual: "Tested from Network", state: sync?.role === "satellite" && !target ? "unset" : "unknown",
       detail: <>
         <p>The sync cabinet this satellite reaches, and the ports the connection test uses. Ports not set for the site come from the client, then the fleet default.</p>
+        {levelsText(origin("syncPorts"))}
         <div><CabinetSyncLine cabinet={cabinet} sync={sync} admin={atLeast(me, "admin")} onChanged={reloadAll} /></div>
         <SiteSync siteId={s.id} name={s.name} sync={s.sync} editable={atLeast(me, "admin")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Test it from this cabinet's network</Link></p></>,
@@ -106,6 +126,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
     actual: "Checked on the Fingerprint scanner tab", state: sc.effective?.length ? "unknown" : "unset",
     detail: <>
       <p>Hardware IDs the scanner checks look for, most specific first: cabinet, site, client, fleet, then automatic detection.</p>
+      {levelsText(origin("scannerIds"))}
       <ScannerIdsEditor key={`sc-c-${cabinet.id}`} label="This cabinet's own scanner IDs" current={sc.cabinetHardwareIds}
         inherited={above ? <>the level above applies (<code>{above.join(", ")}</code>).</> : "cabinets find the scanner automatically."}
         endpoint={`/api/cabinets/${cabinet.id}/scanner`} action="cabinet.scanner" target={cabinet.id} what={cabinet.name} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
@@ -120,11 +141,41 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       key: "services", label: "Watched services", source: SOURCE[w.source] ?? w.source, standard: w.effective.length ? w.effective.join(", ") : "None",
       actual: "State on the Services tab", state: w.effective.length ? "unknown" : "unset",
       detail: <>
-        <p>Restarted automatically when stopped; alert after 3 failed restarts. The most specific list applies.</p>
+        <p>Restarted automatically when stopped; alert after 3 failed restarts. The most specific list applies; the role's required services apply when no level sets a list.</p>
+        {levelsText(origin("watchedServices"))}
         {s && <WatchedServices level="sites" id={s.id} name={s.name} editable={atLeast(me, "tier2")} />}
         <p><Link to={`/cabinets/${cabinet.id}/services`}>Open this cabinet's services (a list of its own is set there)</Link></p></>,
     });
   }
+  const apps = origin("approvedApps");
+  if (apps) lines.push({
+    key: "apps", label: "Approved programs", source: SOURCE[apps.source] ?? apps.source,
+    standard: apps.count === null ? "None approved" : apps.rejected.includes(apps.source) ? "None (the list in force was refused)" : `${apps.count} program${apps.count === 1 ? "" : "s"}`,
+    actual: "Held by the cabinet's broker", state: apps.rejected.length ? "differs" : apps.count ? "unknown" : "unset",
+    detail: <>
+      <p>The programs and services this cabinet may be asked to start, stop or keep running. The most specific list applies: cabinet, site, client, then the fleet default.</p>
+      {levelsText(apps)}
+      <p><Link to="/admin/approved-apps">Approved programs</Link> (an Admin changes them with an authenticator code)</p></>,
+  });
+  const files = origin("fileFactsPaths");
+  if (files) lines.push({
+    key: "files", label: "File-facts paths", source: SOURCE[files.source] ?? files.source,
+    standard: files.count === null ? "None" : files.rejected.includes(files.source) ? "None (the list in force was refused)" : `${files.count} file${files.count === 1 ? "" : "s"}`,
+    actual: "Read on request", state: files.rejected.length ? "differs" : files.count ? "unknown" : "unset",
+    detail: <>
+      <p>The files whose version, size and date this cabinet may be asked to read. The most specific list applies: cabinet, site, client, then the fleet default.</p>
+      {levelsText(files)}</>,
+  });
+  const usb = origin("usbWatch");
+  if (usb) lines.push({
+    key: "usb", label: "USB watch", source: SOURCE[usb.source] ?? usb.source,
+    standard: usb.count ? `${usb.count} level${usb.count === 1 ? "" : "s"} watching` : "Nothing watched",
+    actual: "A missing or flapping device opens an alert", state: usb.rejected.length ? "differs" : usb.count ? "unknown" : "unset",
+    detail: <>
+      <p>Each level's policy watches its own device or slot; where two name the same one, the most specific level applies.</p>
+      {levelsText(usb)}
+      <p><Link to={`/cabinets/${cabinet.id}/alerts`}>Open this cabinet's alerts</Link></p></>,
+  });
   const current = lines.find(l => l.key === open) ?? null;
   return (
     <section className="panel" aria-labelledby="standards-heading">
@@ -139,7 +190,8 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
             <td><Badge tone={STATE[l.state].tone}>{STATE[l.state].text}</Badge></td>
           </tr>))}</tbody>
       </table>
-      {(site.problem || fw.problem) && <p className="error" role="alert">{site.problem ?? fw.problem}</p>}
+      {(site.problem || fw.problem || originsLoad.problem) && <p className="error" role="alert">{site.problem ?? fw.problem ?? originsLoad.problem}
+        {" "}<button className="btn small" onClick={reloadAll}>Try again</button></p>}
       <StandardDialog line={current} onClose={() => { setOpen(null); reloadAll(); }} />
     </section>
   );
