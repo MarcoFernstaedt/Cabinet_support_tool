@@ -81,7 +81,16 @@ export function Setup() {
  *  picks the package for the machine's Windows (32-bit or 64-bit) and runs on the Windows PowerShell every machine has. */
 export function InstallAgent({ setup }: { setup: SetupState }) {
   const [confirm, setConfirm] = useState(false);
-  const [made, setMade] = useState<{ fileName: string; href: string; expiresAt: string } | null>(null);
+  const [made, setMade] = useState<{ fileName: string; href: string; expiresAt: string; cabinets?: number } | null>(null);
+  // A site installer (F6.R1): one installer for up to N cabinets of one site, and optionally one role, for D days.
+  const clients = useLoad<{ id: string; name: string; sites: { id: string; name: string }[] }[]>("/api/admin/clients");
+  const [forSite, setForSite] = useState(false);
+  const [siteId, setSiteId] = useState("");
+  const [role, setRole] = useState("");
+  const [cabinets, setCabinets] = useState(10);
+  const [days, setDays] = useState(7);
+  const site = forSite && siteId ? { siteId, ...(role ? { role } : {}), cabinets, days } : undefined;
+  const body = site ? { site } : {};
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => () => { if (made) URL.revokeObjectURL(made.href); }, [made]);
   const packages = INSTALL_ARCHITECTURES.map(a => ({ ...a, pkg: setup.agent.packages.find(p => p.architecture === a.id && p.bytes !== null) ?? null }));
@@ -97,12 +106,26 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
                   {p.label}{(p.pkg.bytes ?? 0) >= 1024 * 1024 && <span className="muted small"> ({((p.pkg.bytes ?? 0) / 1024 / 1024).toFixed(0)} MB)</span>}</a>
               : <span key={p.id} className="muted small">{p.label}: not published on this server.</span>)}
           </p></li>
-        <li><strong>Create an installer for the cabinet.</strong> Each installer works for one cabinet, once, for 7 days.
+        <li><strong>Create an installer for the cabinet.</strong> Each installer works for one cabinet, once, for 7 days, or, made for a site, for the number of that site's cabinets you choose.
+          <label className="check"><input type="checkbox" checked={forSite} onChange={e => setForSite(e.target.checked)} /> One installer for several cabinets of one site</label>
+          {forSite && (
+            <div className="row gap wrap">
+              <label className="field inline"><span>Site</span><select required value={siteId} onChange={e => setSiteId(e.target.value)}>
+                <option value="">Choose</option>
+                {(clients.data ?? []).flatMap(c => c.sites.map(s => <option key={s.id} value={s.id}>{c.name} / {s.name}</option>))}</select></label>
+              {/* A failed read of the sites says so, with a way to ask again, instead of an empty list and a disabled button. */}
+              {clients.problem && <p className="error small" role="alert">Could not read the sites: {clients.problem}{" "}
+                <button type="button" className="btn small" onClick={() => clients.reload()}>Try again</button></p>}
+              <label className="field inline"><span>Role</span><select value={role} onChange={e => setRole(e.target.value)}>
+                <option value="">Chosen at approval</option><option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
+              <label className="field inline"><span>Cabinets</span><input type="number" min={1} max={100} value={cabinets} onChange={e => setCabinets(Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))))} /></label>
+              <label className="field inline"><span>Days</span><input type="number" min={1} max={30} value={days} onChange={e => setDays(Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 1))))} /></label>
+            </div>)}
           <p className="row gap wrap">
-            <button className="btn primary" data-tour="create-token" disabled={!any} onClick={() => { setProblem(null); setConfirm(true); }}>Create installer</button>
+            <button className="btn primary" data-tour="create-token" disabled={!any || (forSite && !siteId)} onClick={() => { setProblem(null); setConfirm(true); }}>Create installer</button>
             {made && <a className="btn" href={made.href} download={made.fileName}>Download {made.fileName}</a>}
           </p>
-          {made && <p className="muted small" role="status">Ready. Single use, valid until {fullTime(made.expiresAt)}.</p>}
+          {made && <p className="muted small" role="status">Ready. {made.cabinets ? `For up to ${made.cabinets} cabinets of that site` : "Single use"}, valid until {fullTime(made.expiresAt)}. Every cabinet that uses it still waits for your approval.</p>}
           {problem && <p className="error" role="alert">{problem}</p>}</li>
         <li><strong>On the cabinet,</strong> put the installer in the same folder as the agent files and double-click it. Approve the Windows prompt. The cabinet then appears below for approval.</li>
       </ol>
@@ -116,12 +139,12 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
           <li>If setup stops, the window says what happened and what to do. The installer keeps its token so you can run it again; it deletes itself after a successful install.</li>
         </ul>
       </details>
-      <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)}
-        description={<p>Create a single-use installer that lets one cabinet ask to join.</p>}
+      <StepUpDialog open={confirm} action="token.create" target="fleet" onClose={() => setConfirm(false)} {...(site ? { params: body } : {})}
+        description={<p>{site ? `Create an installer that lets up to ${cabinets} cabinets of this site ask to join, for ${days} days.` : "Create a single-use installer that lets one cabinet ask to join."}</p>}
         onToken={async token => {
           try {
-            const r = await api<{ fileName: string; script: string; expiresAt: string }>("POST", "/api/admin/installer", { stepUpToken: token });
-            setMade({ fileName: r.fileName, expiresAt: r.expiresAt, href: URL.createObjectURL(new Blob([r.script], { type: "application/octet-stream" })) });
+            const r = await api<{ fileName: string; script: string; expiresAt: string; cabinets?: number }>("POST", "/api/admin/installer", { stepUpToken: token, ...body });
+            setMade({ fileName: r.fileName, expiresAt: r.expiresAt, ...(r.cabinets ? { cabinets: r.cabinets } : {}), href: URL.createObjectURL(new Blob([r.script], { type: "application/octet-stream" })) });
           } catch (e) { setProblem(describeError(e)); }
         }} />
     </>

@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/installer-request.schema.json",
+  "title": "installer-request",
+  "description": "Makes an installer (or a bootstrap token). Without `site` it is for one cabinet. With `site` it is a site installer (finding F6.R1): for up to `cabinets` cabinets of that site, and of `role` when given, for `days` days, after which it stops; every cabinet that uses it still waits for an Admin's approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "stepUpToken"
+  ],
+  "properties": {
+    "stepUpToken": {
+      "description": "A one-time step-up token bound to this exact action, site and limits included.",
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "site": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "siteId"
+      ],
+      "properties": {
+        "siteId": {
+          "$ref": "../common.schema.json#/$defs/uuid"
+        },
+        "role": {
+          "$ref": "../common.schema.json#/$defs/cabinetRole"
+        },
+        "cabinets": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "days": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        }
+      }
+    }
+  }
+}

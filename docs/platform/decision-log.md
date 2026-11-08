@@ -6,6 +6,41 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D35. One installer per site: bounded by count and days, held to its site at approval (2026-11-07)
+
+**Owner's decision.** Asked how a site installer (one token several cabinets of one site can use) should be bounded, the owner chose the
+recommendation, "Admin sets count".
+
+**The decision.**
+- **Limits.** The Admin chooses the site, optionally a role, how many cabinets (1 to 100, default 10) and how many days (1 to 30, default 7).
+  The authenticator code confirms exactly those. The token stops at either limit, and `token.revoke` stops it early.
+- **Counting.** Each use is counted under the token row's lock, so two cabinets at once count as two. Each is audited with the token's id
+  and site.
+- **Approval.** A request made with it arrives with its client, site and role filled in. It is approved only at that site, and with that
+  role when one was named.
+- **What stays the same.** A token with no site is still for one cabinet, once. The agent and the installer script are unchanged: the token
+  they carry looks the same.
+
+**Why this, and not the alternatives.**
+- **Every cabinet still needs an approval**, so the token alone enrolls nothing. Its risk is a leaked file filling the pending queue with
+  requests. The count bounds that, and a per-site count keeps each installer to the site it was made for.
+- **A fixed small batch** would need several installers for a large site. **Unlimited until revoked** would let one leaked file make
+  any number of requests.
+- **Holding the approval to the installer's site** makes "scoped to a site" mean something: the person who made the installer confirmed
+  that site with a code, and a cabinet that turns up claiming it can only be placed there or rejected.
+
+**How it was proven.** `server/test/site-installer.test.ts`, through the real console routes and enrollment path:
+- A 2-cabinet token takes two and refuses the third, and is used up at its last. Its creation and both uses are audited.
+- The pending list carries the intended client, site and role.
+- Approval at another site, or with another role, is refused and changes nothing. The right one passes. Without a role the approver chooses.
+- A revoked, or expired, token enrolls nothing. Revoking is Admin only and happens once. A one-cabinet token is still used once.
+- A code confirmed for 2 cabinets does not make one for 50. Seven hostile bodies are refused, and so are a missing site and Tier 2. The
+  database refuses 500 uses, and refuses more than one use without a site.
+
+The red checks: with the site check taken out of the approval, the second test fails; with tokens single-use again, the first fails.
+
+---
+
 ## D34. A role baseline's required services are that role's watched services (2026-11-07)
 
 **Owner's decision.** Asked whether a role baseline's required services should also be watched (restarted when they stop), or stay

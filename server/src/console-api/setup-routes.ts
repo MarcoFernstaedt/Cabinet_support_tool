@@ -101,7 +101,7 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   // it creates a token, so it takes the same authenticator confirmation as creating a token.
   app.post("/api/admin/installer", async request => {
     const u = await o.guards.role(request, "admin");
-    const body = consoleBodies.stepUpOnly.parse(request.body);
+    const body = consoleBodies.installerRequest.parse(request.body);
     const [x64, x86] = await Promise.all(AGENT_ARCHITECTURES.map(a => packageInfo(a)));
     if (!x64 && !x86) throw new Refused("not_found", 404, "this server has no agent package to install");
     const input = (token: string) => ({
@@ -113,9 +113,9 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     // confirmation is used up and a token is made for nothing.
     try { launcherScript(input("x".repeat(43))); } catch (e) { throw new Refused("setup_incomplete", 409, (e as Error).message); }
     await transaction(o.pool, c => consumeStepUpToken(c, boundTo(body.stepUpToken, body), u.userId, "token.create", "fleet"));
-    const { token, expiresAt } = await createBootstrapToken(o.pool, u.userId);
+    const { token, expiresAt, cabinets } = await createBootstrapToken(o.pool, u.userId, undefined, body.site);
     const script = launcherScript(input(token));
-    return { fileName: LAUNCHER_NAME, script, expiresAt: expiresAt.toISOString() };
+    return { fileName: LAUNCHER_NAME, script, expiresAt: expiresAt.toISOString(), ...(body.site ? { cabinets } : {}) };
   });
 
   app.get("/api/admin/agent-package", async (request, reply) => {

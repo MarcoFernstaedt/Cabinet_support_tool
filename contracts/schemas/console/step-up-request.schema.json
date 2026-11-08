@@ -17,6 +17,7 @@
         "enrollment.approve",
         "enrollment.reject",
         "token.create",
+        "token.revoke",
         "demo.change",
         "cabinet.revoke",
         "settings.scanner",
