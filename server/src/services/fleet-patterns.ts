@@ -11,6 +11,7 @@
 import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
 import { compareChanges, type ChangeComparison } from "./crashes.js";
 import { platformSettings } from "./settings.js";
+import { unrecognizedSignature } from "./alerts.js";
 
 export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date;
   /** How many of its alerts are still unresolved: a pattern opens only while one is, so the alerts of one that resolved never reopen it. */
@@ -225,4 +226,44 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
     byAgentVersion: [...versions.entries()].map(([version, v]) => ({ version, ...v })).filter(v => v.affected > 0).sort((a, b) => b.affected - a.affected),
     commonFactors,
   };
+}
+
+// ---- Rising unrecognised errors (F17, decision-log D50) --------------------------------------------------------------------------------
+
+/** An unrecognised error group the nightly trends marked rising, fleet-wide. */
+export interface RisingError { log: string; source: string; eventId: number; last7: number; prev7: number }
+
+/**
+ * Opens one minor fleet pattern for each unrecognised error the nightly trends marked rising, while any cabinet still has its alert open:
+ * a new unrecognised error already opens an alert on its cabinet, but one that grows did nothing until it reached enough sites at once.
+ * The pattern's key is the alerts' own signature, so the minute sweep counts it up while it spreads and resolves it once none of those
+ * alerts is open, as it does every pattern. A group already open as a pattern (rising or spread) is left as it is.
+ */
+export async function openRisingPatterns(pool: Pool, rising: readonly RisingError[]): Promise<number> {
+  let opened = 0;
+  for (const r of rising.slice(0, 50)) {
+    const key = unrecognizedSignature({ kind: "error", source: { log: r.log, source: r.source, eventId: r.eventId } } as never);
+    if ((await pool.query("SELECT 1 AS x FROM fleet_patterns WHERE pattern_key = $1 AND resolved_at IS NULL", [key])).rows.length > 0) continue;
+    const c = (await pool.query<{ clients: number; sites: number; cabinets: number; occurrences: number; first_seen: Date | null; last_seen: Date | null }>(
+      `SELECT COUNT(DISTINCT s.client_id) AS clients, COUNT(DISTINCT k.site_id) AS sites, COUNT(DISTINCT a.cabinet_id) AS cabinets,
+              SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen
+         FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
+        WHERE a.signature = $1 AND a.state <> 'resolved' AND k.status = 'active' AND k.demo_scenario IS NULL`, [key])).rows[0];
+    if (!c || Number(c.cabinets) === 0 || !c.first_seen || !c.last_seen) continue; // nothing open to look at
+    const title = `Fleet pattern: Rising: ${r.source} event ${r.eventId} (${r.log}), ${r.last7} events in the last 7 days, ${r.prev7} the 7 before`.slice(0, 300);
+    try {
+      const row = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
+        OUTPUT inserted.id VALUES ($1, NULL, $2, 'minor', $3, $4, $5, $6, $7, $8)`,
+        [key, title, Number(c.clients), Number(c.sites), Number(c.cabinets), Number(c.occurrences), c.first_seen, c.last_seen]);
+      const id = row.rows[0]!.id.toLowerCase();
+      await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
+        outcome: "succeeded", details: { key, rising: { last7: r.last7, prev7: r.prev7 }, sites: Number(c.sites), cabinets: Number(c.cabinets), severity: "minor" } });
+      await ring(pool, key, (await platformSettings(pool)).fleetMinorAlarmSites);
+      await notify(pool, FLEET_CHANNEL, `${id} opened`);
+      opened++;
+    } catch (e) {
+      if (!isUniqueViolation(e)) throw e;
+    }
+  }
+  return opened;
 }
