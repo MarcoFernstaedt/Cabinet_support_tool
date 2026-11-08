@@ -30,3 +30,13 @@ export function Origin({ o }: { o: { kind: string; name: string; version: number
 export type Health = "healthy" | "degraded" | "offline" | "unknown";
 export const HEALTH_TONE: Record<Health, "ok" | "warn" | "crit" | "off"> = { healthy: "ok", degraded: "crit", offline: "warn", unknown: "off" };
 export const HEALTH_LABEL: Record<Health, string> = { healthy: "Healthy", degraded: "Not as the baseline says", offline: "Out of contact", unknown: "Not judged yet" };
+
+/** Why there is nothing to compare with the last healthy state (F8.R5): said plainly, with what would change it. */
+export const NOTHING_TO_COMPARE: Record<string, string> = {
+  not_evaluated: "This cabinet's configuration health has not been judged yet, so there is no healthy state to compare with.",
+  no_configuration: "This cabinet has not reported its configuration yet, so it cannot be judged healthy or compared. Read its configuration now to start.",
+  no_baseline: "No approved baseline applies to this cabinet, so it is never judged healthy and there is nothing to compare with. Approve a baseline for its site, client or role.",
+  never_healthy: "This cabinet has been judged against its baseline but never found healthy, so there is no healthy state to compare with.",
+  no_mark: "This cabinet was healthy, but no record of its configuration at that time is kept, so there is nothing to compare with.",
+  versions_pruned: "The configuration this cabinet had when it was last healthy is no longer kept, so none of it can be compared.",
+};

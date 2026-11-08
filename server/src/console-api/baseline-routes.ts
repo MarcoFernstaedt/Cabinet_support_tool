@@ -10,7 +10,7 @@ import { changesFor, currentConfig, fleetDifferenceGroup, fleetDifferences, isCa
 import { cabinetsInScope, driftFor, evaluateBaselineDrift } from "../services/baseline-drift.js";
 import { compareWithHealthy, evaluateHealth, healthFor } from "../services/cabinet-health.js";
 import { timelineFor } from "../services/cabinet-timeline.js";
-import { sinceHealthy } from "../services/since-healthy.js";
+import { nothingToCompare, sinceHealthy } from "../services/since-healthy.js";
 import { Refused } from "../services/errors.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -132,7 +132,11 @@ export async function baselineRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   });
   app.get("/api/cabinets/:id/compare-healthy", async request => {
     await o.guards.role(request, "tier1");
-    return (await compareWithHealthy(o.pool, await cabinet(id(request)))) ?? { markId: null, markedAt: null, changes: [], unavailable: [], changedAndBack: [], interimComplete: true };
+    const cabinetId = await cabinet(id(request));
+    const comparison = await compareWithHealthy(o.pool, cabinetId);
+    // With nothing to compare, the reason why (F8.R5), never a bare empty answer.
+    return { ...(comparison ?? { markId: null, markedAt: null, changes: [], unavailable: [], changedAndBack: [], interimComplete: true }),
+      nothingToCompare: await nothingToCompare(o.pool, cabinetId, comparison) };
   });
 
   // ---- The fleet ------------------------------------------------------------------------------

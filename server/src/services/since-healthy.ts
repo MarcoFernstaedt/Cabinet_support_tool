@@ -30,6 +30,23 @@ export function rankChanges(changes: RankedChange[]): RankedChange[] {
   });
 }
 
+/**
+ * Why there is nothing to compare with (F8.R5, decision-log D45), or null when there is something: the health evaluation's reason when the
+ * cabinet was never judged healthy (not evaluated, no configuration, no approved baseline, never healthy); "no_mark" when it was healthy
+ * but no mark is kept; "versions_pruned" when a mark is kept but none of its configuration is any more. Never a bare "nothing".
+ */
+export type NothingToCompare = "not_evaluated" | "no_configuration" | "no_baseline" | "never_healthy" | "no_mark" | "versions_pruned";
+export async function nothingToCompare(db: Queryable, cabinetId: string, comparison: Awaited<ReturnType<typeof compareWithHealthy>>): Promise<NothingToCompare | null> {
+  if (comparison) {
+    const marked = (await db.query<{ n: number }>(
+      "SELECT COUNT(*) AS n FROM healthy_marks m JOIN cabinet_health h ON h.last_mark_id = m.id CROSS APPLY OPENJSON(m.versions) v WHERE h.cabinet_id = $1", [cabinetId])).rows[0];
+    const categories = Number(marked?.n ?? 0);
+    return categories > 0 && comparison.unavailable.length >= categories ? "versions_pruned" : null;
+  }
+  const lastHealthy = await lastKnownHealthy(db, cabinetId);
+  return lastHealthy.reason ?? "no_mark";
+}
+
 export async function sinceHealthy(db: Queryable, cabinetId: string) {
   const h = (await db.query<{ state: string; degraded_since: Date | null }>("SELECT state, degraded_since FROM cabinet_health WHERE cabinet_id = $1", [cabinetId])).rows[0];
   const lastHealthy = await lastKnownHealthy(db, cabinetId);
@@ -49,7 +66,7 @@ export async function sinceHealthy(db: Queryable, cabinetId: string) {
   return {
     health: { state: h?.state ?? "unknown", lastHealthy, problemFirstObserved: problem?.toISOString() ?? null },
     drift: await driftFor(db, cabinetId),
-    sinceMark: comparison,
+    sinceMark: comparison, nothingToCompare: await nothingToCompare(db, cabinetId, comparison),
     changes, changesFrom: from?.toISOString() ?? null,
   };
 }
