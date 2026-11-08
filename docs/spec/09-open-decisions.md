@@ -467,7 +467,7 @@ Owner: Tier 1 and Tier 2 can change a service's start type. Built as `service.se
 
 ### Which standards need an authenticator code (decided)
 
-The cabinet's **Standards** tab lists every setting a cabinet is held to (firewall policy, network baseline, time zone, sync cabinet, scanner IDs, watched services) with the standard, the level it comes from, and what the cabinet reports; a line opens a window with every level and the editors.
+The cabinet's **Standards** tab lists every setting a cabinet is held to (firewall policy, network baseline, time zone, sync cabinet, scanner IDs, watched services, configuration baseline, and since F6.R5 approved programs, file-facts paths and USB watch) with the standard, the level it comes from, and what the cabinet reports; a line opens a window with every level and the editors.
 
 A code on an edit helps only against one threat: someone using a signed-in browser session that is not theirs (a stolen cookie, an unlocked workstation). It does not help against a compromised server, which can write the database and issue commands without any console code; what limits that is on the agent: the fixed operation catalog, schema checks on every input, private-address-only sync targets, signed packages and upgrades, and the safety net that undoes a change that cuts a cabinet off. So a code is kept only where a hijacked session could do harm that reaches cabinets or traffic, and dropped where the setting changes no cabinet and any later change to a cabinet has its own confirmation:
 
@@ -981,6 +981,6 @@ each use is audited. Built as described in 02-security-model.md "Control 4". Det
 
 Still to build in F6, each its own piece: approving a batch of pending cabinets in one action (R2, built: decision-log D36), "apply this site's standards" as a
 saved action (R3), bulk create and import of clients, sites and cabinets (R4), and the console showing where each inherited setting came
-from (R5). The installer's unattended switch and its machine-readable result, and re-running it on an enrolled cabinet, are agent-side
+from (R5, built: decision-log D38; no question for the owner, since inheritance at read time was already the rule). The installer's unattended switch and its machine-readable result, and re-running it on an enrolled cabinet, are agent-side
 work and wait for the agent build.
 
