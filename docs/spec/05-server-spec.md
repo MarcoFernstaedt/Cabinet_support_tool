@@ -6,6 +6,7 @@
 - Two separate listeners, either in one service or as two services sharing the same data store
 - Console API listener: HTTPS behind a reverse proxy, cookie sessions, reachable only from Mashura's internal network or VPN
 - Agent API listener: its own port and hostname, the only part of the platform reachable from the internet, with mutual TLS terminated by Node itself so the client certificate is verified directly, never passed along in a header
+- **One writer per background job across server instances** (F21.R1, decision-log D49). Inside one host the primary process runs the background jobs and the workers serve agents. With more than one instance (two hosts), each job runs only while that instance holds the job's lease in `job_leases`: the minute loop (`jobs.minute`, 150 s), the replacement re-apply (`jobs.reapply`, 45 s), resuming fleet jobs at start (`jobs.resume-fleet-jobs`), the daily chain check and retention (`jobs.daily`), the hourly notification prune (`jobs.hourly`), the operations checks (`jobs.ops-checks`), the error trends (`jobs.error-trends`) and the demo simulator (`jobs.demo`). A lease outlasts its job's interval, so the holder keeps it from run to run; another instance takes it over only once the holder has stopped renewing and the lease has run out. Taking and renewing is one statement, so two instances asking at once cannot both get it, and a lease that cannot be read counts as not held: the job is skipped, never run twice.
 
 ## Console API areas
 
