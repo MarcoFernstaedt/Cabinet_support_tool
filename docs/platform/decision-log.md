@@ -27,6 +27,43 @@ A cut list read as the whole, so an error ranked 201st or dropped on a flood day
 
 The red check: with "matched" reported as the rows shown, the first test fails.
 
+## D50. A rising unrecognised error opens a fleet pattern (2026-11-08)
+
+**What the code did** (F17, first requirement): a new unrecognised error opens a minor alert on its cabinet as it arrives, and the nightly
+trends mark each error group (log, source, event ID) new or rising. The trends page and the triage queue show the mark. But a group
+that grows, at one or two sites, never alerted. Fleet patterns open only at the site threshold within hours (D22), and the rising mark was
+only something a person might notice.
+
+**The decision** (mine, within the brief):
+- **A fleet pattern per rising group.** After each nightly trend run, each unrecognised group marked rising fleet-wide opens one minor
+  fleet pattern, while any active cabinet still has its alert open. The title reads "Rising: Disk event 153 (System), 21 events in the last
+  7 days, 1 the 7 before".
+- **Why a fleet pattern, not per-cabinet alerts.** The cabinet alerts already exist; what was missing is the fleet seeing the growth. A
+  fleet pattern is that alert, with its report, its list and its notification, and it is the one place the console already shows a
+  problem across cabinets.
+- **The alerts' own signature as its key.** So the minute sweep counts it up while it spreads, and resolves it once none of its alerts is
+  open, exactly as it does every pattern. No second resolution path.
+- **Crash and hang groups: one pattern per program** (review of #204). An Application Error 1000 or Application Hang 1002 alert carries
+  its program in its signature ("…|1000~cabinetui.exe", D29); the trends count the group without it, so keying by the group's signature
+  matched no alert and opened nothing for the very case F17 names. The pattern now opens for each program whose alert is open in that
+  group, keyed by that alert's signature. Rejected: one pattern for the whole group (the sweep would find no alert with that key and
+  resolve it at once) and a program taken from the group's one stored sample (a group can hold more than one program). The cost: the week
+  counts in the title are the group's, not the program's, and the title says "the group" so it is not read otherwise. Splitting the trends
+  by program would change the trends tables and is not part of this change.
+- **No duplicates.** A group already open as a pattern, rising or spread, is left alone.
+- **Nothing open, nothing opened.** A group with no open alert opens nothing: there is nothing to look at.
+- **Bounded.** At most 50 open in a night.
+- **Minor.** Rising is a sign to look, not a failure. It rings like any minor pattern only from the alarm level (D25).
+
+**How it was proven.** `server/test/rising-errors.test.ts`, through the real nightly run and sweep:
+- A group at 1 event in the week before and 21 this week, open on one cabinet at one site, opens one minor pattern with that title and
+  an audit carrying both counts. A second night does not open another.
+- A steady group and a rising group with no open alert open nothing. Closing the alert lets the sweep resolve the pattern.
+
+`fleet-patterns.test.ts` and `troubleshooting.test.ts` still pass.
+
+The red check: without the rising step in the nightly run, both tests fail (the second depends on the first's pattern).
+
 ---
 
 ## D49. One writer per background job across instances: a lease per job (2026-11-08)
