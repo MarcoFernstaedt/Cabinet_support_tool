@@ -1,0 +1,9 @@
+{
+  "from": "suggested",
+  "parts": [
+    "networkBaseline",
+    "timeZone",
+    "firewall"
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

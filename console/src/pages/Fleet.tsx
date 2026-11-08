@@ -197,6 +197,11 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
   const [problem, setProblem] = useState<string | null>(null);
   const timeZone = useAction();
   const diagnose = useStartDiagnosis();
+  // F6.R3: every standard at once, from this site's own cabinets or copied from a site set up the way this one should be.
+  const sites = useLoad<{ id: string; name: string; sites: { id: string; name: string }[] }[]>(role === "admin" ? "/api/admin/clients" : null);
+  const [applying, setApplying] = useState<null | { from: "suggested" | { siteId: string }; parts: string[]; what: string }>(null);
+  const [copyFrom, setCopyFrom] = useState("");
+  const [applied, setApplied] = useState<string | null>(null);
   if (!data) return null;
   const canTier2 = role === "tier2" || role === "admin", canAdmin = role === "admin";
   const { current: cur, suggested: sug } = data;
@@ -215,12 +220,35 @@ function SiteStandards({ siteId, name, role, onSaved }: { siteId: string; name: 
       action: cur.siteFirewall || !canAdmin || !sug.firewall ? null : <button className="btn" onClick={() => setAsk("firewall")}>Use {sug.firewall.fromCabinet.name}'s settings for this site</button> },
   ];
   const missing = rows.filter(r => !r.value).length;
+  const PART_NAME: Record<string, string> = { networkBaseline: "network", timeZone: "time zone", firewall: "firewall policy" };
+  const suggestedParts = [...(!cur.networkBaseline && sug.networkBaseline ? ["networkBaseline"] : []), ...(!cur.timeZone && sug.timeZone ? ["timeZone"] : []),
+    ...(!cur.siteFirewall && sug.firewall ? ["firewall"] : [])];
   return (
     <section className="panel" aria-labelledby={`std-${siteId}`}>
       <h2 id={`std-${siteId}`}>Standards for {name}</h2>
       <ul className="plain">{rows.map(r => (
         <li key={r.label} className="row gap wrap"><strong>{r.label}:</strong> {r.value ?? <span className="muted">Not set{r.label === "Firewall" ? `; ${cur.inheritedFirewallFrom === "client" ? "the client's policy" : "the fleet default"} applies (${describePolicy(cur.inheritedFirewall)})`
           : r.label === "Time zone" && cur.inheritedTimeZone ? `; ${zoneName(cur.inheritedTimeZone)} applies from the client or fleet` : ""}</span>} {r.action}</li>))}</ul>
+      {canAdmin && (
+        <div className="row gap wrap">
+          {suggestedParts.length > 1 && <button className="btn" onClick={() => setApplying({ from: "suggested", parts: suggestedParts, what: `what this site's cabinets report for its ${suggestedParts.map(p => PART_NAME[p]).join(", ")}` })}>
+            Apply all {suggestedParts.length} suggestions</button>}
+          <label className="field inline"><span>Copy the standards of</span><select value={copyFrom} onChange={e => setCopyFrom(e.target.value)}>
+            <option value="">another site…</option>
+            {(sites.data ?? []).flatMap(c => c.sites.filter(s => s.id !== siteId).map(s => <option key={s.id} value={s.id}>{c.name} / {s.name}</option>))}</select></label>
+          <button className="btn" disabled={!copyFrom} onClick={() => setApplying({ from: { siteId: copyFrom }, parts: ["networkBaseline", "timeZone", "firewall"], what: "the other site's own network, time zone and firewall policy" })}>Copy</button>
+          {sites.problem && <span className="error small" role="alert">Could not read the sites: {sites.problem} <button type="button" className="btn small" onClick={() => sites.reload()}>Try again</button></span>}
+        </div>)}
+      {applied && <p className="ok" role="status">{applied}</p>}
+      {applying && <StepUpDialog open action="site.apply_standards" target={siteId} params={{ from: applying.from, parts: applying.parts }} onClose={() => setApplying(null)}
+        description={<p>Set <strong>{name}</strong>'s standards to {applying.what}. Each one is set as if it were set on its own; nothing changes on a cabinet.</p>}
+        onToken={async token => {
+          try {
+            const r = await api<{ applied: string[]; skipped: { part: string; why: string }[] }>("POST", `/api/sites/${siteId}/standards/apply`, { from: applying.from, parts: applying.parts, stepUpToken: token });
+            setApplied(`Set: ${r.applied.map(p => PART_NAME[p]).join(", ")}.${r.skipped.length ? ` Not set: ${r.skipped.map(x => `${PART_NAME[x.part]} (${x.why})`).join("; ")}.` : ""}`);
+            done();
+          } catch (e) { setProblem(describeError(e)); throw e; }
+        }} />}
       {diagnose.problem && <p className="error" role="alert">{diagnose.problem}</p>}
       {(problem ?? timeZone.problem) && <p className="error" role="alert">{problem ?? timeZone.problem}</p>}
       {sug.networkBaseline && !cur.networkBaseline && <ConfirmDialog open={ask === "baseline"} onClose={() => setAsk(null)}

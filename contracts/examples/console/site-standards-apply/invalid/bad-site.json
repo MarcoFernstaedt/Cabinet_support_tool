@@ -1,0 +1,9 @@
+{
+  "from": {
+    "siteId": "x' OR 1=1"
+  },
+  "parts": [
+    "timeZone"
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

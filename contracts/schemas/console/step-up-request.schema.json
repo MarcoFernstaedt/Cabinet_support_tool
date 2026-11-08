@@ -97,7 +97,8 @@
         "settings.filefacts",
         "client.filefacts",
         "site.filefacts",
-        "cabinet.filefacts"
+        "cabinet.filefacts",
+        "site.apply_standards"
       ]
     },
     "target": {
