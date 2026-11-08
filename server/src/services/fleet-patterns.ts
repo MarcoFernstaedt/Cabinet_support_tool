@@ -9,7 +9,9 @@
 // sites and cabinets have it, since when, and what they have in common that the others do not (a driver, an update, software) from the
 // changes each cabinet recorded before its problem began. Nothing here runs anything on a cabinet.
 import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
+import { CRASH_KEY_PREFIX, cabinetsOfKind } from "./crash-clusters.js";
 import { compareChanges, type ChangeComparison } from "./crashes.js";
+import { ISSUE } from "./rules.js";
 import { platformSettings } from "./settings.js";
 
 export interface PatternCount { key: string; issueTypeId: string | null; title: string; severity: string; clients: number; sites: number; cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date;
@@ -111,10 +113,12 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
       if (!isUniqueViolation(e)) throw e; // another sweep opened it a moment ago; the next look counts it up
     }
   }
-  // Resolved: no cabinet still has the problem unresolved.
+  // Resolved: no cabinet still has the problem unresolved. A new kind of blue screen (crash:<signature>, D52) is not a key on any alert,
+  // so its own hourly pass resolves it.
   const gone = (await pool.query<{ id: string }>(`DECLARE @o TABLE (id uniqueidentifier);
       UPDATE p SET resolved_at = SYSUTCDATETIME() OUTPUT inserted.id INTO @o FROM fleet_patterns p
-       WHERE p.resolved_at IS NULL AND NOT EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.state <> 'resolved' AND ${KEY} = p.pattern_key);
+       WHERE p.resolved_at IS NULL AND LEFT(p.pattern_key, 6) <> '${CRASH_KEY_PREFIX}'
+         AND NOT EXISTS (SELECT 1 FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id WHERE a.state <> 'resolved' AND ${KEY} = p.pattern_key);
       SELECT id FROM @o;`)).rows;
   for (const g of gone) {
     await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.resolve", targetKind: "fleet_pattern", targetId: g.id.toLowerCase(), outcome: "succeeded", details: {} });
@@ -127,7 +131,7 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
  * Rings the open pattern for this key if it has not rung yet and deserves it: major, or minor at minorSites or more (D25). Returns its id when
  * it rang just now, else null. Once rung it stays rung, so the alarm never flickers when counts or the setting change.
  */
-async function ring(pool: Pool, key: string, minorSites: number): Promise<string | null> {
+export async function ring(pool: Pool, key: string, minorSites: number): Promise<string | null> {
   const r = (await pool.query<{ id: string; severity: string; sites: number }>(`UPDATE fleet_patterns SET alarmed_at = SYSUTCDATETIME() OUTPUT inserted.id, inserted.severity, inserted.sites
       WHERE pattern_key = $1 AND resolved_at IS NULL AND alarmed_at IS NULL AND (severity = 'major' OR sites >= $2)`, [key, minorSites])).rows[0];
   if (!r) return null;
@@ -176,13 +180,16 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
   const row = (await db.query<Parameters<typeof toPattern>[0] & { pattern_key: string }>(`SELECT ${COLUMNS}, pattern_key FROM fleet_patterns WHERE id = $1`, [id])).rows[0];
   if (!row) return null;
   const pattern = toPattern(row);
+  // A new kind of blue screen (D52): its cabinets are the ones that had a crash of that kind, read through their blue-screen alerts.
+  const crash = row.pattern_key.startsWith(CRASH_KEY_PREFIX);
   const from = new Date(new Date(pattern.firstSeen).getTime() - 3_600_000), to = new Date(Math.max(Date.now(), new Date(pattern.lastSeen).getTime()));
   const affected = (await db.query<{ cabinet_id: string; name: string; client: string; site_id: string; site: string; occurrences: number; first_seen: Date; last_seen: Date; state: string; agent_version: string | null; demo: number; resolved_at: Date | null }>(
     `SELECT a.cabinet_id, k.name, c.name AS client, k.site_id, s.name AS site, SUM(CAST(a.occurrences AS bigint)) AS occurrences, MIN(a.first_seen) AS first_seen, MAX(a.last_seen) AS last_seen, MAX(a.resolved_at) AS resolved_at,
             MIN(CASE WHEN a.state <> 'resolved' THEN 'open' ELSE 'resolved' END) AS state, k.agent_version, CASE WHEN k.demo_scenario IS NULL THEN 0 ELSE 1 END AS demo
        FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE ${KEY} = $1 AND a.last_seen >= $2
-      GROUP BY a.cabinet_id, k.name, c.name, k.site_id, s.name, k.agent_version, k.demo_scenario ORDER BY MIN(a.first_seen), k.name`, [row.pattern_key, from])).rows;
+      WHERE ${crash ? "a.issue_type_id = $3 AND a.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($4))" : `${KEY} = $1`} AND a.last_seen >= $2
+      GROUP BY a.cabinet_id, k.name, c.name, k.site_id, s.name, k.agent_version, k.demo_scenario ORDER BY MIN(a.first_seen), k.name`,
+      crash ? [row.pattern_key, from, ISSUE.crash, JSON.stringify(await cabinetsOfKind(db, row.pattern_key.slice(CRASH_KEY_PREFIX.length)))] : [row.pattern_key, from])).rows;
   // The pattern's own kind decides, so its report holds only cabinets of that kind (the key already filtered them).
   const demo = isDemoKey(row.pattern_key);
   // The comparison group: the active cabinets of the same kind (real or demo), so a demo fleet never dilutes a real one.
