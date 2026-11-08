@@ -185,7 +185,7 @@ export function FleetOperations() {
 
 const STATE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
   pending: ["off", "Waiting"], issued: ["info", "Sent"], succeeded: ["info", "Done; verifying"], verified: ["ok", "Verified"],
-  not_verified: ["warn", "Not verified"], failed: ["crit", "Failed"], skipped: ["off", "Skipped"], cancelled: ["off", "Cancelled"],
+  not_verified: ["warn", "Not verified"], failed: ["crit", "Failed"], offline: ["warn", "Offline: not reached"], skipped: ["off", "Skipped"], cancelled: ["off", "Cancelled"],
 };
 
 interface Job { id: string; operation: Operation; state: string; startedBy: string; startedAt: string; finishedAt: string | null; batchSize: number; total: number;
