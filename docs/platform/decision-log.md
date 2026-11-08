@@ -6,6 +6,33 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D40. The healthy mark in use is never pruned: kept by the prune, held by the database (2026-11-08)
+
+**What the code did** (F8.R2): `keepMark` in `server/src/services/cabinet-health.ts` prunes marks after adding one (30 days, always the
+newest 10, a cap of 60). The mark `cabinet_health.last_mark_id` points at was the one just added, the newest, so it could not be pruned
+in practice. But nothing stated that, nothing tested it, and nothing stopped another path (a retention job, a manual delete) from
+deleting it. The brief's "a mark can be pruned while it is referenced" was a risk without a guard, not something seen happening.
+
+**The decision** (mine, within the brief): both of the guards the brief allows.
+- **The prune skips the mark in use**, whatever its age or rank, in the same statement.
+- **A foreign key** from `cabinet_health.last_mark_id` to `healthy_marks.id` (migration 0026) makes the database refuse any other
+  deletion of it, and any reference to a mark that does not exist. A reference already pointing at nothing is cleared first; none is
+  expected. Removing a cabinet still removes both, through the existing cascades.
+
+The config versions a mark points at were already kept (`config-ingest.ts`, any version a healthy mark points at), so a kept mark can
+always be compared.
+
+**How it was proven.** `server/test/health-mark-reference.test.ts`:
+- 70 marks older than 30 days, with the cabinet pointing at the third: the prune keeps the newest 10 and that one, and removes the other
+  59. With 65 recent marks and the cabinet pointing at the oldest, the cap keeps 60 plus that one.
+- The database refuses to delete the mark in use and to point at a mark that does not exist; another mark deletes normally; removing the
+  cabinet removes its marks and its health row.
+
+The red checks: without the prune's exclusion, the first test fails (the database refuses the delete); without the foreign key, the second
+fails.
+
+---
+
 ## D39. Bulk import: clients and sites from a pasted list; cabinets by enrolling (2026-11-08)
 
 **The decision** (F6.R4; mine, within the brief, as the owner asked me to take the recommended choice and record why):
