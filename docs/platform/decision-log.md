@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D56. Each table has one owner, written down; today's cross-module writes are listed debt that can only shrink (2026-11-08)
+
+**What the code did** (F21.R2, "a module owns its tables and nothing else writes them"): nothing said which module owns a table, and
+nothing stopped any file from writing any table. Read from the source (the new `test/table-writes.ts`), the migrations create 62
+tables:
+- 33 are written from more than one file, 92 cross-module writes in all;
+- `alerts` is written from 16 files, `cabinets` from 11, `settings` from 10;
+- the three audit tables are written only through the `audit_append` procedures.
+
+**The decision** (mine, within the brief):
+- **Write the ownership down and enforce it as a ratchet, rather than move 92 writes in one change.** `src/db/table-owners.ts` names
+  one owner per table and lists every other writer today under `also`. `table-ownership.test.ts` fails on:
+  - a write by a file not listed: a new cross-module write;
+  - a listed writer that no longer writes: the debt was paid, so the entry must come off;
+  - a table without an owner.
+
+  So the boundary holds from now on, and the debt is visible and can only go down. Moving the writes one table at a time behind their
+  owners is later work, each a PR of its own.
+- **The owner** is the module named for the table where there is one (`alerts.ts` for alerts, `cabinets.ts` for cabinets, `admin.ts`
+  for clients and sites, `settings.ts` for settings, `users.ts`, `commands.ts`, `events.ts`, `auth/sessions.ts`), otherwise the main
+  writer.
+- **The demo simulator** seeds its own demo rows across the schema. It is listed like any other writer rather than exempted, so its
+  reach stays visible.
+- **How it reads:** statement text (INSERT INTO, UPDATE, DELETE, MERGE), against the tables the migrations create, with an UPDATE or
+  DELETE through an alias followed to its table. It is a test helper, never run at run time.
+  - It errs towards counting: a statement inside a string or comment counts.
+  - What it can miss: a table name built at run time. None writes one today.
+- **Rejected:**
+  - moving every write now (a change across dozens of files with no behaviour to show for it, too large to review);
+  - a lint rule (no linter in the repository, and the rule CLAUDE.md sets against new dependencies).
+
+The red checks:
+- an added "UPDATE alerts" in `job-lease.ts` fails the second test;
+- a stale `also` entry fails the third;
+- a table removed from the map fails the first;
+- the reader's own test covers alias forms and reads that do not write.
+
+Boundary input validation and idempotent writers (the rest of F21.R2) are not part of this change.
+
 ## D54. A change that leaves a cabinet unlike all its peers is an alert, where no baseline declares the setting (2026-11-08)
 
 **What the code did** (F17, "mine new cabinet-level differences as they appear"): drift (`baseline-drift.ts`) needs a baseline to say
