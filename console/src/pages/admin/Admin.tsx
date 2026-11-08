@@ -6,7 +6,7 @@ import { api, describeError } from "../../lib/api";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
-import { Empty, KeyValues, StepUpDialog } from "../../components/ui";
+import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { WatchListEditor } from "../cabinet/Services";
 import { TimeZoneEditor } from "../Fleet";
@@ -64,8 +64,63 @@ export function PendingCabinets() {
       <h1>Pending cabinets</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && data.length === 0 && <Empty>No cabinets are waiting. A cabinet appears here after its installer has run.</Empty>}
+      {data && data.length > 1 && <BatchApproval pending={data} onDone={reload} />}
       {data?.map(p => <PendingCard key={p.id} p={p} clients={clients.data ?? []} onDone={reload} />)}
     </div>
+  );
+}
+
+type BatchOutcome = { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string } | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason: string };
+
+/**
+ * Several cabinets of one site approved in one action (F6.R2): the cabinets ticked, one client, site and role, and one baseline decision,
+ * confirmed with one code. Each cabinet keeps its own name (its hostname to start with). The server approves each on its own and says
+ * what became of each; a refused one stays pending with the reason.
+ */
+function BatchApproval({ pending, onDone }: { pending: Pending[]; onDone: () => void }) {
+  const first = pending.find(p => p.intended) ?? pending[0]!;
+  const [chosen, setChosen] = useState<Record<string, string>>({});
+  const [place, setPlace] = useState({ client: first.intended?.client ?? "", site: first.intended?.site ?? "", role: first.intended?.role ?? "standalone" });
+  const [attach, setAttach] = useState("");
+  const [confirm, setConfirm] = useState(false);
+  const [outcomes, setOutcomes] = useState<BatchOutcome[] | null>(null);
+  const [problem, setProblem] = useState<string | null>(null);
+  const cabinets = Object.entries(chosen).map(([requestId, cabinet]) => ({ requestId, cabinet: cabinet.trim() }));
+  const body = { client: place.client.trim(), site: place.site.trim(), role: place.role, baseline: attach ? { use: "attach", versionId: attach } : { use: "inherited" }, cabinets };
+  const ready = cabinets.length > 0 && cabinets.every(c => c.cabinet) && body.client && body.site;
+  // What applies at this place, and the approved versions that could be attached: the same preview a single approval reads.
+  const previewFor = cabinets[0] && body.client && body.site
+    ? `/api/admin/enrollments/${cabinets[0].requestId}/baseline?${new URLSearchParams({ client: body.client, site: body.site, role: place.role })}` : null;
+  const preview = useLoad<{ inForce: { kind: string; name: string; version: number }[]; siteHasOwn: boolean; choices: { versionId: string; name: string; scope: string; version: number }[] }>(previewFor);
+  return (
+    <section className="panel" aria-labelledby="batch-heading">
+      <h2 id="batch-heading">Approve several at once</h2>
+      <p className="muted">Tick the cabinets of one site, check their names, and approve them together with one role and one baseline, confirmed with one code. Cabinets installed with a site installer are held to its site and role.</p>
+      <div className="stack">{pending.map(p => (
+        <label key={p.id} className="row gap wrap">
+          <input type="checkbox" checked={p.id in chosen} onChange={e => setChosen(c => { const n = { ...c }; if (e.target.checked) n[p.id] = p.fingerprints.hostname; else delete n[p.id]; return n; })} />
+          <span>{p.fingerprints.hostname}<span className="muted small"> · serial {p.fingerprints.serialNumber ?? "-"}{p.intended && ` · for ${p.intended.client} / ${p.intended.site}`}</span></span>
+          {p.id in chosen && <input aria-label={`Name for ${p.fingerprints.hostname}`} maxLength={128} value={chosen[p.id]} onChange={e => setChosen(c => ({ ...c, [p.id]: e.target.value }))} />}
+        </label>))}</div>
+      <div className="row gap wrap">
+        <label className="field inline"><span>Client</span><input maxLength={128} value={place.client} onChange={e => setPlace({ ...place, client: e.target.value })} /></label>
+        <label className="field inline"><span>Site</span><input maxLength={128} value={place.site} onChange={e => setPlace({ ...place, site: e.target.value })} /></label>
+        <label className="field inline"><span>Role</span><select value={place.role} onChange={e => setPlace({ ...place, role: e.target.value })}>
+          <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
+        <label className="field inline"><span>Baseline</span><select value={attach} onChange={e => setAttach(e.target.value)}>
+          <option value="">{preview.data && preview.data.inForce.length === 0 ? "None in force here: choose one to attach" : "The baseline in force"}</option>
+          {!preview.data?.siteHasOwn && (preview.data?.choices ?? []).map(c => <option key={c.versionId} value={c.versionId}>Attach {c.name} ({c.scope}, v{c.version})</option>)}</select></label>
+      </div>
+      <button className="btn primary" disabled={!ready} onClick={() => { setProblem(null); setOutcomes(null); setConfirm(true); }}>Approve {cabinets.length || ""} {cabinets.length === 1 ? "cabinet" : "cabinets"}</button>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {outcomes && <ul role="status">{outcomes.map(o => <li key={o.requestId}>{o.cabinet}: {o.outcome === "approved" ? <Badge tone="ok">Approved</Badge> : <><Badge tone="warn">Not approved</Badge> {o.reason}</>}</li>)}</ul>}
+      <StepUpDialog open={confirm} action="enrollment.approve_batch" target="fleet" params={body} onClose={() => setConfirm(false)}
+        description={<p>Approve {cabinets.length} {cabinets.length === 1 ? "cabinet" : "cabinets"} at {body.client} / {body.site} as {place.role} cabinets.</p>}
+        onToken={async token => {
+          try { const r = await api<{ outcomes: BatchOutcome[] }>("POST", "/api/admin/enrollments/approve-batch", { ...body, stepUpToken: token }); setOutcomes(r.outcomes); setChosen({}); onDone(); }
+          catch (e) { setProblem(describeError(e)); }
+        }} />
+    </section>
   );
 }
 

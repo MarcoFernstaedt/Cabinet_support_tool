@@ -15,6 +15,7 @@
       "type": "string",
       "enum": [
         "enrollment.approve",
+        "enrollment.approve_batch",
         "enrollment.reject",
         "token.create",
         "token.revoke",

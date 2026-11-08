@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/approve-enrollment-batch.schema.json",
+  "title": "approve-enrollment-batch",
+  "description": "Approves several pending cabinets at one client and site in one action (finding F6.R2), with one role and one baseline decision for all of them, confirmed with one authenticator code bound to this whole body. Each cabinet is approved on its own, so one refusal does not stop the others; the answer says what became of each. `attach` attaches the approved version to the site with the first cabinet approved, and the rest use it as the baseline in force.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "client",
+    "site",
+    "role",
+    "baseline",
+    "cabinets",
+    "stepUpToken"
+  ],
+  "properties": {
+    "client": {
+      "$ref": "approve-enrollment.schema.json#/properties/client"
+    },
+    "site": {
+      "$ref": "approve-enrollment.schema.json#/properties/site"
+    },
+    "role": {
+      "$ref": "approve-enrollment.schema.json#/properties/role"
+    },
+    "syncCabinetId": {
+      "$ref": "approve-enrollment.schema.json#/properties/syncCabinetId"
+    },
+    "baseline": {
+      "description": "inherited or attach, for every cabinet in the batch. A capture is one site draft from one cabinet's report, so it is chosen one cabinet at a time.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "use"
+          ],
+          "properties": {
+            "use": {
+              "const": "inherited"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "use",
+            "versionId"
+          ],
+          "properties": {
+            "use": {
+              "const": "attach"
+            },
+            "versionId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        }
+      ]
+    },
+    "cabinets": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 50,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "requestId",
+          "cabinet"
+        ],
+        "properties": {
+          "requestId": {
+            "$ref": "../common.schema.json#/$defs/uuid"
+          },
+          "cabinet": {
+            "$ref": "approve-enrollment.schema.json#/properties/cabinet"
+          }
+        }
+      }
+    },
+    "stepUpToken": {
+      "$ref": "approve-enrollment.schema.json#/properties/stepUpToken"
+    }
+  }
+}
