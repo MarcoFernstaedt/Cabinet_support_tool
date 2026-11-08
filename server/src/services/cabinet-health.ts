@@ -33,7 +33,7 @@ export function judge(f: Facts, h: ResolvedHealth): { state: HealthState; reason
 
 export interface HealthView { state: HealthState; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; lastMarkId: number | null; degradedSince: string | null }
 
-async function facts(c: Queryable, cabinetId: string, now: Date): Promise<Facts> {
+export async function facts(c: Queryable, cabinetId: string, now: Date): Promise<Facts> {
   const k = (await c.query<{ last: Date | null }>("SELECT last_heartbeat_at AS [last] FROM cabinets WHERE id = $1", [cabinetId])).rows[0];
   const hasConfig = (await c.query("SELECT TOP (1) 1 AS x FROM config_current WHERE cabinet_id = $1", [cabinetId])).rows.length > 0;
   const drift = (await c.query<{ item_key: string; field: string; category: string }>("SELECT item_key, field, category FROM cabinet_drift WHERE cabinet_id = $1 AND [required] = 1", [cabinetId])).rows;

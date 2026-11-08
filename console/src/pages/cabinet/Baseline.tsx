@@ -20,7 +20,40 @@ interface BaselineStatus {
   enrollment: { decision: "inherited" | "attach" | "capture"; captureState: "waiting" | "drafted" | "failed" | null; draftVersionId: string | null; draftStatus: string | null;
     categoriesReported: number; categoriesNeeded: number } | null;
 }
-interface Condition { state: Health; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; degradedSince: string | null; changesSinceHealthy: number | null; baseline?: BaselineStatus }
+/** Whether to offer this cabinet's configuration as its site's baseline: the site has none and the cabinet is healthy (F17, D53). */
+interface SiteOffer { offered: boolean; site: { id: string; name: string }; notOffered: string[] }
+interface Condition { state: Health; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; degradedSince: string | null; changesSinceHealthy: number | null; baseline?: BaselineStatus; siteOffer?: SiteOffer }
+
+/** The parts a site baseline is captured from, as the capture form starts with them. */
+const SITE_CAPTURE = ["network", "services", "firewall", "time", "drivers", "hosts"];
+
+/**
+ * The offer, made by the server: capture this cabinet's configuration as a draft baseline for its site. A draft only: a person reviews it
+ * and an Admin approves it before anything is judged against it. Tier 2 captures; others are told who can.
+ */
+function SiteBaselineOffer({ cabinet, offer }: { cabinet: CabinetDetail; offer: SiteOffer }) {
+  const { me } = useSession();
+  const { navigate } = useRouter();
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const capture = async () => {
+    setBusy(true); setProblem(null);
+    try {
+      const r = await api<{ id: string }>("POST", "/api/baselines/capture", { cabinetId: cabinet.id, scope: { kind: "site", id: offer.site.id },
+        description: `Captured from ${cabinet.name}, healthy when captured.`, categories: SITE_CAPTURE });
+      navigate(`/admin/baselines/versions/${r.id}`);
+    } catch (e) { setProblem(describeError(e)); setBusy(false); }
+  };
+  return (
+    <div className="notice" role="note" aria-label="Site baseline offer">
+      <p>{offer.site.name} has no baseline of its own, and this cabinet is healthy. Its configuration can become the site's baseline: it is captured as a draft to review, and an Admin approves it before anything is judged against it.</p>
+      {atLeast(me, "tier2")
+        ? <button className="btn" disabled={busy} onClick={() => void capture()}>{busy ? "Capturing…" : `Capture as ${offer.site.name}'s baseline`}</button>
+        : <p className="muted">A Tier 2 or an Admin can capture it.</p>}
+      {problem && <p className="error" role="alert">{problem}</p>}
+    </div>
+  );
+}
 
 /** Why a cabinet still needs a baseline, and what happens next: the capture asked for at its approval, or a person's choice. */
 function baselineRequiredText(b: BaselineStatus): string {
@@ -62,6 +95,7 @@ export function ConfigHealth({ cabinet }: { cabinet: CabinetDetail }) {
         <div><dt>Next step</dt><dd>{next(data)}</dd></div>
       </dl>
       {data.reasons.length > 0 && data.state !== "healthy" && <ul className="plain">{data.reasons.slice(0, 5).map((r, i) => <li key={i}>{r.text}</li>)}</ul>}
+      {data.siteOffer?.offered && <SiteBaselineOffer cabinet={cabinet} offer={data.siteOffer} />}
       <div className="row gap wrap">
         <button className="btn primary" onClick={() => navigate(`/cabinets/${cabinet.id}/baseline`)}>Open baseline and drift</button>
         <button className="btn" onClick={() => navigate(`/cabinets/${cabinet.id}/changes`)}>See what changed</button>
