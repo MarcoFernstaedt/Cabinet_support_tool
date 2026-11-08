@@ -1,7 +1,7 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
 import { cabinetTime, fleetTimeZone, setClientTimeZone, setFleetTimeZone, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
-import { siteStandards } from "../services/site-standards.js";
+import { applySiteStandards, siteStandards, type StandardPart } from "../services/site-standards.js";
 import { settingOrigins } from "../services/setting-origins.js";
 import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
@@ -141,6 +141,13 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.get("/api/sites/:id/standards", async request => {
     await o.guards.role(request, "tier1");
     return (await siteStandards(o.pool, id(request))) ?? Promise.reject(new Refused("not_found", 404, "no such site"));
+  });
+
+  /** Applies the chosen standards to a site in one action (F6.R3): from its own cabinets' suggestions, or copied from another site. */
+  app.post("/api/sites/:id/standards/apply", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.siteStandardsApply.parse(request.body);
+    return applySiteStandards(o.pool, u.userId, id(request), body.from, body.parts as StandardPart[], boundTo(body.stepUpToken, body));
   });
 
   app.put("/api/sites/:id/network-baseline", async request => {

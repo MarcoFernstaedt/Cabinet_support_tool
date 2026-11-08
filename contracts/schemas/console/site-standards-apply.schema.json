@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/site-standards-apply.schema.json",
+  "title": "site-standards-apply",
+  "description": "Applies a site's standards in one action (finding F6.R3): the chosen parts, from what the site's own cabinets report (`suggested`) or from another site's own settings. Admin, with an authenticator code bound to this body.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "from",
+    "parts",
+    "stepUpToken"
+  ],
+  "properties": {
+    "from": {
+      "oneOf": [
+        {
+          "const": "suggested"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "siteId"
+          ],
+          "properties": {
+            "siteId": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        }
+      ]
+    },
+    "parts": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "enum": [
+          "networkBaseline",
+          "timeZone",
+          "firewall"
+        ]
+      }
+    },
+    "stepUpToken": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    }
+  }
+}

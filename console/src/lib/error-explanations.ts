@@ -69,6 +69,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "A setting the server needs for this is missing, so nothing was changed.",
     fix: "Ask whoever runs the server to set CONSOLE_SECRET_KEY as in deploy/README.md, then try again.",
   },
+  nothing_to_apply: {
+    title: "Nothing to apply",
+    detail: "None of the chosen standards has a value to apply: the site's cabinets do not report it yet, or the other site does not set it.",
+    fix: "Choose other parts or another site, or set the standard by hand.",
+  },
   not_this_site: {
     title: "Installed for another site",
     detail: "This cabinet was installed with a site installer made for a different site.",
