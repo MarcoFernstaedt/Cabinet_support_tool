@@ -30,6 +30,8 @@ test.before(async () => {
 test.after(async () => { await db.drop(); });
 
 const sig = (source: string, eventId: number) => unrecognizedSignature({ kind: "error", source: { log: "System", source, eventId } } as never);
+const crashSig = (program: string) => unrecognizedSignature({ kind: "error", source: { log: "Application", source: "Application Error", eventId: 1000, level: "error", recordId: 1 },
+  detail: { message: `Faulting application name: ${program}, version: 7.2.1.0, time stamp: 0x6512a3b4` } });
 /** A group's daily counts, oldest first, ending yesterday. */
 async function series(source: string, eventId: number, perDay: number[]) {
   for (let i = 0; i < perDay.length; i++)
@@ -70,4 +72,27 @@ test("a steady error, or a rising one nobody has open any more, opens nothing; t
   await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1", [sig("Disk", 153)]);
   await sweepFleetPatterns(db.app);
   assert.ok((await patterns("Disk", 153))[0]!.resolved_at, "resolved with its alerts");
+});
+
+test("a rising crash group opens one pattern per program with an alert open, keyed by that alert's signature (review of #204)", async () => {
+  // The trends count Application Error 1000 as one group; the alerts carry the program ("…|1000~cabinetui.exe").
+  for (let i = 0; i < 14; i++) {
+    const n = i < 7 ? (i === 6 ? 1 : 0) : 4;
+    if (n > 0) await db.app.query("INSERT INTO error_daily ([day], client_id, [log], [source], event_id, issue_type_id, cabinets, [events], [sample]) VALUES ($1, $2, 'Application', 'Application Error', 1000, NULL, 1, $3, 'sample')",
+      [day(14 - i), clientId, n]);
+  }
+  for (const program of ["CabinetUI.exe", "StatementViewer.exe"])
+    await db.app.query("INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen) VALUES ($1, NULL, 'minor', $2, $3, DATEADD(day, -6, SYSUTCDATETIME()), SYSUTCDATETIME())",
+      [cabinetId, crashSig(program), `${program} crashed`]);
+  await runErrorTrends(db.app);
+  const rows = (await db.app.query<{ pattern_key: string; title: string }>(
+    "SELECT pattern_key, title FROM fleet_patterns WHERE pattern_key LIKE 'unrecognized:Application|application error|1000%' ORDER BY pattern_key")).rows;
+  assert.deepEqual(rows.map(r => r.pattern_key), [crashSig("CabinetUI.exe"), crashSig("StatementViewer.exe")]);
+  assert.equal(rows[0]!.title, "Fleet pattern: Rising: cabinetui.exe (Application Error event 1000, Application), the group 28 events in the last 7 days, 1 the 7 before");
+  // The program's alert closes: its own pattern resolves, the other program's stays open.
+  await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1", [crashSig("CabinetUI.exe")]);
+  await sweepFleetPatterns(db.app);
+  const after = (await db.app.query<{ pattern_key: string; resolved_at: Date | null }>(
+    "SELECT pattern_key, resolved_at FROM fleet_patterns WHERE pattern_key LIKE 'unrecognized:Application|application error|1000%' ORDER BY pattern_key")).rows;
+  assert.deepEqual(after.map(r => r.resolved_at !== null), [true, false]);
 });

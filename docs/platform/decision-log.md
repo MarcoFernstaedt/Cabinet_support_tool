@@ -22,6 +22,13 @@ only something a person might notice.
   problem across cabinets.
 - **The alerts' own signature as its key.** So the minute sweep counts it up while it spreads, and resolves it once none of its alerts is
   open, exactly as it does every pattern. No second resolution path.
+- **Crash and hang groups: one pattern per program** (review of #204). An Application Error 1000 or Application Hang 1002 alert carries
+  its program in its signature ("…|1000~cabinetui.exe", D29); the trends count the group without it, so keying by the group's signature
+  matched no alert and opened nothing for the very case F17 names. The pattern now opens for each program whose alert is open in that
+  group, keyed by that alert's signature. Rejected: one pattern for the whole group (the sweep would find no alert with that key and
+  resolve it at once) and a program taken from the group's one stored sample (a group can hold more than one program). The cost: the week
+  counts in the title are the group's, not the program's, and the title says "the group" so it is not read otherwise. Splitting the trends
+  by program would change the trends tables and is not part of this change.
 - **No duplicates.** A group already open as a pattern, rising or spread, is left alone.
 - **Nothing open, nothing opened.** A group with no open alert opens nothing: there is nothing to look at.
 - **Bounded.** At most 50 open in a night.
