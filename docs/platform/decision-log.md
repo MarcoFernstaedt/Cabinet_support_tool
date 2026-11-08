@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D44. "What changed since it was healthy" is one route, ranked by closeness to the problem (2026-11-08)
+
+**What the code did** (F8.R4): the answer was spread over four routes and two tabs.
+- `/drift` gave the drift from the baseline.
+- `/config-changes` and `/config-history` gave the changes, newest first, marking those within an hour before the problem.
+- `/compare-healthy` gave the comparison with the mark.
+- `changesSinceHealthy` on the health view was only a count.
+
+Nothing put the changes in the order a technician needs: the ones nearest the moment the cabinet stopped being healthy.
+
+**The decision** (mine, within the brief):
+- **One route.** `GET /api/cabinets/:id/since-healthy` returns the health, the drift, the comparison with the mark (F8.R3's lists
+  included) and the configuration changes since the mark, in one read.
+- **Ranked by closeness to the problem.** The order is by absolute distance in minutes from when the problem was first observed
+  (`cabinet_health.degraded_since`). At an equal distance, the change before comes ahead of the one after, because a cause comes before
+  its effect. While the cabinet is healthy there is no problem to measure from, so the order is newest first. Each change carries its
+  signed distance.
+- **Closeness, never cause.** The page says this order is about time only, as the history already does.
+- **Bounded.** At most 200 changes, read from the 400 newest since the mark.
+- **No route removed.** `/compare-healthy` stays for the Compare tab and anything else that reads it.
+
+**How it was proven.** `server/test/since-healthy.test.ts`, through the real ingest and the real route:
+- A degraded cabinet with changes 20 minutes before, 5 before and 5 after the problem: the answer ranks them 5 before, 5 after, 20
+  before. It carries the health, the problem time, empty drift (no baseline), the comparison with all three, and where the changes start.
+- A healthy cabinet lists its changes newest first with no distance. An unknown cabinet gets 404; no session gets 401.
+- `rankChanges` on its own: distance first, before ahead of after on a tie, newest first without a problem.
+
+The red check: with the order changed to newest first, tests 1 and 3 fail.
+
+---
+
 ## D42. "Changed since healthy" also lists what changed and came back (2026-11-08)
 
 **What the code did** (F8.R3): `compareWithHealthy` in `cabinet-health.ts` skips a category whose version now equals the mark's, and

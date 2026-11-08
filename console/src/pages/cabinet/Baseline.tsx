@@ -130,11 +130,25 @@ function Drift({ cabinet }: { cabinet: CabinetDetail }) {
 interface Since { markId: number | null; markedAt: string | null; changes: { category: string; key: string; change: string; fields: FieldChanges }[]; unavailable: string[];
   changedAndBack?: { category: string; key: string; changes: number; lastAt: string }[]; interimComplete?: boolean }
 
+interface Ranked { category: string; key: string; change: string; at: string; exact: boolean; minutesFromProblem: number | null; violatesBaseline: boolean; viaPlatform: boolean }
+interface SinceAnswer { health: { state: string; problemFirstObserved: string | null }; drift: unknown[]; sinceMark: Since | null; changes: Ranked[]; changesFrom: string | null }
+const NO_MARK: Since = { markId: null, markedAt: null, changes: [], unavailable: [], changedAndBack: [], interimComplete: true };
+
+/** "12 min before", "3 h after", "at the same time": where a change sits against the moment the problem was first observed. */
+function fromProblem(m: number): string {
+  const a = Math.abs(m);
+  if (a === 0) return "at the same time";
+  const t = a < 120 ? `${a} min` : a < 2880 ? `${Math.round(a / 60)} h` : `${Math.round(a / 1440)} days`;
+  return `${t} ${m < 0 ? "before" : "after"}`;
+}
+
+/** "What changed since it was healthy" in one answer (F8.R4): the comparison with the mark, and the changes ranked by closeness to the problem. */
 function SinceHealthy({ cabinetId }: { cabinetId: string }) {
-  const { data, problem } = useLoad<Since>(`/api/cabinets/${cabinetId}/compare-healthy`);
+  const { data: answer, problem } = useLoad<SinceAnswer>(`/api/cabinets/${cabinetId}/since-healthy`);
+  const data = answer ? answer.sinceMark ?? NO_MARK : null;
   const paged = usePaged(data?.changes ?? []);
   if (problem) return <p className="error" role="alert">{problem}</p>;
-  if (!data) return <p className="muted" role="status">Loading…</p>;
+  if (!data || !answer) return <p className="muted" role="status">Loading…</p>;
   if (!data.markId) return <Empty>This cabinet has not been seen healthy, so there is nothing to compare with yet.</Empty>;
   return (<>
     <p className="muted">Compared with the configuration the cabinet had when it was last recorded healthy, {fullTime(data.markedAt)} ({ago(data.markedAt)}). A difference is a candidate to look at, not a proven cause.</p>
@@ -158,6 +172,21 @@ function SinceHealthy({ cabinetId }: { cabinetId: string }) {
           <td title={fullTime(c.lastAt)}>{ago(c.lastAt)}</td></tr>)}</tbody>
       </table></div>
       {data.changedAndBack!.length > 50 && <p className="muted small">The 50 most recent of {data.changedAndBack!.length}; the History view has them all.</p>}
+    </>)}
+    {answer.changes.length > 0 && (<>
+      <h3>{answer.health.problemFirstObserved ? "Changes since then, closest to when the problem was first observed" : "Changes since then, newest first"}</h3>
+      {answer.health.problemFirstObserved && <p className="muted small">The problem was first observed {fullTime(answer.health.problemFirstObserved)}. Being close to it in time
+        is all this order says; it is not a finding about the cause.</p>}
+      <div className="table-wrap"><table className="table compact">
+        <caption className="sr-only">Configuration changes since the last healthy state</caption>
+        <thead><tr><th scope="col">Item</th><th scope="col">When</th>{answer.health.problemFirstObserved && <th scope="col">Against the problem</th>}</tr></thead>
+        <tbody>{answer.changes.slice(0, 20).map((c, i) => <tr key={`${c.category}|${c.key}|${c.at}|${i}`}>
+          <th scope="row">{categoryName(c.category)}: {c.key} <span className="muted">{c.change}</span>
+            {c.violatesBaseline && <> <Badge tone="crit">Goes against the baseline</Badge></>}{c.viaPlatform && <> <Badge tone="info">Made through the platform</Badge></>}</th>
+          <td title={fullTime(c.at)}>{c.exact ? fullTime(c.at) : <>by {fullTime(c.at)}</>}</td>
+          {answer.health.problemFirstObserved && <td>{c.minutesFromProblem === null ? "" : fromProblem(c.minutesFromProblem)}</td>}</tr>)}</tbody>
+      </table></div>
+      {answer.changes.length > 20 && <p className="muted small">The 20 closest of {answer.changes.length}; the History view has them all.</p>}
     </>)}
     {data.interimComplete === false && <p className="notice warn small">The last healthy state is older than change records are kept, so changes in between that came and went before then are not listed.</p>}
   </>);

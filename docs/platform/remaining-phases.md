@@ -336,7 +336,7 @@ changes it with the behaviour.
 | 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33); the Differences view by role and by baseline level (R3); watched services from the role baseline (R4, D34). Open: process and task expectations, with expected processes and drivers. F9 is agent work, blocked here |
 | 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). Open: the installer's unattended switch waits for the agent build |
 | 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled (audit-network item 7, server half). Open: the rest, most of it agent-side samplers |
-| 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42). Open: R4 one route, R5 honest empty states |
+| 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42); R4 one route, ranked by closeness to the problem (D44). Open: R5 honest empty states |
 | 6 | Service dependencies, start order, recovery actions | F14 | Open |
 | 7 | The chain under the workload: database, its error log, the monitoring agent | F15 | Open |
 | 8 | Process history: trends, leak and wedge, tree, holder | F13 | Open |

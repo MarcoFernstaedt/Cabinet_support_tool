@@ -10,6 +10,7 @@ import { changesFor, currentConfig, fleetDifferenceGroup, fleetDifferences, isCa
 import { cabinetsInScope, driftFor, evaluateBaselineDrift } from "../services/baseline-drift.js";
 import { compareWithHealthy, evaluateHealth, healthFor } from "../services/cabinet-health.js";
 import { timelineFor } from "../services/cabinet-timeline.js";
+import { sinceHealthy } from "../services/since-healthy.js";
 import { Refused } from "../services/errors.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
@@ -123,6 +124,11 @@ export async function baselineRoutes(app: FastifyInstance, o: ConsoleApiOptions 
     await o.guards.role(request, "tier1");
     const q = consoleBodies.cabinetHistoryQuery.parse(request.query);
     return timelineFor(o.pool, await cabinet(id(request)), { days: num(q.days, 14, 90), q: q.q, limit: num(q.limit, 200, 500) });
+  });
+  // What changed since it was healthy, in one answer (F8.R4): health, drift, the comparison with the mark, and the changes ranked.
+  app.get("/api/cabinets/:id/since-healthy", async request => {
+    await o.guards.role(request, "tier1");
+    return sinceHealthy(o.pool, await cabinet(id(request)));
   });
   app.get("/api/cabinets/:id/compare-healthy", async request => {
     await o.guards.role(request, "tier1");
