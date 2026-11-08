@@ -1273,6 +1273,30 @@ export interface FleetDifferencesQuery {
 }
 
 /**
+ * Creates clients and sites in bulk (finding F6.R4): one row per site, naming its client. A client or site that already exists is used as it is, so the same list can be imported again. Previewed without a code; imported by an Admin with an authenticator code bound to these rows. Cabinets are not imported: a cabinet exists only once it enrols (a site installer and batch approval make that a bulk action).
+ */
+export interface FleetImport {
+  /**
+   * @minItems 1
+   * @maxItems 200
+   */
+  rows: [
+    {
+      client: string;
+      site: string;
+    },
+    ...{
+      client: string;
+      site: string;
+    }[]
+  ];
+  /**
+   * A one-time step-up token bound to this exact action and these rows. Required to import; not sent for a preview.
+   */
+  stepUpToken?: string;
+}
+
+/**
  * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.
  */
 export interface FleetJob {
@@ -2202,7 +2226,8 @@ export interface StepUpRequest {
     | "client.filefacts"
     | "site.filefacts"
     | "cabinet.filefacts"
-    | "site.apply_standards";
+    | "site.apply_standards"
+    | "fleet.import";
   /**
    * The ID the action applies to, or 'fleet'.
    */

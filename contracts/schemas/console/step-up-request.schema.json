@@ -98,7 +98,8 @@
         "client.filefacts",
         "site.filefacts",
         "cabinet.filefacts",
-        "site.apply_standards"
+        "site.apply_standards",
+        "fleet.import"
       ]
     },
     "target": {
