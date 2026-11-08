@@ -26,7 +26,7 @@ read "now" on its page though nothing had judged it.
   healthy. That is part of F8.R5's honest empty state, here for the page.
 
 `lastKnownHealthy()` in `cabinet-health.ts` is the one reader. The cabinet detail route returns it as `lastHealthy`, and `lastHealthyAt`
-stays as its time for existing readers. The cabinet timeline already used `cabinet_health.last_healthy_at`.
+stays as its time, though nothing in the tree reads it now: the cabinet summary reads `lastHealthy`. The cabinet timeline already used `cabinet_health.last_healthy_at`.
 
 **Cost.** One indexed read by primary key in place of the alerts aggregate the page ran before.
 
