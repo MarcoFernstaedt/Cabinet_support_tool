@@ -12,7 +12,7 @@ export type HealthState = "healthy" | "degraded" | "offline" | "unknown";
 export interface Reason { code: "no_contact" | "required_item" | "critical_alert" | "no_configuration" | "no_baseline"; text: string; detail?: unknown }
 export const KEEP_MARKS = 10;
 export const MARK_DAYS = 30;
-const MAX_MARKS = 60;
+export const MAX_MARKS = 60;
 /** A cabinet is judged again at least this often (contact can lapse with no event to trigger it). */
 export const SWEEP_MINUTES = 15;
 
@@ -83,12 +83,21 @@ async function keepMark(c: Queryable, cabinetId: string, now: Date, inForce: unk
   if (last && JSON.stringify(sortKeys(last.versions)) === JSON.stringify(sortKeys(versions))) return Number(last.id);
   const id = Number((await c.query<{ id: string }>("INSERT INTO healthy_marks (cabinet_id, marked_at, versions, in_force) OUTPUT inserted.id VALUES ($1, $2, $3, $4)",
     [cabinetId, now, safeJson(versions), safeJson(inForce)])).rows[0]!.id);
-  // Recent marks are kept (30 days, and always the last 10), within a cap.
-  await c.query(
+  await pruneMarks(c, cabinetId);
+  return id;
+}
+
+/**
+ * Recent marks are kept (30 days, and always the last 10), within a cap. The mark the cabinet's health points at is never deleted
+ * (F8.R2): "changed since healthy" and the last healthy state are read from it. The foreign key from cabinet_health refuses it too.
+ */
+export async function pruneMarks(c: Queryable, cabinetId: string): Promise<number> {
+  return (await c.query(
     `DELETE FROM healthy_marks WHERE cabinet_id = $1 AND id IN (
        SELECT x.id FROM (SELECT id, marked_at, ROW_NUMBER() OVER (ORDER BY id DESC) AS n FROM healthy_marks WHERE cabinet_id = $1) x
-        WHERE x.n > $2 AND (x.marked_at < DATEADD(day, -$3, SYSUTCDATETIME()) OR x.n > $4))`, [cabinetId, KEEP_MARKS, MARK_DAYS, MAX_MARKS]);
-  return id;
+        WHERE x.n > $2 AND (x.marked_at < DATEADD(day, -$3, SYSUTCDATETIME()) OR x.n > $4))
+       AND NOT EXISTS (SELECT 1 FROM cabinet_health h WHERE h.cabinet_id = $1 AND h.last_mark_id = healthy_marks.id)`,
+    [cabinetId, KEEP_MARKS, MARK_DAYS, MAX_MARKS])).rowCount;
 }
 
 export async function healthFor(db: Queryable, cabinetId: string): Promise<HealthView & { changesSinceHealthy: number | null }> {
