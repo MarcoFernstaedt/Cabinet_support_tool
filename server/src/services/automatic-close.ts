@@ -9,7 +9,7 @@ export { CLOSED_OUTPUT };
  * The platform writes that fix each issue type (F18.R1), so a close found by the cabinet's own reading can name the fix it verifies. Built
  * when called, not when loaded: rules.ts imports this module, and ISSUE lives there.
  */
-function fixingOperations(): Record<string, readonly string[]> {
+export function fixingOperations(): Record<string, readonly string[]> {
   return {
     [ISSUE.timeZone]: ["time.setZone"], [ISSUE.clock]: ["time.sync"], [ISSUE.firewallPolicy]: ["firewall.applyPolicy", "firewall.setProfile"],
     [ISSUE.serviceFailing]: ["service.control"], [ISSUE.serviceWatch]: ["service.control", "service.setStartType"],
@@ -20,11 +20,15 @@ function fixingOperations(): Record<string, readonly string[]> {
 /** The fix a close verifies: the newest platform write for the issue since the alert opened, with its before and after as the cabinet reported them. */
 export interface VerifiedFix { commandId: string; operation: string; by: string | null; at: string; before: unknown; after: unknown }
 
-/** The before and after a write reported, from its own result: most writes return {before, after}; time.sync returns the last successful syncs. */
-function beforeAfter(output: Record<string, unknown> | undefined): { before: unknown; after: unknown } {
+/**
+ * The before and after a write reported, from its own result. Each fixing operation names its pair one of these ways (the test reads
+ * every one's output schema): most return {before, after}; time.sync the last successful syncs; network.renewLease the address.
+ */
+export const BEFORE_AFTER_PAIRS = [["before", "after"], ["lastSuccessfulSyncBefore", "lastSuccessfulSyncAfter"], ["addressBefore", "addressAfter"]] as const;
+export function beforeAfter(output: Record<string, unknown> | undefined): { before: unknown; after: unknown } {
   if (!output) return { before: null, after: null };
-  if ("before" in output || "after" in output) return { before: output.before ?? null, after: output.after ?? null };
-  return { before: output.lastSuccessfulSyncBefore ?? null, after: output.lastSuccessfulSyncAfter ?? null };
+  const pair = BEFORE_AFTER_PAIRS.find(([b, a]) => b in output || a in output);
+  return pair ? { before: output[pair[0]] ?? null, after: output[pair[1]] ?? null } : { before: null, after: null };
 }
 
 /** At most this many closes in one call look up the fix they verify; a fleet-wide sweep that closes more audits the rest without it. */

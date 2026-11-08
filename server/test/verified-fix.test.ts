@@ -5,6 +5,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { SCHEMA_DIR } from "@mashura/cabinet-contracts/load";
+import { BEFORE_AFTER_PAIRS, beforeAfter, fixingOperations } from "../src/services/automatic-close.js";
 import { ISSUE } from "../src/services/rules.js";
 import { evaluateTime } from "../src/services/time.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
@@ -65,4 +69,17 @@ test("a close nothing the platform did explains says so (null), and a fix from b
   await db.app.query("UPDATE cabinets SET time_zone_id = 'Eastern Standard Time' WHERE id = $1", [older]);
   await evaluateTime(db.app, { cabinetId: older });
   assert.equal((await closeAudit(older))[0]!.details.verifiedFix, null, "a write from before the alert opened did not fix it");
+});
+
+test("every operation credited as a fix reports a before and after the close can carry (review of #201: renewLease names its pair addressBefore/addressAfter)", () => {
+  const operations = [...new Set(Object.values(fixingOperations()).flat())];
+  for (const op of operations) {
+    const schema = JSON.parse(readFileSync(join(SCHEMA_DIR, "operations", `${op}.schema.json`), "utf8")) as { $defs: { output: { required?: string[] } } };
+    const required = schema.$defs.output.required ?? [];
+    assert.ok(BEFORE_AFTER_PAIRS.some(([b, a]) => required.includes(b) && required.includes(a)), `${op} returns none of the before/after pairs: ${required.join(", ")}`);
+  }
+  assert.deepEqual(beforeAfter({ interfaceIndex: 12, result: "renewed", message: "ok", addressBefore: "10.40.0.20", addressAfter: "10.40.0.21" }),
+    { before: "10.40.0.20", after: "10.40.0.21" });
+  assert.deepEqual(beforeAfter({ result: "synced", message: "ok", lastSuccessfulSyncBefore: "2026-11-08T09:00:00Z", lastSuccessfulSyncAfter: "2026-11-08T10:00:00Z" }),
+    { before: "2026-11-08T09:00:00Z", after: "2026-11-08T10:00:00Z" });
 });
