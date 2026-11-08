@@ -270,6 +270,21 @@ test("the server refuses a public sync address, and fills the sync target and sc
   assert.equal(db1.status, 202);
   assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [db1.body.commandId])).rows[0].params,
     { port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "only the console's settings name the sync cabinet");
+  // A trace to the sync cabinet is aimed the same way (audit-network.md item 7): the browser's address is replaced, and without a sync
+  // cabinet it is dropped rather than passed on, so a trace cannot probe any other private address on the cabinet's network.
+  const trace = await call("POST", `/api/cabinets/${satellite}/commands`, { operation: "network.trace", params: { target: "sync_cabinet", syncAddress: "10.20.0.77" } }, cookie);
+  assert.equal(trace.status, 202, JSON.stringify(trace.body));
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [trace.body.commandId])).rows[0].params,
+    { target: "sync_cabinet", syncAddress: "10.20.0.15" }, "the trace aims at the sync cabinet the console knows, and takes no ports");
+  const lone = randomUUID();
+  await db.app.query<any>("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, 'Lone 1', 'standalone', 'active')", [lone, siteId]);
+  const loneTrace = await call("POST", `/api/cabinets/${lone}/commands`, { operation: "network.trace", params: { target: "sync_cabinet", syncAddress: "10.20.0.77" } }, cookie);
+  assert.equal(loneTrace.status, 202, JSON.stringify(loneTrace.body));
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [loneTrace.body.commandId])).rows[0].params,
+    { target: "sync_cabinet" }, "with no sync cabinet to aim at, the browser's address is dropped");
+  const platformTrace = await call("POST", `/api/cabinets/${satellite}/commands`, { operation: "network.trace", params: { target: "platform_server", syncAddress: "10.20.0.77" } }, cookie);
+  assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [platformTrace.body.commandId])).rows[0].params,
+    { target: "platform_server" }, "an address sent with another target is dropped");
   // Nothing that names a server, a login or a database gets past the contract.
   for (const extra of [{ host: "db.example.org" }, { user: "sa", password: "x" }, { database: "cabinet_app" }])
     assert.equal((await call("POST", `/api/cabinets/${satellite}/commands`, { operation: "database.connectivity", params: { port: 1433, ...extra } }, cookie)).status, 400, JSON.stringify(extra));
