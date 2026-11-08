@@ -8,6 +8,7 @@ import { captureForEnrollment } from "./baselines.js";
 import { evaluateHealth } from "./cabinet-health.js";
 import { likeContains } from "./sql-like.js";
 import { followStoredNetwork } from "./sync-cabinets.js";
+import { checkPeerDifferencesAround } from "./peer-differences.js";
 
 /** Verifies and stores snapshots, then brings the cabinet's drift and health up to date once. */
 export async function ingestAndEvaluate(pool: Pool, cabinetId: string, snapshots: ConfigUpload["snapshots"], source: "agent" | "refresh"): Promise<IngestSummary> {
@@ -15,6 +16,8 @@ export async function ingestAndEvaluate(pool: Pool, cabinetId: string, snapshots
   // A capture asked for when the cabinet was approved becomes the site's baseline draft once every category has been reported.
   if (summary.first + summary.changed > 0) await captureForEnrollment(pool, cabinetId);
   if (summary.first + summary.changed > 0) await evaluateBaselineDrift(pool, cabinetId);
+  // A change that leaves it unlike every other cabinet of its role at its site, where no baseline declares the setting (F17, D54).
+  if (summary.changed > 0) await checkPeerDifferencesAround(pool, cabinetId);
   await evaluateHealth(pool, cabinetId, new Date(), summary.first + summary.changed > 0 ? summary.latestObservedAt : null);
   // A sync cabinet's satellites follow the address it reports, unless an Admin set one.
   if (summary.categoriesChanged.includes("network")) await followStoredNetwork(pool, cabinetId);

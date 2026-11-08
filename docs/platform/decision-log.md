@@ -6,6 +6,41 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D54. A change that leaves a cabinet unlike all its peers is an alert, where no baseline declares the setting (2026-11-08)
+
+**What the code did** (F17, "mine new cabinet-level differences as they appear"): drift (`baseline-drift.ts`) needs a baseline to say
+what a setting should be, and the Differences view counts drift across the fleet. A setting no baseline declares was recorded as a
+change (`config_changes`) and nothing else: a cabinet that changed so that it no longer matched every other cabinet at its site was
+visible only to someone comparing two cabinets by hand.
+
+**The decision** (mine, the recommended choice):
+- **The peers are the expectation.** The other active cabinets of the same role at the same site: the narrowest group that should be
+  set up alike, and the one a person would compare with. Not the client or the fleet, where sites legitimately differ.
+- **Only where the peers agree, all of them, and at least two report it.** Unanimous peers are a clear signal and simple to explain;
+  a majority rule needs a threshold to defend, and one peer is a comparison of two, not a group. Peers that disagree among themselves
+  give nothing to stand out from.
+- **As it appears.** Only items this cabinet changed in the last 30 days are compared, checked when an upload changed something. A
+  cabinet that always differed is not raised the day this ships; one that just changed is. The limit: a cabinet left behind when its
+  peers all change (it did not change, they did) is not raised by this. The peers' own changes are checked against it instead, so the
+  ones that changed alone are caught.
+- **What is never compared.** The fields a baseline capture already leaves out because they differ from cabinet to cabinet
+  (`CAPTURE_SKIP`, `PER_CABINET`, now exported from `baselines.ts`), the devices category, and an item a baseline in force declares,
+  which is drift's job. One rule set, so a baseline captured later never disagrees with this about what is per-cabinet.
+- **One minor alert per cabinet** (issue type 129 `peer_difference`, migration 0031), the first difference in its title and a count of
+  the rest; it says "may be deliberate" and suggests capturing a baseline. Closed automatically, audited, once nothing differs or a
+  baseline declares the setting. Peers with it open are re-checked when this cabinet changes.
+- **Cost.** One check per upload that changed something: the cabinet's and at most 50 peers' current configuration, for the categories
+  it changed in the last 30 days. Uploads are on change only, so this follows the rate of change, not the fleet. No table, no stream.
+- **Rejected:** a nightly fleet-wide scan (every cabinet's configuration against every peer group every night, mostly finding nothing
+  new); a list page only (nobody is told); comparing with the client's or the fleet's cabinets (sites differ on purpose).
+
+The red checks, each guard taken out in turn:
+- not checking after an upload fails the first two tests;
+- comparing the per-cabinet fields fails the second (a stopped service raised);
+- not requiring the peers to agree fails the second (raised at a site whose peers disagree);
+- one peer enough fails the second;
+- comparing a declared item fails the third.
+
 ## D52. A new kind of blue screen on two cabinets is its own fleet pattern (2026-11-08)
 
 **What the code did** (F17, "cluster new crash signatures"): crash signatures (D26) group blue screens by stop code and the exception or
