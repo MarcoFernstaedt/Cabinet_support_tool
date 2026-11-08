@@ -337,7 +337,7 @@ changes it with the behaviour.
 | 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). Open: the installer's unattended switch waits for the agent build |
 | 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled (audit-network item 7, server half). Open: the rest, most of it agent-side samplers |
 | 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42). Open: R4 one route, R5 honest empty states |
-| 6 | Service dependencies, start order, recovery actions | F14 | Open |
+| 6 | Service dependencies, start order, recovery actions | F14 | R3 a service set to restart the computer is shown and alerted (D43). Open: R1 dependencies and R3 in stored configuration, R2 the blocking dependency named (agent build) |
 | 7 | The chain under the workload: database, its error log, the monitoring agent | F15 | Open |
 | 8 | Process history: trends, leak and wedge, tree, holder | F13 | Open |
 | 9 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | F16 | Open |
