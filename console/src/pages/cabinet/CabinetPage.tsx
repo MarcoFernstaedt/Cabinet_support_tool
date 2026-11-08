@@ -38,7 +38,11 @@ import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 import { ReapplyPanel } from "../../components/ReapplyPanel";
 import type { Reapply } from "../../lib/replacement";
 
-export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null;
+/** Last known healthy, as the health evaluation defines it (F8.R1): now, a time, or why there is none. */
+export interface LastHealthy { now: boolean; at: string | null; reason: "not_evaluated" | "no_configuration" | "no_baseline" | "never_healthy" | null }
+const NO_HEALTHY: Record<string, string> = { not_evaluated: "Not judged yet", no_configuration: "Not judged: no configuration reported yet",
+  no_baseline: "Not judged: no approved baseline", never_healthy: "Never seen healthy" };
+export interface CabinetDetail extends CabinetRow { lastHealthyAt: string | null; lastHealthy?: LastHealthy;
   serialNumber: string | null; manufacturer?: string | null; model?: string | null; uptimeSeconds: number | null; clockSkewSeconds: number | null;
   site: { id: string; name: string }; client: { id: string; name: string };
   scanner: { cabinetHardwareIds: string[] | null; siteHardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null;
@@ -178,7 +182,9 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
         <div><dt>Uptime</dt><dd>{cabinet.uptimeSeconds === null ? <span className="muted">Unknown</span> : duration(cabinet.uptimeSeconds)}</dd></div>
         <div><dt>Fingerprint scanner</dt><dd>{scanner && (scanner.offNow || scanner.drops24h > 0) ? <Link to={`/cabinets/${cabinet.id}/scanner`}>{scannerText}</Link> : scannerText}</dd></div>
         <div><dt>Open alerts</dt><dd>{cabinet.openAlerts > 0 ? <Link to={`/cabinets/${cabinet.id}/alerts`}>{cabinet.openAlerts} open</Link> : "None"}</dd></div>
-        <div><dt>Last known healthy</dt><dd>{cabinet.online && cabinet.openAlerts === 0 && !scanner?.offNow ? "Now" : cabinet.lastHealthyAt ? <span title={fullTime(cabinet.lastHealthyAt)}>{ago(cabinet.lastHealthyAt)}</span> : <span className="muted">Not recorded</span>}</dd></div>
+        <div><dt>Last known healthy</dt><dd>{cabinet.lastHealthy?.now ? "Now"
+          : cabinet.lastHealthy?.at ? <Link to={`/cabinets/${cabinet.id}/baseline`} title={fullTime(cabinet.lastHealthy.at)}>{ago(cabinet.lastHealthy.at)}</Link>
+          : <span className="muted">{NO_HEALTHY[cabinet.lastHealthy?.reason ?? "not_evaluated"]}</span>}</dd></div>
       </dl>
       <div className="next-actions">
         <span className="label">Next:</span>

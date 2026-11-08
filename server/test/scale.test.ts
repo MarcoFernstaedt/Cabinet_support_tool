@@ -470,19 +470,3 @@ test("two heartbeats for one cabinet at the same moment store one load sample, n
     assert.equal(Number((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM health_samples WHERE cabinet_id = $1", [id])).rows[0]!.n), 1, `round ${round}`);
   }
 });
-
-test("the cabinet's last known healthy time: now when online and clear, the start of the oldest open alert otherwise, the last contact when offline and clear", async () => {
-  const { cabinet } = await import("../src/services/fleet.js");
-  const [fresh, gone0] = [randomUUID(), randomUUID()];
-  await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, last_heartbeat_at) VALUES ($1, $3, 'H1', 'standalone', 'active', SYSUTCDATETIME()), ($2, $3, 'H2', 'standalone', 'active', DATEADD(hour, -2, SYSUTCDATETIME()))", [fresh, gone0, ids.site]);
-  const clear = (await cabinet(db.app, fresh))!;
-  assert.ok(Math.abs(Date.parse(clear.lastHealthyAt!) - Date.now()) < 5_000, "online with nothing open: now");
-  await asOwner(db, c => c.query(
-    `INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
-     SELECT $1, id, 'minor', 'issue:healthy-test', 'x', DATEADD(hour, -3, SYSUTCDATETIME()), SYSUTCDATETIME() FROM issue_types WHERE id = '00000000-0000-4000-8000-000000000109'`, [fresh]));
-  const sick = (await cabinet(db.app, fresh))!;
-  const age = Date.now() - Date.parse(sick.lastHealthyAt!);
-  assert.ok(age > 2.9 * 3600_000 && age < 3.1 * 3600_000, `three hours ago, not now (${age} ms)`);
-  const gone = (await cabinet(db.app, gone0))!;
-  assert.ok(Math.abs(Date.now() - Date.parse(gone.lastHealthyAt!) - 2 * 3600_000) < 60_000, "offline and clear: when it was last heard from");
-});

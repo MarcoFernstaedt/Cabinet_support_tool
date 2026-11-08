@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D41. Last known healthy is the health evaluation's, everywhere (2026-11-08)
+
+**What the code did** (F8.R1): two values had the same name.
+- **The cabinet's page** (`fleet.ts:179-181`): before the oldest open alert began; with none open, now when online, else the last
+  heartbeat.
+- **The configuration health and its comparison** (`cabinet_health.last_healthy_at`): the last time the evaluation judged the cabinet
+  healthy against its baseline.
+
+So a cabinet with an open minor alert could read "3 hours ago" on its page and "healthy" on its health tab. A cabinet with no baseline
+read "now" on its page though nothing had judged it.
+
+**The decision** (mine; the brief asks for one definition and leaves which to me): the health evaluation's.
+- It is the one "changed since healthy" compares against. A page that says "healthy 3 hours ago" while the comparison starts from a mark
+  of yesterday sends a technician to the wrong window.
+- It is judged against something: the approved baseline, required items, major alerts and contact.
+- The page's old value counted any open alert, minor ones too, and called "online" healthy. Neither is a judgement.
+- **With no time,** the page says why rather than guessing: not judged yet, no configuration reported, no approved baseline, or never seen
+  healthy. That is part of F8.R5's honest empty state, here for the page.
+
+`lastKnownHealthy()` in `cabinet-health.ts` is the one reader. The cabinet detail route returns it as `lastHealthy`, and `lastHealthyAt`
+stays as its time, though nothing in the tree reads it now: the cabinet summary reads `lastHealthy`. The cabinet timeline already used `cabinet_health.last_healthy_at`.
+
+**Cost.** One indexed read by primary key in place of the alerts aggregate the page ran before.
+
+**How it was proven.** `server/test/last-known-healthy.test.ts`, through the cabinet and condition routes:
+- Judged healthy with an open minor alert: "now" on both.
+- Degraded since being healthy 5 hours ago, though online and clear: the same 5 hours on both.
+- Offline for 2 hours, last healthy a day ago: a day ago, not the last heartbeat.
+- With no time: not evaluated, no configuration (the real evaluation of a silent cabinet), no baseline, never healthy.
+
+The test in `scale.test.ts` that pinned the old value ("now when online and clear, the start of the oldest open alert otherwise") is
+replaced by this one, since that is the behavior F8.R1 removes.
+
+The red check: with the page's old computation restored, both tests fail.
+
+---
+
 ## D40. The healthy mark in use is never pruned: kept by the prune, held by the database (2026-11-08)
 
 **What the code did** (F8.R2): `keepMark` in `server/src/services/cabinet-health.ts` prunes marks after adding one (30 days, always the
