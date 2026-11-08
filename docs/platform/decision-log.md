@@ -41,6 +41,35 @@ The red checks, each guard taken out in turn:
 - one peer enough fails the second;
 - comparing a declared item fails the third.
 
+## D53. The site-baseline offer, and what "healthy" means where no baseline applies (2026-11-08)
+
+**What the code did** (F17, "offer capture this cabinet's configuration as the site baseline where a cabinet is healthy and the site has
+none"): the capture exists (`captureDraft`, the Baseline page's "Capture a baseline from this cabinet" form, Tier 2), but nothing offered
+it. A cabinet with no baseline is never judged healthy at all: `judge` (`cabinet-health.ts`) returns "unknown" with `no_baseline`, so
+"healthy" had no meaning in exactly the case the offer is for. This is the decision the tracker said was needed.
+
+**The decision** (mine, the recommended choice, as the owner asked):
+- **Healthy, where no baseline applies, is the health judgement with the configuration part counted as met.** In contact within the
+  health settings' offline limit, its configuration reported, no required item drifting from a baseline that does apply (a client's, a
+  model's), and no major alert open (offline and site outage aside). These are the checks `judge` already makes; the only change is that
+  "no baseline" does not stop the judgement. Where a baseline applies, it is the same as the judgement itself, so there is one meaning.
+- **Rejected:** "no alerts open at all" (a minor alert is not a reason to doubt a configuration, and the health judgement does not count
+  it either); "healthy for a stretch of time" (a new rule with a new threshold to defend, and the capture is reviewed by a person and
+  approved by an Admin before it judges anything, which is the real check); "never offer without a baseline" (that is the case the brief
+  names).
+- **The site has none** means no site baseline approved, pending or in draft: an offer while one is being drafted would make a second.
+  A client or model baseline does not count; the brief asks for the site's.
+- **Every category reported.** A site baseline is captured from the ten categories a site holds; an offer before they have all arrived
+  would capture part of the cabinet.
+- **Accepting is the existing capture**, for the site, with the capture form's six default categories: a draft, reviewed, and approved by
+  an Admin with step-up. No new write, permission or route; the offer is a field on `/condition`, computed on the server, and the
+  console shows the button to Tier 2 and above (the route enforces Tier 2).
+- **Why not offered** is returned, one sentence per unmet condition, so a person who expects the offer can see what is missing.
+
+The red checks:
+- judging without the configuration part counted as met makes all three server tests fail (no cabinet without a baseline is healthy);
+- dropping the site check makes the first fail (offered again while the site's draft exists);
+- hiding the offer in the console makes the browser test fail.
 ## D52. A new kind of blue screen on two cabinets is its own fleet pattern (2026-11-08)
 
 **What the code did** (F17, "cluster new crash signatures"): crash signatures (D26) group blue screens by stop code and the exception or
