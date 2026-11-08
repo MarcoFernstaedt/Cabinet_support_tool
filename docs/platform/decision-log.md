@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D37. Applying a site's standards: from its own cabinets, or copied from another site (2026-11-08)
+
+**The decision** (F6.R3; mine, within the brief): a site's standards are applied in one action, from one of two sources.
+- **"Suggested":** what the site's own cabinets report, as `siteStandards` already worked out.
+- **Another site's own settings:** a site set up the way this one should be.
+
+Each chosen part goes through the writer it has when set on its own (`writeNetworkBaseline`, `writeSiteTimeZone`, `writeSitePolicy`),
+with that part's audit entry, all in one transaction. A part with nothing to apply is skipped with the reason, and nothing at all to apply
+is refused. It is an Admin action with a code bound to the request, because it can set the firewall policy, which is Admin only on its
+own; an Admin who does not want the firewall leaves it out of the parts.
+
+**Why "another site" is the saved template.** The brief asks for a captured template applied rather than retyped. A site that is set up is
+that template, kept current by the people who run it: there is nothing to keep in step and no second store of the same settings. A named
+template detached from any site would need its own lifecycle and approval, and nothing in the brief needs that yet.
+
+**Why one transaction.** A site half set up (its time zone but not its firewall) is worse than one not set up: it looks done. Either the
+parts that can be applied are, or nothing is.
+
+**How it was proven.** `server/test/site-standards-apply.test.ts`:
+- A copy sets all three, each with its own audit entry and the summary.
+- Applying the suggestions sets the time zone and firewall and skips the network, with why. Nothing to apply is refused and writes nothing.
+- These are refused and write nothing: Tier 2, a code confirmed for fewer parts, a copy onto itself, an unknown site, and five hostile
+  bodies.
+- A copy skips what the other site does not set itself.
+
+The red checks: with the firewall part never written, the first two tests fail; without the refusal when nothing applies, the second fails.
+
+---
+
 ## D36. Approving a batch: one code, each cabinet on its own (2026-11-08)
 
 **The decision** (F6.R2; mine, within the brief's requirement and D35):

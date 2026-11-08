@@ -2066,6 +2066,23 @@ export interface SiteNetworkBaseline {
 }
 
 /**
+ * Applies a site's standards in one action (finding F6.R3): the chosen parts, from what the site's own cabinets report (`suggested`) or from another site's own settings. Admin, with an authenticator code bound to this body.
+ */
+export interface SiteStandardsApply {
+  from:
+    | "suggested"
+    | {
+        siteId: string;
+      };
+  /**
+   * @minItems 1
+   * @maxItems 3
+   */
+  parts: ["networkBaseline" | "timeZone" | "firewall", ...("networkBaseline" | "timeZone" | "firewall")[]];
+  stepUpToken: string;
+}
+
+/**
  * Sets the Windows time zone for a site (Tier 2 and up), a client's default (Tier 2 and up) or the fleet default (Admin), or clears it with null so the level above applies (site → client → fleet). Cabinets in another zone than the one that applies get a minor alert; nothing changes on a cabinet until someone corrects it.
  */
 export interface SiteTimeZone {
@@ -2184,7 +2201,8 @@ export interface StepUpRequest {
     | "settings.filefacts"
     | "client.filefacts"
     | "site.filefacts"
-    | "cabinet.filefacts";
+    | "cabinet.filefacts"
+    | "site.apply_standards";
   /**
    * The ID the action applies to, or 'fleet'.
    */

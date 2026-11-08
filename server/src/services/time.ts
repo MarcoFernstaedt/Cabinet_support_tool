@@ -108,14 +108,17 @@ export async function setFleetTimeZone(pool: Pool, userId: string, zone: TimeZon
 
 /** Sets (or clears, with null) the zone a site's cabinets should use; its cabinets are checked again at once. Tier 2 and up. */
 export async function setSiteTimeZone(pool: Pool, userId: string, siteId: string, zone: TimeZoneId | null): Promise<void> {
-  await transaction(pool, async c => {
-    const r = await c.query<{ old_zone: string | null }>(
-      "UPDATE sites SET time_zone = $2 OUTPUT deleted.time_zone AS old_zone WHERE id = $1 AND removed_at IS NULL", [siteId, zone]);
-    if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
-    await audit(c, { actorKind: "user", actorId: userId, action: "site.time_zone", targetKind: "site", targetId: siteId, outcome: "succeeded",
-      details: { before: r.rows[0]!.old_zone, timeZone: zone } });
-    await evaluateTime(c, { siteId });
-  });
+  await transaction(pool, c => writeSiteTimeZone(c, userId, siteId, zone));
+}
+
+/** Writes a site's zone in the caller's transaction, audits it and checks the site's cabinets again (the caller checked the role). */
+export async function writeSiteTimeZone(c: Queryable, userId: string, siteId: string, zone: TimeZoneId | null): Promise<void> {
+  const r = await c.query<{ old_zone: string | null }>(
+    "UPDATE sites SET time_zone = $2 OUTPUT deleted.time_zone AS old_zone WHERE id = $1 AND removed_at IS NULL", [siteId, zone]);
+  if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
+  await audit(c, { actorKind: "user", actorId: userId, action: "site.time_zone", targetKind: "site", targetId: siteId, outcome: "succeeded",
+    details: { before: r.rows[0]!.old_zone, timeZone: zone } });
+  await evaluateTime(c, { siteId });
 }
 
 /** The time facts the console shows for one cabinet. */
