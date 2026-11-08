@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D39. Bulk import: clients and sites from a pasted list; cabinets by enrolling (2026-11-08)
+
+**The decision** (F6.R4; mine, within the brief, as the owner asked me to take the recommended choice and record why):
+- **What is imported.** Clients and sites: one line per site, naming its client. A preview says, line by line, what would be created and
+  what exists already, and saves nothing. The import takes one authenticator code bound to exactly those rows.
+- **What exists is used.** A client or site already there is matched the way the database's unique indexes match names (capitals do
+  not make a new one) and left as it is. The same list can be imported again after new lines are added; a list with nothing new is
+  refused, so a repeat does not look like work done. The same site listed twice is a mistake in the list and is refused.
+- **All or nothing.** One transaction: the code, every new client and site with the same audit entry it has when created on its own
+  (marked `via: import`), and one `fleet.import` entry. A list that half imports is harder to reason about than one that did not import.
+- **Cabinets are not imported.** A cabinet exists once it enrols with its own key and an Admin approves it. Importing cabinet records
+  would create cabinets with no identity, and importing installer tokens would be a second way to hand out enrolment secrets. A site
+  installer for up to 100 cabinets (D35) and batch approval (D36) already make many cabinets one action.
+
+**Why a pasted list and not a file upload.** The platform has no general file transfer by rule, and a list of names is text. A
+spreadsheet's copy pastes as tab-separated lines, which the console reads as well as commas. The console only shapes the text into rows;
+the server checks every name against the contract (no control characters, no markup, no leading or trailing spaces, 1 to 128
+characters) and decides what exists.
+
+**Limit.** 200 rows per import, so one transaction stays short (worked out: at most 400 inserts and their audit rows).
+
+**How it was proven.** `server/test/fleet-import.test.ts`:
+- A preview of four rows against one existing client and site reports one new client (named twice with different capitals) and three
+  new sites, and saves nothing. The import creates exactly those, with their audit entries. The same list again is refused with
+  `nothing_to_import`; extended by one line, only that line is created.
+- Refused, creating nothing: Tier 2, no code, a code confirmed for one row used for two, a site listed twice, a list naming a demo
+  client, and eight hostile bodies (empty, a missing site, a padded name, markup, an extra field, a control character, 129 characters,
+  201 rows).
+- With the database refusing the second site (a trigger the test adds), neither the client nor the first site nor their audit entries are
+  kept.
+`console/test/import-rows.test.ts` covers reading the list (commas, tabs, quotes, a heading, bad lines named by number), and
+`server/test/console-fleet-import-e2e.test.ts` previews and imports a list in a real browser.
+
+The red checks: without the transaction around the inserts, the third test fails; without the existing-name lookup, the first fails.
+
+---
+
 ## D37. Applying a site's standards: from its own cabinets, or copied from another site (2026-11-08)
 
 **The decision** (F6.R3; mine, within the brief): a site's standards are applied in one action, from one of two sources.
