@@ -200,7 +200,7 @@ test("a clock sync job verifies each clock from the cabinet's next heartbeat", a
   assert.ok(!(await openAlert(drift[0]!, ISSUE.clock)));
 });
 
-test("a cabinet that never answers fails on its own; the rest of the job goes on (partial failure)", async () => {
+test("a cabinet out of contact for the whole job is offline, not failed; the rest of the job goes on (partial failure, F18.R2)", async () => {
   const t1 = await account("tier1");
   const [quiet] = await scenarioIds("incident_loop");
   const quietSite = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [quiet])).rows[0]!.site_id;
@@ -215,9 +215,28 @@ test("a cabinet that never answers fails on its own; the rest of the job goes on
   await new Promise(r => setTimeout(r, 300));
   await db.app.query("UPDATE commands SET status = 'expired' WHERE bulk_id = $1 AND cabinet_id = $2 AND status = 'queued'", [jobId, quiet]);
   const j = await waitDone(t1, jobId);
-  assert.equal(j.cabinets.find((c: { id: string }) => c.id === quiet).state, "failed");
+  assert.equal(j.cabinets.find((c: { id: string }) => c.id === quiet).state, "offline", "it never took the command");
   assert.equal(j.cabinets.find((c: { id: string }) => c.id === healthy).state, "verified");
-  assert.match(j.cabinets.find((c: { id: string }) => c.id === quiet).detail, /did not answer/);
+  assert.match(j.cabinets.find((c: { id: string }) => c.id === quiet).detail, /out of contact and never took the command/);
+  assert.deepEqual(j.counts, { offline: 1, verified: 1 });
+  const recent = (await call("GET", "/api/fleet-operations/jobs", undefined, t1)).body;
+  const listed = (Array.isArray(recent) ? recent : recent.jobs).find((x: { id: string }) => x.id === jobId);
+  assert.equal(listed.problems, 1, "an offline cabinet counts as a problem in the list of jobs");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [quiet]);
+});
+
+test("a cabinet that took the command and never answered is failed, not offline: something may have been changed on it (F18.R2)", async () => {
+  const t1 = await account("tier1");
+  const [, quiet] = await scenarioIds("incident_loop");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [quiet]);
+  const jobId = randomUUID();
+  const token = await confirm(t1, jobId, { operation: "time.sync", cabinetIds: [quiet!], batchSize: 1 });
+  assert.equal((await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "time.sync", cabinetIds: [quiet!], batchSize: 1, stepUpToken: token }, t1)).status, 202);
+  await new Promise(r => setTimeout(r, 300));
+  await db.app.query("UPDATE commands SET status = 'expired', delivered_at = SYSUTCDATETIME() WHERE bulk_id = $1 AND cabinet_id = $2 AND status = 'queued'", [jobId, quiet]);
+  const j = await waitDone(t1, jobId);
+  assert.equal(j.cabinets[0].state, "failed");
+  assert.match(j.cabinets[0].detail, /took the command but did not answer/);
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [quiet]);
 });
 

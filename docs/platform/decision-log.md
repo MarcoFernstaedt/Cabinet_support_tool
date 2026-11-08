@@ -36,6 +36,33 @@ The red check: with the lookup removed, the first test fails.
 
 ---
 
+## D46. A fleet job's cabinet that never took the command is "offline", not "failed" (2026-11-08)
+
+**What the code did** (F18.R2): `fleet-jobs.ts` recorded each cabinet's final state as skipped, failed, verified, not verified or
+cancelled. A cabinet out of contact for the whole job, whose command expired without being delivered, was "failed" with "did not answer
+before the command expired". A cabinet that took the command and then went quiet read the same. The brief asks for per-cabinet final
+states that are not uniform, offline among them. These two need different next steps:
+- **Offline:** nothing was tried on it. Bring it back and run the job again for it.
+- **Took the command and went quiet:** the change may have been made. Check it.
+
+**The decision** (mine, within the brief):
+- **A new final state, `offline`** (migration 0028 widens the state check). It is used when the command expired without ever being
+  delivered.
+- **Still `failed`** when the command was delivered and expired unanswered, with the detail "took the command but did not answer; check
+  whether the change was made".
+- **Counted as a problem.** The list of jobs counts offline with failed and not verified. The sync-cabinets-last rule already treats
+  anything but verified or skipped as doubt, so an offline satellite still holds its sync cabinet back.
+- **Shown.** The console shows "Offline: not reached".
+
+**How it was proven.** `server/test/fleet-jobs.test.ts`:
+- The existing partial-failure test now expects the never-delivered cabinet to be offline. The other cabinet is verified, the counts
+  are one offline and one verified, and the list of jobs counts one problem.
+- A new test: a cabinet whose command was delivered and then expired is failed, with "took the command but did not answer".
+
+The red check: without the offline branch, the partial-failure test fails.
+
+---
+
 ## D45. "Nothing to compare" always says why (2026-11-08)
 
 **What the code did** (F8.R5): with no healthy mark, `/compare-healthy` returned an empty answer, and both tabs said "This cabinet has not
