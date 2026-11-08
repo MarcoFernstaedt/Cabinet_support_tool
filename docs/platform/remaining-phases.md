@@ -342,7 +342,7 @@ changes it with the behaviour.
 | 8 | Process history: trends, leak and wedge, tree, holder | F13 | Open |
 | 9 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | F16 | Open |
 | 10 | Fixes carried, verified, fleet-run; the watchdog | F18 | R1 a close found by the reading names the fix it verifies, with before and after (D47); R2 a fleet job names offline cabinets apart from failed ones (D46). Open: R3 the watchdog (agent) |
-| 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | Open |
+| 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | F19.R7 firmware differing from its model's expectation is an alert (D48). Open: F19.R1-R6 (agent: driver store, rollout, rollback), F5 (a publisher entry needs a real cabinet's signer) |
 | 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
 | 13 | Sharpening the two no-expectation detectors | F17 | Open |
 | 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | Open |

@@ -5,6 +5,9 @@ import { lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { valueText, type Item } from "./config-canonical.js";
 import { currentItems, type Category } from "./config-ingest.js";
 import { resolveForCabinet, type Origin, type ResolvedItem } from "./baselines.js";
+import { upsertAlert } from "./alerts.js";
+import { closeAutomatically, CLOSED_OUTPUT } from "./automatic-close.js";
+import { ISSUE } from "./rules.js";
 
 export interface DriftRow {
   category: string; itemKey: string; field: string; mode: "match" | "present" | "absent"; expected: unknown; actual: unknown;
@@ -61,6 +64,7 @@ export async function evaluateBaselineDrift(pool: Pool, cabinetId: string): Prom
           WHEN MATCHED THEN UPDATE SET mode = s.mode, expected = s.expected, actual = s.actual, origin = s.origin, severity = s.severity, [required] = s.[required], last_seen = SYSUTCDATETIME()
           WHEN NOT MATCHED THEN INSERT (cabinet_id, category, item_key, field, mode, expected, actual, origin, severity, [required], first_seen, last_seen)
                VALUES ($1, s.category, s.item_key, s.field, s.mode, s.expected, s.actual, s.origin, s.severity, s.[required], SYSUTCDATETIME(), SYSUTCDATETIME());`, [cabinetId, payload]);
+    await checkFirmware(c, cabinetId, rows);
     // A change that left an item against its baseline is marked as violating it.
     await c.query(
       `UPDATE ch SET violates_baseline = CASE WHEN EXISTS (SELECT 1 FROM cabinet_drift d WHERE d.cabinet_id = ch.cabinet_id AND d.category = ch.category AND d.item_key = ch.item_key) THEN 1 ELSE 0 END
@@ -86,3 +90,32 @@ export async function cabinetsInScope(db: Queryable, scope: { kind: string; id: 
 }
 
 export type { Category };
+
+/** The hardware item's firmware fields a baseline can expect (F19.R7). */
+export const FIRMWARE_FIELDS = ["biosVersion", "biosDate"] as const;
+export const FIRMWARE_SIGNATURE = "firmware-drift";
+const show = (v: unknown) => v === null || v === undefined ? "unknown" : String(v);
+
+/** The alert's title: what the cabinet reports against what its baseline expects, field by field. */
+export function firmwareTitle(drift: readonly DriftRow[]): string {
+  return `Firmware differs from its model's expectation: ${drift.map(d => `${d.field === "biosDate" ? "BIOS date" : "BIOS"} ${show(d.actual)}, expected ${show(d.expected)}`).join("; ")}`;
+}
+
+/**
+ * Firmware that differs from its baseline is a named, minor alert (F19.R7, decision-log D48): the drift already says it; this makes
+ * someone look. Opened or updated while the drift is there, closed automatically (audited) once it is not. Never fixed by the platform.
+ */
+async function checkFirmware(c: Queryable, cabinetId: string, rows: readonly DriftRow[]): Promise<void> {
+  // The hardware item is in the system category (config-ingest.ts), under the key "hardware".
+  const firmware = rows.filter(r => r.category === "system" && r.itemKey === "hardware" && (FIRMWARE_FIELDS as readonly string[]).includes(r.field));
+  if (firmware.length > 0) {
+    const title = firmwareTitle(firmware);
+    const { id } = await upsertAlert(c, { cabinetId, issueTypeId: ISSUE.firmwareDrift, severity: "minor", signature: FIRMWARE_SIGNATURE, title, seenAt: new Date(), ruleId: null, eventId: null });
+    await c.query("UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2", [id, title]);
+    return;
+  }
+  await closeAutomatically(c, "firmware-drift",
+    `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
+      WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`,
+    [cabinetId, "The cabinet's firmware matches its model's expectation again (seen in its configuration).", FIRMWARE_SIGNATURE]);
+}
