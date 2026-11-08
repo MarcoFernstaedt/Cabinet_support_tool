@@ -41,6 +41,35 @@ The red check: with the hook removed from `storeResult`, the first test fails.
 
 ---
 
+## D42. "Changed since healthy" also lists what changed and came back (2026-11-08)
+
+**What the code did** (F8.R3): `compareWithHealthy` in `cabinet-health.ts` skips a category whose version now equals the mark's, and
+diffs the rest item by item. Both snapshots are compared item by item already. What the comparison could not see is anything that
+changed and changed back: an item set A → B → A, or a whole category that returned to the marked version. It reads as "nothing differs"
+though the change records hold the changes, and a change that came and went can be the very thing that made the cabinet unhealthy at the
+time.
+
+**The decision** (mine, within the brief):
+- **Read both sources.** Keep the end-state comparison as it is, and also read the change records since the mark. Every item they name
+  that is not in the end-state list is returned as `changedAndBack`, with the number of changes and when last.
+- **No guessing for categories that cannot be compared.** A category whose old version is gone is still reported as unavailable, and its
+  in-between changes are not called "back as they were".
+- **Say when the list may be short.** `interimComplete` is false when the mark is older than change records are kept (the events
+  retention), because older changes have been pruned.
+- **On screen.** The Baseline tab's "Since last healthy" shows the list under its own heading, 50 at most with a pointer to the History
+  view.
+
+**Cost.** One grouped read of `config_changes` for one cabinet since one time (indexed by cabinet), capped at 500 rows. No new storage.
+
+**How it was proven.** `server/test/changed-and-back.test.ts`, through the real ingest and the real route:
+- A service disabled and then restored after the mark: no end-state difference, and listed once with 2 changes and the time of the last.
+- Two services changed; one stayed changed and one came back: each is in its own list.
+- A mark older than the 90-day default keeps says the list may be incomplete; a cabinet with no mark returns empty lists.
+
+The red check: with the list emptied, tests 1 and 2 fail.
+
+---
+
 ## D41. Last known healthy is the health evaluation's, everywhere (2026-11-08)
 
 **What the code did** (F8.R1): two values had the same name.

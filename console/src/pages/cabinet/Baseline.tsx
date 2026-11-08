@@ -127,7 +127,8 @@ function Drift({ cabinet }: { cabinet: CabinetDetail }) {
   </>);
 }
 
-interface Since { markId: number | null; markedAt: string | null; changes: { category: string; key: string; change: string; fields: FieldChanges }[]; unavailable: string[] }
+interface Since { markId: number | null; markedAt: string | null; changes: { category: string; key: string; change: string; fields: FieldChanges }[]; unavailable: string[];
+  changedAndBack?: { category: string; key: string; changes: number; lastAt: string }[]; interimComplete?: boolean }
 
 function SinceHealthy({ cabinetId }: { cabinetId: string }) {
   const { data, problem } = useLoad<Since>(`/api/cabinets/${cabinetId}/compare-healthy`);
@@ -138,7 +139,7 @@ function SinceHealthy({ cabinetId }: { cabinetId: string }) {
   return (<>
     <p className="muted">Compared with the configuration the cabinet had when it was last recorded healthy, {fullTime(data.markedAt)} ({ago(data.markedAt)}). A difference is a candidate to look at, not a proven cause.</p>
     {data.unavailable.length > 0 && <p className="notice warn">The older configuration of {data.unavailable.map(categoryName).join(", ")} is no longer kept, so it cannot be compared.</p>}
-    {data.changes.length === 0 ? <Empty>Nothing differs from the last healthy state.</Empty> : (<>
+    {data.changes.length === 0 ? <Empty>{data.changedAndBack?.length ? "Nothing differs from the last healthy state now, but some items changed in between (below)." : "Nothing differs from the last healthy state."}</Empty> : (<>
       <div className="table-wrap"><table className="table compact">
         <caption className="sr-only">Differences from the last healthy state</caption>
         <thead><tr><th scope="col">Item</th><th scope="col">Then → now</th></tr></thead>
@@ -146,6 +147,19 @@ function SinceHealthy({ cabinetId }: { cabinetId: string }) {
       </table></div>
       <Pager {...paged} label="differences" />
     </>)}
+    {(data.changedAndBack?.length ?? 0) > 0 && (<>
+      <h3>Changed since then, and back as it was</h3>
+      <p className="muted small">These items match the last healthy state now, but changed at least once in between. A change that came and went can still be what
+        made the cabinet unhealthy at the time.</p>
+      <div className="table-wrap"><table className="table compact">
+        <caption className="sr-only">Items that changed and changed back since the last healthy state</caption>
+        <thead><tr><th scope="col">Item</th><th scope="col">Times changed</th><th scope="col">Last changed</th></tr></thead>
+        <tbody>{data.changedAndBack!.slice(0, 50).map(c => <tr key={`${c.category}|${c.key}`}><th scope="row">{categoryName(c.category)}: {c.key}</th><td>{c.changes}</td>
+          <td title={fullTime(c.lastAt)}>{ago(c.lastAt)}</td></tr>)}</tbody>
+      </table></div>
+      {data.changedAndBack!.length > 50 && <p className="muted small">The 50 most recent of {data.changedAndBack!.length}; the History view has them all.</p>}
+    </>)}
+    {data.interimComplete === false && <p className="notice warn small">The last healthy state is older than change records are kept, so changes in between that came and went before then are not listed.</p>}
   </>);
 }
 
