@@ -21,11 +21,8 @@ interface BaselineStatus {
     categoriesReported: number; categoriesNeeded: number } | null;
 }
 /** Whether to offer this cabinet's configuration as its site's baseline: the site has none and the cabinet is healthy (F17, D53). */
-interface SiteOffer { offered: boolean; site: { id: string; name: string }; notOffered: string[] }
+interface SiteOffer { offered: boolean; categories: string[]; site: { id: string; name: string }; notOffered: string[] }
 interface Condition { state: Health; evaluatedAt: string; since: string; reasons: Reason[]; lastHealthyAt: string | null; degradedSince: string | null; changesSinceHealthy: number | null; baseline?: BaselineStatus; siteOffer?: SiteOffer }
-
-/** The parts a site baseline is captured from, as the capture form starts with them. */
-const SITE_CAPTURE = ["network", "services", "firewall", "time", "drivers", "hosts"];
 
 /**
  * The offer, made by the server: capture this cabinet's configuration as a draft baseline for its site. A draft only: a person reviews it
@@ -40,7 +37,7 @@ function SiteBaselineOffer({ cabinet, offer }: { cabinet: CabinetDetail; offer: 
     setBusy(true); setProblem(null);
     try {
       const r = await api<{ id: string }>("POST", "/api/baselines/capture", { cabinetId: cabinet.id, scope: { kind: "site", id: offer.site.id },
-        description: `Captured from ${cabinet.name}, healthy when captured.`, categories: SITE_CAPTURE });
+        description: `Captured from ${cabinet.name}, healthy when captured.`, categories: offer.categories });
       navigate(`/admin/baselines/versions/${r.id}`);
     } catch (e) { setProblem(describeError(e)); setBusy(false); }
   };

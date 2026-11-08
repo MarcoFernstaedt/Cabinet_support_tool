@@ -104,7 +104,7 @@ test("not offered while the cabinet is out of contact, has a major alert open, o
 
   const partial = await cabinetAtNewSite();
   await reportAll(partial.id, ["firewall", "hosts"]);
-  assert.deepEqual((await offer(partial.id)).notOffered, ["It has not reported all of its configuration yet (2 of 10 parts missing)."]);
+  assert.deepEqual((await offer(partial.id)).notOffered, ["It has not reported all of its configuration yet (2 of 6 parts missing)."]);
 });
 
 test("where a client's baseline applies, a required item drifting from it is not healthy, so no offer; matching it, the offer is made", async () => {
@@ -129,4 +129,20 @@ test("where a client's baseline applies, a required item drifting from it is not
   assert.equal((await call("POST", `/api/baselines/versions/${next.body.id}/approve`, { note, stepUpToken: await h.codeToken(a2, "baseline.approve", next.body.id, { note }) }, a2)).status, 200);
   await reevaluationsSettled();
   assert.equal((await offer(k.id)).offered, true);
+});
+
+test("the offer waits for exactly what accepting captures, the six shared categories, and the draft holds those six (review of #207)", async () => {
+  // Updates, applications, tasks and the hardware are not captured by the offer, so it does not wait for them.
+  const k = await cabinetAtNewSite();
+  await reportAll(k.id, ["updates", "applications", "tasks", "system"]);
+  const o = await offer(k.id) as unknown as { offered: boolean; categories: string[]; notOffered: string[] };
+  assert.deepEqual([o.offered, o.notOffered], [true, []]);
+  assert.deepEqual(o.categories, ["network", "services", "firewall", "time", "drivers", "hosts"]);
+  const draft = await call("POST", "/api/baselines/capture", { cabinetId: k.id, scope: { kind: "site", id: k.siteId },
+    description: "Captured from a healthy cabinet.", categories: o.categories }, t2);
+  assert.equal(draft.status, 201, JSON.stringify(draft.body));
+  const raw = (await db.app.query<{ content: unknown }>("SELECT content FROM baseline_versions WHERE id = $1", [draft.body.id])).rows[0]!.content;
+  const content = (typeof raw === "string" ? JSON.parse(raw) : raw) as { items: { category: string }[] };
+  const held = [...new Set(content.items.map(i => i.category))].sort();
+  assert.deepEqual(held, [...o.categories].sort(), "the draft holds what the offer waited for, no more and no less");
 });

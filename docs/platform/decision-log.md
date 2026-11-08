@@ -24,8 +24,12 @@ it. A cabinet with no baseline is never judged healthy at all: `judge` (`cabinet
   names).
 - **The site has none** means no site baseline approved, pending or in draft: an offer while one is being drafted would make a second.
   A client or model baseline does not count; the brief asks for the site's.
-- **Every category reported.** A site baseline is captured from the ten categories a site holds; an offer before they have all arrived
-  would capture part of the cabinet.
+- **The categories it captures, reported.** Accepting captures the capture form's six defaults (network, services, firewall, time,
+  drivers, hosts), the settings a site's cabinets share; the offer waits for exactly those six. (As first built it waited for all ten a
+  site baseline can hold while capturing the six: the review of #207 caught the mismatch. Waiting for four it does not capture only
+  delayed the offer. The server now names the six once, `OFFER_CATEGORIES`, returns them with the offer, and the console captures
+  what it returns, so the two cannot drift apart. A test checks the draft holds those six, no more and no less.) Updates,
+  applications, scheduled tasks and the hardware differ from cabinet to cabinet and stay a hand capture.
 - **Accepting is the existing capture**, for the site, with the capture form's six default categories: a draft, reviewed, and approved by
   an Admin with step-up. No new write, permission or route; the offer is a field on `/condition`, computed on the server, and the
   console shows the button to Tier 2 and above (the route enforces Tier 2).
