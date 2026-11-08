@@ -30,6 +30,7 @@ export const ISSUE = {
   diskSpace: "00000000-0000-4000-8000-000000000123",
   serviceRebootRecovery: "00000000-0000-4000-8000-000000000127",
   firmwareDrift: "00000000-0000-4000-8000-000000000128",
+  peerDifference: "00000000-0000-4000-8000-000000000129",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */

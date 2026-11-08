@@ -167,11 +167,11 @@ export async function createDraft(pool: Pool, actor: Actor, body: { scope: Scope
 }
 
 /** Values a capture leaves out because they change by themselves, so a baseline expecting them would flag every look. */
-const CAPTURE_SKIP: Partial<Record<Category, string[]>> = { services: ["state"], network: ["connected", "linkSpeedMbps"] };
+export const CAPTURE_SKIP: Partial<Record<Category, string[]>> = { services: ["state"], network: ["connected", "linkSpeedMbps"] };
 /** Values that differ from cabinet to cabinet: left out of any baseline wider than one cabinet. */
-const PER_CABINET: Partial<Record<Category, string[]>> = { network: ["addresses", "mac", "interfaceIndex"], updates: ["installedAt"] };
+export const PER_CABINET: Partial<Record<Category, string[]>> = { network: ["addresses", "mac", "interfaceIndex"], updates: ["installedAt"] };
 /** Categories a baseline wider than one cabinet does not start with (every cabinet has its own devices). */
-const CABINET_ONLY: Category[] = ["devices"];
+export const CABINET_ONLY: Category[] = ["devices"];
 
 /** The categories a capture for a scope starts with: every one, except the per-cabinet ones for a scope wider than one cabinet. */
 export const captureCategories = (kind: ScopeKind): Category[] => CATEGORIES.filter(k => !CABINET_ONLY.includes(k) || kind === "cabinet");
