@@ -6,6 +6,7 @@
 import { audit, lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { parseDailyTime, nextRunAt } from "./maintenance.js";
 import type { ErrorTrendQuery } from "../contracts.js";
+import { openRisingPatterns } from "./fleet-patterns.js";
 
 export const TREND_DAYS = 30;
 const KEEP_DAYS = 35;
@@ -103,7 +104,11 @@ export async function runErrorTrends(pool: Pool, o: { now?: number; actor?: { us
     }
     const purged = (await pool.query("DELETE FROM error_daily WHERE [day] < $1; DELETE FROM issue_daily WHERE [day] < $1", [new Date(today.getTime() - KEEP_DAYS * DAY)])).rowCount;
     if (done.length === 0) await pool.query("UPDATE trend_state SET computed_at = SYSUTCDATETIME() WHERE id = 1");
-    await transaction(pool, c => audit(c, { actorKind: o.actor ? "user" : "system", actorId: o.actor?.userId ?? "trends", action: "trends.run", outcome: "succeeded", details: { days: done.length, purged } }));
+    // A rising unrecognised error is an alert, not only a mark on the trends page (F17, D50): one fleet pattern each, while it is open somewhere.
+    const rising = (await errorTrends(pool, { mark: "rising", unrecognized: "true" } as ErrorTrendQuery)).errors
+      .map(e => ({ log: e.log, source: e.source, eventId: e.eventId, last7: e.last7, prev7: e.prev7 }));
+    const risingOpened = await openRisingPatterns(pool, rising);
+    await transaction(pool, c => audit(c, { actorKind: o.actor ? "user" : "system", actorId: o.actor?.userId ?? "trends", action: "trends.run", outcome: "succeeded", details: { days: done.length, purged, rising: rising.length, risingOpened } }));
     return { days: done, skipped: false };
   } finally { running = false; }
 }
