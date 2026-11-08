@@ -1,0 +1,19 @@
+{
+  "client": "Lakeside",
+  "site": "East",
+  "role": "satellite",
+  "baseline": {
+    "use": "capture"
+  },
+  "cabinets": [
+    {
+      "requestId": "3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+      "cabinet": "Sat 1"
+    },
+    {
+      "requestId": "3f2504e0-4f89-41d3-9a0c-0305e82c3302",
+      "cabinet": "Sat 2"
+    }
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

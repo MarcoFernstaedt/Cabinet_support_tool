@@ -979,7 +979,7 @@ Asked how one installer for several cabinets of a site should be bounded, the ow
 cabinets it is for (1 to 100, default 10) and for how long (1 to 30 days, default 7); it stops at either limit, can be revoked early, and
 each use is audited. Built as described in 02-security-model.md "Control 4". Details and reasons in docs/platform/decision-log.md, D35.
 
-Still to build in F6, each its own piece: approving a batch of pending cabinets in one action (R2), "apply this site's standards" as a
+Still to build in F6, each its own piece: approving a batch of pending cabinets in one action (R2, built: decision-log D36), "apply this site's standards" as a
 saved action (R3), bulk create and import of clients, sites and cabinets (R4), and the console showing where each inherited setting came
 from (R5). The installer's unattended switch and its machine-readable result, and re-running it on an enrolled cabinet, are agent-side
 work and wait for the agent build.

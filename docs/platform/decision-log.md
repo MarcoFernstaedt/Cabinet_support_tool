@@ -6,6 +6,38 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D36. Approving a batch: one code, each cabinet on its own (2026-11-08)
+
+**The decision** (F6.R2; mine, within the brief's requirement and D35):
+- **One action.** An Admin approves up to 50 pending cabinets at one client and site, with one role and one baseline decision, confirmed
+  with one authenticator code bound to the whole body: every cabinet's request id and name, the place, the role and the decision.
+- **Each cabinet on its own.** Each one goes through the same `approveEnrollment` as a single approval, in its own transaction and with its
+  own audit entry. One refused (another site's installer, a taken name) does not undo or stop the others; it stays pending and the answer
+  gives its reason. The batch is audited once more, with what was approved and what was refused.
+- **Attach once.** An `attach` decision attaches the version with the first cabinet approved, and the rest use it as the baseline in force.
+- **No capture.** A capture turns one cabinet's first report into the site's draft, so it is chosen one cabinet at a time.
+
+**Why each cabinet on its own, and not all or nothing.** A batch is for a site's worth of cabinets arriving together. One with a problem
+(installed with another site's installer, a name already taken) should not hold back the rest, and should not be approved by default
+either. Running each through the single approval keeps one code path for every rule a cabinet is approved under: site and role held to the
+installer, the baseline check, a satellite's sync cabinet, the audit entry.
+
+**Why one code is enough.** The code is bound to the exact list. It cannot approve a cabinet left off it, or one under another name, and a
+code confirmed for one cabinet does not approve two.
+
+**How it was proven.** `server/test/batch-approval.test.ts`:
+- Three cabinets from one site installer and one from another site's are approved together: the three are issued under their chosen
+  names, and the fourth is refused with `not_this_site` and stays pending. Each approval has its own audit entry, and the batch entry
+  records 3 approved and the one refused.
+- An attach is made once for two cabinets.
+- These approve nothing: a request listed twice, two names alike, a code confirmed for one cabinet, Tier 2, a capture, an empty list, a
+  bad id and a `<script>` name.
+
+The red checks: with a refusal stopping the batch, the first test fails; without the switch from attach to inherited after the first
+cabinet, the second fails.
+
+---
+
 ## D35. One installer per site: bounded by count and days, held to its site at approval (2026-11-07)
 
 **Owner's decision.** Asked how a site installer (one token several cabinets of one site can use) should be bounded, the owner chose the

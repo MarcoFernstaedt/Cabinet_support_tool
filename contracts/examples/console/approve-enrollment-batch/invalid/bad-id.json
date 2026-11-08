@@ -1,0 +1,15 @@
+{
+  "client": "Lakeside",
+  "site": "East",
+  "role": "satellite",
+  "baseline": {
+    "use": "inherited"
+  },
+  "cabinets": [
+    {
+      "requestId": "1 OR 1=1",
+      "cabinet": "A"
+    }
+  ],
+  "stepUpToken": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+}

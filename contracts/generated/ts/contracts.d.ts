@@ -591,6 +591,48 @@ export interface ApproveEnrollmentBaseline {
 }
 
 /**
+ * Approves several pending cabinets at one client and site in one action (finding F6.R2), with one role and one baseline decision for all of them, confirmed with one authenticator code bound to this whole body. Each cabinet is approved on its own, so one refusal does not stop the others; the answer says what became of each. `attach` attaches the approved version to the site with the first cabinet approved, and the rest use it as the baseline in force.
+ */
+export interface ApproveEnrollmentBatch {
+  client: string;
+  site: string;
+  role: "sync" | "satellite" | "standalone";
+  /**
+   * The sync cabinet this satellite reaches. Only a satellite names one.
+   */
+  syncCabinetId?: string;
+  /**
+   * inherited or attach, for every cabinet in the batch. A capture is one site draft from one cabinet's report, so it is chosen one cabinet at a time.
+   */
+  baseline:
+    | {
+        use: "inherited";
+      }
+    | {
+        use: "attach";
+        versionId: string;
+      };
+  /**
+   * @minItems 1
+   * @maxItems 50
+   */
+  cabinets: [
+    {
+      requestId: string;
+      cabinet: string;
+    },
+    ...{
+      requestId: string;
+      cabinet: string;
+    }[]
+  ];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Approve a pending cabinet: where it belongs, what it is called, its role, and the baseline it is judged against. A satellite may name the sync cabinet it reaches (an active sync cabinet at the same site); left out, it is linked to the site's only sync cabinet, or stays incomplete until one is assigned. Every approval carries a baseline decision. It may name the cabinet it replaces.
  */
 export interface ApproveEnrollment {
@@ -2060,6 +2102,7 @@ export interface StepUpRequest {
   code: string;
   action:
     | "enrollment.approve"
+    | "enrollment.approve_batch"
     | "enrollment.reject"
     | "token.create"
     | "token.revoke"

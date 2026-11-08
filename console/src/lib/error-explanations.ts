@@ -909,3 +909,17 @@ export function explainFailure(input: FailureInput): Explanation {
   if (message) return generic(message);
   return generic("No further detail was reported.");
 }
+
+/** One cabinet a batch approval did not approve (F6.R2). */
+export type BatchOutcome =
+  | { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string }
+  | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason?: string };
+
+/**
+ * What the "Approve several at once" panel says about a cabinet the server did not approve: the refusal's own reason, the sentence
+ * written for the person, when it has one; otherwise the explanation of its code, as everywhere else. The server's message for a refusal
+ * is for its logs and never reaches the screen (review of #188).
+ */
+export function refusalText(o: { error: string; reason?: string }): string {
+  return o.reason ?? formatExplanation(explainFailure({ code: o.error, message: "" }));
+}

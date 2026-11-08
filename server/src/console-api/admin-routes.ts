@@ -7,7 +7,7 @@ import { transaction } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { revokeCabinet } from "../services/cabinets.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
-import { approvalBaselinePreview, approvalSitePreview, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment, revokeBootstrapToken, siteTokens } from "../services/enrollment.js";
+import { approvalBaselinePreview, approvalSitePreview, approveBatch, approveEnrollment, createBootstrapToken, pendingRequests, rejectEnrollment, revokeBootstrapToken, siteTokens } from "../services/enrollment.js";
 import { cabinetsInScope, evaluateBaselineDrift } from "../services/baseline-drift.js";
 import { evaluateHealth } from "../services/cabinet-health.js";
 import { reevaluations } from "./baseline-routes.js";
@@ -37,6 +37,29 @@ export async function adminRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     await o.guards.role(request, "admin");
     const requestId = id(request);
     return approvalSitePreview(o.pool, requestId, consoleBodies.approveBaseline.parse(request.query));
+  });
+
+  /**
+   * Several pending cabinets at one client and site, approved in one action with one role and one baseline decision (F6.R2), confirmed
+   * with one code bound to the whole batch. The answer lists what became of each; a refused one stays pending.
+   */
+  app.post("/api/admin/enrollments/approve-batch", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.approveBatch.parse(request.body);
+    await stepUp(u.userId, boundTo(body.stepUpToken, body), "enrollment.approve_batch", "fleet");
+    const outcomes = await approveBatch(o.pool, o.issuingKey, { clientName: body.client, siteName: body.site, role: body.role, baseline: body.baseline,
+      ...(body.syncCabinetId ? { syncCabinetId: body.syncCabinetId.toLowerCase() } : {}) }, body.cabinets, u.userId, o.listKeys ?? ListSigningKeys.fromFolder());
+    if (body.baseline.use === "attach" && outcomes.some(x => x.outcome === "approved")) {
+      const siteId = (await o.pool.query<{ id: string }>("SELECT s.id FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.name = $1 AND s.name = $2 AND s.removed_at IS NULL",
+        [body.client, body.site])).rows[0]?.id;
+      if (siteId) {
+        const run = (async () => { for (const c of await cabinetsInScope(o.pool, { kind: "site", id: siteId.toLowerCase() })) { await evaluateBaselineDrift(o.pool, c); await evaluateHealth(o.pool, c); } })()
+          .catch(e => app.log.error({ err: { type: (e as Error).name } }, "re-evaluating after a baseline was attached failed"))
+          .finally(() => reevaluations.delete(run));
+        reevaluations.add(run);
+      }
+    }
+    return { outcomes };
   });
 
   app.post("/api/admin/enrollments/:id/approve", async request => {

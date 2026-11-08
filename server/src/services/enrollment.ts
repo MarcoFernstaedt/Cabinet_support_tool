@@ -279,6 +279,43 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
   return result;
 }
 
+/**
+ * What became of one cabinet in a batch approval: approved, with its cabinet, or refused, with the code and, when the refusal carries one,
+ * the sentence written for the person (`reason`). A Refused's message is for logs and never sent: without a reason, the console explains
+ * the code itself, as it does everywhere else (review of #188).
+ */
+export type BatchOutcome = { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string } | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason?: string };
+
+/**
+ * Approves several pending cabinets at one client and site, with one role and one baseline decision (F6.R2, decision-log D36). Each is
+ * approved by approveEnrollment on its own, with its own audit entry, so one refusal (another site's installer, a taken name) does not
+ * stop the others. An `attach` decision attaches the version with the first cabinet approved; the rest use it as the baseline in force.
+ * A request listed twice is refused before anything runs. The batch itself is audited once, with what became of each.
+ */
+export async function approveBatch(pool: Pool, key: IssuingKey, common: Omit<Approval, "cabinetName" | "replacesCabinetId" | "scanner" | "sitePolicies">,
+  cabinets: { requestId: string; cabinet: string }[], userId: string, signing?: ListSigningKeys): Promise<BatchOutcome[]> {
+  const ids = cabinets.map(c => c.requestId.toLowerCase());
+  if (new Set(ids).size !== ids.length) throw new Refused("invalid_request", 400, "a cabinet is listed twice in the batch");
+  if (new Set(cabinets.map(c => c.cabinet.toLowerCase())).size !== cabinets.length) throw new Refused("invalid_request", 400, "two cabinets in the batch have the same name");
+  const outcomes: BatchOutcome[] = [];
+  let baseline = common.baseline;
+  for (const c of cabinets) {
+    try {
+      const r = await approveEnrollment(pool, key, c.requestId.toLowerCase(), { ...common, ...(baseline ? { baseline } : {}), cabinetName: c.cabinet }, userId, signing);
+      outcomes.push({ requestId: c.requestId.toLowerCase(), cabinet: c.cabinet, outcome: "approved", cabinetId: r.cabinetId.toLowerCase() });
+      if (baseline?.use === "attach") baseline = { use: "inherited" };
+    } catch (e) {
+      if (!(e instanceof Refused)) throw e;
+      outcomes.push({ requestId: c.requestId.toLowerCase(), cabinet: c.cabinet, outcome: "refused", error: e.code,
+        ...(typeof e.extra?.reason === "string" ? { reason: e.extra.reason } : {}) });
+    }
+  }
+  await transaction(pool, c => audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve_batch", targetKind: "enrollment", targetId: ids[0]!, outcome: "succeeded",
+    details: { requests: ids, client: common.clientName, site: common.siteName, role: common.role, baseline: common.baseline ?? null,
+      approved: outcomes.filter(o => o.outcome === "approved").length, refused: outcomes.filter(o => o.outcome === "refused").map(o => ({ requestId: o.requestId, error: (o as { error: string }).error })) } }));
+  return outcomes;
+}
+
 export async function rejectEnrollment(pool: Pool, requestId: string, userId: string): Promise<void> {
   await transaction(pool, async c => {
     const r = await c.query("UPDATE enrollment_requests SET status = 'rejected', decided_by = $2, decided_at = SYSUTCDATETIME() WHERE id = $1 AND status = 'pending'", [requestId, userId]);
