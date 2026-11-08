@@ -108,3 +108,16 @@ test("a batch that lists a cabinet twice, names two alike, is confirmed for othe
     assert.equal((await batch(bad)).status, 400, JSON.stringify(bad));
   assert.deepEqual([await status(a), await status(b)], ["pending", "pending"], "nothing was approved");
 });
+
+test("a refusal with no sentence of its own sends its code alone, never the server's log message (review of #188)", async () => {
+  const s = await newSite();
+  const { token } = await createBootstrapToken(db.app, ada.id, undefined, { siteId: s.siteId, role: "satellite", cabinets: 2 });
+  const [a, b] = [await enroll(token), await enroll(token)];
+  const base = { client: s.client, site: s.site, role: "satellite", baseline: { use: "inherited" } };
+  assert.equal((await batch({ ...base, cabinets: [{ requestId: a, cabinet: "Taken" }] })).status, 200);
+  const r = await batch({ ...base, cabinets: [{ requestId: b, cabinet: "Taken" }] });
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  const [o] = r.body.outcomes as Record<string, unknown>[];
+  assert.deepEqual([o!.outcome, o!.error, "reason" in o!], ["refused", "name_taken", false]);
+  assert.ok(!JSON.stringify(r.body).includes("already exists"), "the Refused message (for logs) is not in the answer");
+});

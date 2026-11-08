@@ -279,8 +279,12 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
   return result;
 }
 
-/** What became of one cabinet in a batch approval: approved, with its cabinet, or refused, with the code and the sentence the console shows. */
-export type BatchOutcome = { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string } | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason: string };
+/**
+ * What became of one cabinet in a batch approval: approved, with its cabinet, or refused, with the code and, when the refusal carries one,
+ * the sentence written for the person (`reason`). A Refused's message is for logs and never sent: without a reason, the console explains
+ * the code itself, as it does everywhere else (review of #188).
+ */
+export type BatchOutcome = { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string } | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason?: string };
 
 /**
  * Approves several pending cabinets at one client and site, with one role and one baseline decision (F6.R2, decision-log D36). Each is
@@ -302,8 +306,8 @@ export async function approveBatch(pool: Pool, key: IssuingKey, common: Omit<App
       if (baseline?.use === "attach") baseline = { use: "inherited" };
     } catch (e) {
       if (!(e instanceof Refused)) throw e;
-      const reason = typeof e.extra?.reason === "string" ? e.extra.reason : e.message;
-      outcomes.push({ requestId: c.requestId.toLowerCase(), cabinet: c.cabinet, outcome: "refused", error: e.code, reason });
+      outcomes.push({ requestId: c.requestId.toLowerCase(), cabinet: c.cabinet, outcome: "refused", error: e.code,
+        ...(typeof e.extra?.reason === "string" ? { reason: e.extra.reason } : {}) });
     }
   }
   await transaction(pool, c => audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve_batch", targetKind: "enrollment", targetId: ids[0]!, outcome: "succeeded",

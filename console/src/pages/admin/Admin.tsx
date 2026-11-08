@@ -8,6 +8,7 @@ import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
 import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
+import { refusalText, type BatchOutcome } from "../../lib/error-explanations";
 import { WatchListEditor } from "../cabinet/Services";
 import { TimeZoneEditor } from "../Fleet";
 import { InstallAgent, type SetupState } from "./Setup";
@@ -70,7 +71,6 @@ export function PendingCabinets() {
   );
 }
 
-type BatchOutcome = { requestId: string; cabinet: string; outcome: "approved"; cabinetId: string } | { requestId: string; cabinet: string; outcome: "refused"; error: string; reason: string };
 
 /**
  * Several cabinets of one site approved in one action (F6.R2): the cabinets ticked, one client, site and role, and one baseline decision,
@@ -113,7 +113,7 @@ function BatchApproval({ pending, onDone }: { pending: Pending[]; onDone: () => 
       </div>
       <button className="btn primary" disabled={!ready} onClick={() => { setProblem(null); setOutcomes(null); setConfirm(true); }}>Approve {cabinets.length || ""} {cabinets.length === 1 ? "cabinet" : "cabinets"}</button>
       {problem && <p className="error" role="alert">{problem}</p>}
-      {outcomes && <ul role="status">{outcomes.map(o => <li key={o.requestId}>{o.cabinet}: {o.outcome === "approved" ? <Badge tone="ok">Approved</Badge> : <><Badge tone="warn">Not approved</Badge> {o.reason}</>}</li>)}</ul>}
+      {outcomes && <ul role="status">{outcomes.map(o => <li key={o.requestId}>{o.cabinet}: {o.outcome === "approved" ? <Badge tone="ok">Approved</Badge> : <><Badge tone="warn">Not approved</Badge> {refusalText(o)}</>}</li>)}</ul>}
       <StepUpDialog open={confirm} action="enrollment.approve_batch" target="fleet" params={body} onClose={() => setConfirm(false)}
         description={<p>Approve {cabinets.length} {cabinets.length === 1 ? "cabinet" : "cabinets"} at {body.client} / {body.site} as {place.role} cabinets.</p>}
         onToken={async token => {
