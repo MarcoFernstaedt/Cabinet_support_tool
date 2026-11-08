@@ -7,6 +7,7 @@ import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { ingestAndEvaluate } from "./config-service.js";
+import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
 
@@ -180,6 +181,9 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1",
         [cabinetId, hw.manufacturer?.trim().slice(0, 200) || null, hw.model?.trim().slice(0, 200) || null]);
     }
+    // A service set to restart the computer when it fails is an alert, named; a reading with none closes it (F14.R3).
+    if (result.status === "succeeded" && command.operation === "services.list")
+      await checkServiceRecovery(c, cabinetId, (result.output as { services: ServiceWithRecovery[] }).services);
     // A configuration read on demand is stored like one the agent sent (verified, change-only), after this result is safely recorded.
     if (result.status === "succeeded" && command.operation === "config.snapshot") {
       const out = result.output as { takenAt: string; categories: { category: string; hash: string; truncated: boolean; items: unknown[] }[] };

@@ -28,6 +28,7 @@ export const ISSUE = {
   networkBaseline: "00000000-0000-4000-8000-000000000121",
   usbMissing: "00000000-0000-4000-8000-000000000122",
   diskSpace: "00000000-0000-4000-8000-000000000123",
+  serviceRebootRecovery: "00000000-0000-4000-8000-000000000127",
 } as const;
 
 /** What the engine knows about an event when it matches: the event as the agent sent it. */

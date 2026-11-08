@@ -131,7 +131,9 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                     && <> <button className="btn small ghost" data-tour={s.startType === "disabled" ? "start-type" : undefined} onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
-                  {s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>
+                  {s.recovery && [s.recovery.firstFailure, s.recovery.secondFailure, s.recovery.subsequentFailures].includes("reboot")
+                    ? <div><Badge tone="warn">Restarts the computer if it fails</Badge></div>
+                    : s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>
                 <td className="nowrap"><div className="row gap">
                   {canControl && s.startType !== "disabled" && s.state === "stopped" && <button className="btn small" onClick={() => ask(s, "start")}>Start</button>}
                   {canControl && s.state === "running" && <><button className="btn small" onClick={() => ask(s, "restart")}>Restart</button><button className="btn small" onClick={() => ask(s, "stop")}>Stop</button></>}

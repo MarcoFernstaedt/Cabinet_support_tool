@@ -37,6 +37,41 @@ The red check: with the order changed to newest first, tests 1 and 3 fail.
 
 ---
 
+## D43. A service set to restart the computer is a named, minor alert (2026-11-08)
+
+**What the code did** (F14.R3): `services.list` has always returned each service's recovery actions (`ServiceRecovery` in the agent's
+contracts). The Services tab showed only the first one, as muted text ("On failure: restart"). A "reboot" in the second or later
+actions was never shown at all, and nothing raised an alert. A service that keeps failing with such a setting restarts the cabinet over and
+over, and each restart then looks like a crash.
+
+**The decision** (mine, within the brief's "visible and alertable"):
+- **Raised from the reading.** When a `services.list` result is stored, a "reboot" in any of the three actions opens one alert per
+  cabinet: issue type `service_reboot_recovery` (migration 0027), **minor**, titled with the services, up to five and then how many more.
+  The check runs in the same transaction as the stored result.
+- **Minor, not major.** It is a setting that makes a failure worse, not a failure. Major alerts make the cabinet unhealthy; this should
+  not.
+- **The title follows the reading.** The alert fold keeps an open alert's first title, and this one lists names, so the service updates it.
+- **Closed when it is gone.** The next reading with none closes the alert automatically, through `closeAutomatically`, audited as
+  `alert.resolve` by `service-recovery` (F4).
+- **Visible.** The Services tab shows a warning badge, "Restarts the computer if it fails", for any of the three actions.
+
+**What it does not do yet.** The reading is on demand (the Services tab, a diagnosis). Making recovery actions part of the stored services
+configuration, so a change to them is drift and is seen without anyone looking, needs the agent's config builder (F14.R1, with the
+dependencies), and the agent cannot be built here.
+
+**How it was proven.** `server/test/service-reboot-recovery.test.ts`, through issue, take and store of a real `services.list` command:
+- A restart of the service itself opens nothing.
+- Two services with a reboot in any position open one minor alert of the new type naming both. The same setting seen again updates that
+  alert and its title.
+- A reading with none closes it, audited by `service-recovery` with `automatic: true`.
+- The title stops at five names.
+
+`audit-sweep.test.ts` still passes, so the close goes through the audited path.
+
+The red check: with the hook removed from `storeResult`, the first test fails.
+
+---
+
 ## D42. "Changed since healthy" also lists what changed and came back (2026-11-08)
 
 **What the code did** (F8.R3): `compareWithHealthy` in `cabinet-health.ts` skips a category whose version now equals the mark's, and
