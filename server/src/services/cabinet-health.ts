@@ -101,6 +101,24 @@ export async function healthFor(db: Queryable, cabinetId: string): Promise<Healt
   return { ...view, changesSinceHealthy: cmp ? cmp.changes.length : h.state === "healthy" ? 0 : null };
 }
 
+/**
+ * Last known healthy (F8.R1, decision-log D41): the one definition, read from the health evaluation that "changed since healthy" compares
+ * against. `now` when the cabinet is judged healthy; otherwise the last time it was, or, when it never was, why there is no time: it has
+ * not been evaluated, it has not reported its configuration, no approved baseline applies, or it was judged and never found healthy.
+ */
+export interface LastHealthy { now: boolean; at: string | null; reason: "not_evaluated" | "no_configuration" | "no_baseline" | "never_healthy" | null }
+
+export async function lastKnownHealthy(db: Queryable, cabinetId: string): Promise<LastHealthy> {
+  const h = (await db.query<{ state: HealthState; last_healthy_at: Date | null; reasons: Reason[] }>(
+    "SELECT state, last_healthy_at, reasons FROM cabinet_health WHERE cabinet_id = $1", [cabinetId])).rows[0];
+  if (!h) return { now: false, at: null, reason: "not_evaluated" };
+  const at = h.last_healthy_at?.toISOString() ?? null;
+  if (h.state === "healthy") return { now: true, at, reason: null };
+  if (at) return { now: false, at, reason: null };
+  const codes = new Set((Array.isArray(h.reasons) ? h.reasons : []).map(r => r.code));
+  return { now: false, at: null, reason: codes.has("no_configuration") ? "no_configuration" : codes.has("no_baseline") ? "no_baseline" : "never_healthy" };
+}
+
 export interface CategoryChange extends ItemChange { category: string }
 
 /** What differs between the last healthy mark and the configuration now, by category and item. */
