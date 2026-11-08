@@ -43,6 +43,42 @@ The red checks: without the transaction around the inserts, the third test fails
 
 ---
 
+## D38. Where a cabinet's settings come from: read, never copied (2026-11-08)
+
+**The decision** (F6.R5; mine, within the brief's requirement):
+- **Inherit by reading.** A new cabinet inherits every setting with a parent scope because every such setting is resolved when it is read,
+  cabinet → site → client (→ role or model where the setting has one) → fleet. Approval writes nothing of them onto the cabinet. This was
+  already how each setting worked; R5 proves it for all of them at once and shows it.
+- **One read, the enforcing resolvers.** `GET /api/cabinets/:id/setting-origins` lists, for each such setting, the level that applies,
+  every level that sets it, and any level whose stored value was refused. It calls the resolver each setting is enforced with
+  (`sitePolicy`, `siteTimeZone`, `syncPortsForSite`, `scannerLevels`, `watchLevels`, `appLevels`, `allowlistLevels`, `usbPolicyLevels`,
+  `approvedFor`), so the console cannot name one origin while the cabinet follows another.
+- **Shown where the settings are.** The Standards tab gains approved programs, file-facts paths and USB watch lines, the sync line says
+  where its ports come from, and each line's window names the other levels that set it and any refused one.
+
+**Why read and not copy.** A copy taken at approval goes stale the first time the site or client changes, and then the cabinet silently
+differs from its siblings. Reading keeps one value per level and makes a change at the site reach every cabinet there.
+
+**Why a refused level is shown.** A level whose stored list fails its own hash denies everything; it does not fall through to the level
+above. Showing it as "not set" would hide why a cabinet may do nothing.
+
+**Alternative.** Each tab reading its own setting's levels, as before. Rejected for the three settings with no line on the Standards tab,
+and because a new setting would have nowhere it must be added; the schema test below now makes that a failing test.
+
+**How it was proven.** `server/test/setting-origins.test.ts`:
+- With settings at the fleet, client and site, a cabinet approved through the real route follows each from the right level, and its own
+  columns stay empty.
+- A cabinet's own scanner IDs win; an empty site port list still overrides the fleet's; a damaged site approved-programs list and a damaged
+  client USB policy are reported as rejected.
+- The read needs a session and a live cabinet: no session 401, a bad or unknown id 404, a removed cabinet 404.
+- Every column on `clients` and `sites` is either a setting the read covers or on a short list of things that are not settings, so a new
+  column fails the test until it is added.
+`server/test/console-setting-origins-e2e.test.ts` opens the Standards tab in a real browser and checks the new lines and the refused note.
+
+The red checks: without the route, every test in the first file fails; with a setting left out of the read, the order check fails.
+
+---
+
 ## D37. Applying a site's standards: from its own cabinets, or copied from another site (2026-11-08)
 
 **The decision** (F6.R3; mine, within the brief): a site's standards are applied in one action, from one of two sources.

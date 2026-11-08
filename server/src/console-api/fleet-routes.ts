@@ -2,6 +2,7 @@
 import { boundTo } from "../auth/stepup.js";
 import { cabinetTime, fleetTimeZone, setClientTimeZone, setFleetTimeZone, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
 import { applySiteStandards, siteStandards, type StandardPart } from "../services/site-standards.js";
+import { settingOrigins } from "../services/setting-origins.js";
 import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
@@ -128,6 +129,12 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const t = await cabinetTime(o.pool, id(request));
     if (!t) throw new Refused("not_found", 404, "no such cabinet");
     return t;
+  });
+
+  /** Where each of a cabinet's settings with a parent scope comes from (F6.R5): the level that applies and every level that sets it. */
+  app.get("/api/cabinets/:id/setting-origins", async request => {
+    await o.guards.role(request, "tier1");
+    return { settings: await settingOrigins(o.pool, id(request)) };
   });
 
   /** What the site's standards could be, taken from what its cabinets report (nothing is saved). */
