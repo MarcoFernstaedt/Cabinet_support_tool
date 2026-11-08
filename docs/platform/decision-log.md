@@ -23,6 +23,8 @@ until someone opened the kinds list.
 - **Why major.** Blue screens are major alerts; a new one spreading is not less.
 - **Read through the alerts.** The pass reads only BugCheck 1001 events linked to a blue-screen alert (the filtered `events_alert` index),
   never a scan of all events, so its cost follows the number of crashes, not the fleet. No new table, column or stream.
+  Only the two sources the kinds list reads count (BugCheck and WER-SystemErrorReporting), so the pass and the list count the same
+  crashes even if another source is ever mapped to a blue screen (review of #206; the follow-up's test goes red without the filter).
 - **Its own resolution.** No alert carries a kind, so the minute sweep would resolve the pattern a minute after it opened. The sweep now
   leaves `crash:` keys to this pass, which resolves one once none of its cabinets has a blue-screen alert open. That is a second
   resolution path, the cost of not splitting blue-screen alerts by kind; splitting them would change every cabinet's crash alert and
