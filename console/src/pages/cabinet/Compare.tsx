@@ -6,7 +6,7 @@ import { useRunner } from "../../lib/commands";
 import { compareReadings, MAX_DIFFERENCES, type Difference, type Reading } from "../../lib/compare";
 import { Badge, Empty } from "../../components/ui";
 import { api, describeError } from "../../lib/api";
-import { categoryName, show } from "../../components/ConfigParts";
+import { categoryName, NOTHING_TO_COMPARE, show } from "../../components/ConfigParts";
 import type { CabinetDetail } from "./CabinetPage";
 
 const READS: [keyof Reading, string][] = [["info", "system.info"], ["net", "network.config"], ["firewall", "firewall.state"], ["services", "services.list"], ["drivers", "drivers.list"], ["updates", "updates.status"]];
@@ -31,8 +31,9 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
         setDiffs(r.drift.slice(0, MAX_DIFFERENCES).map(d => ({ area: categoryName(d.category), what: d.field ? `${d.itemKey} · ${d.field}` : d.itemKey,
           a: d.mode === "present" ? "Missing" : d.mode === "absent" ? "Present" : show(d.actual), b: d.mode === "present" ? "Present" : d.mode === "absent" ? "Not present" : show(d.expected) })));
       } else {
-        const r = await api<{ markId: number | null; changes: { category: string; key: string; change: string; fields: Record<string, { before: unknown; after: unknown }> }[]; unavailable: string[] }>("GET", `/api/cabinets/${cabinet.id}/compare-healthy`);
-        if (!r.markId) { setProblem("This cabinet has not been seen healthy yet, so there is nothing to compare with."); return; }
+        const r = await api<{ markId: number | null; changes: { category: string; key: string; change: string; fields: Record<string, { before: unknown; after: unknown }> }[]; unavailable: string[]; nothingToCompare?: string | null }>("GET", `/api/cabinets/${cabinet.id}/compare-healthy`);
+        // With nothing to compare, the reason why (F8.R5).
+        if (!r.markId || r.nothingToCompare === "versions_pruned") { setProblem(NOTHING_TO_COMPARE[r.nothingToCompare ?? "no_mark"] ?? NOTHING_TO_COMPARE.no_mark!); return; }
         setMissing(r.unavailable.map(categoryName));
         const rows: Difference[] = [];
         for (const c of r.changes) {

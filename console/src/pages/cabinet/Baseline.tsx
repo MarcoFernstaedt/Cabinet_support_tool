@@ -10,7 +10,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";
 import { Badge, Empty } from "../../components/ui";
 import { Pager, usePaged } from "../../components/Pager";
-import { CATEGORIES, categoryName, FieldChange, HEALTH_LABEL, HEALTH_TONE, Origin, show, WhenKnown, type FieldChanges, type Health } from "../../components/ConfigParts";
+import { CATEGORIES, categoryName, FieldChange, NOTHING_TO_COMPARE, HEALTH_LABEL, HEALTH_TONE, Origin, show, WhenKnown, type FieldChanges, type Health } from "../../components/ConfigParts";
 import type { CabinetDetail } from "./CabinetPage";
 
 interface Reason { code: string; text: string }
@@ -131,7 +131,7 @@ interface Since { markId: number | null; markedAt: string | null; changes: { cat
   changedAndBack?: { category: string; key: string; changes: number; lastAt: string }[]; interimComplete?: boolean }
 
 interface Ranked { category: string; key: string; change: string; at: string; exact: boolean; minutesFromProblem: number | null; violatesBaseline: boolean; viaPlatform: boolean }
-interface SinceAnswer { health: { state: string; problemFirstObserved: string | null }; drift: unknown[]; sinceMark: Since | null; changes: Ranked[]; changesFrom: string | null }
+interface SinceAnswer { health: { state: string; problemFirstObserved: string | null }; drift: unknown[]; sinceMark: Since | null; nothingToCompare: string | null; changes: Ranked[]; changesFrom: string | null }
 const NO_MARK: Since = { markId: null, markedAt: null, changes: [], unavailable: [], changedAndBack: [], interimComplete: true };
 
 /** "12 min before", "3 h after", "at the same time": where a change sits against the moment the problem was first observed. */
@@ -149,7 +149,8 @@ function SinceHealthy({ cabinetId }: { cabinetId: string }) {
   const paged = usePaged(data?.changes ?? []);
   if (problem) return <p className="error" role="alert">{problem}</p>;
   if (!data || !answer) return <p className="muted" role="status">Loading…</p>;
-  if (!data.markId) return <Empty>This cabinet has not been seen healthy, so there is nothing to compare with yet.</Empty>;
+  if (!data.markId || answer.nothingToCompare === "versions_pruned")
+    return <Empty>{NOTHING_TO_COMPARE[answer.nothingToCompare ?? "no_mark"] ?? NOTHING_TO_COMPARE.no_mark}</Empty>;
   return (<>
     <p className="muted">Compared with the configuration the cabinet had when it was last recorded healthy, {fullTime(data.markedAt)} ({ago(data.markedAt)}). A difference is a candidate to look at, not a proven cause.</p>
     {data.unavailable.length > 0 && <p className="notice warn">The older configuration of {data.unavailable.map(categoryName).join(", ")} is no longer kept, so it cannot be compared.</p>}
