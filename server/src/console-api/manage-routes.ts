@@ -8,6 +8,8 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 
 import * as admin from "../services/admin.js";
+import { Refused } from "../services/errors.js";
+import { importClientsAndSites, previewImport } from "../services/fleet-import.js";
 import * as users from "../services/users.js";
 import { listSecurityAlerts, openSecurityAlertCount, resolveSecurityAlert } from "../services/security.js";
 import { createSuppression, listSuppressions, renewSuppression } from "../services/rules.js";
@@ -120,6 +122,19 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
     const u = await asAdmin(request);
     const b = consoleBodies.siteCreate.parse(request.body);
     return reply.code(201).send({ id: await admin.createSite(o.pool, u.userId, b.clientId.toLowerCase(), b.name, boundTo(b.stepUpToken, b)) });
+  });
+
+  // Clients and sites in bulk (F6.R4): previewed without a code, imported with a code bound to the rows.
+  app.post("/api/admin/import/preview", async request => {
+    await asAdmin(request);
+    return previewImport(o.pool, consoleBodies.fleetImport.parse(request.body).rows);
+  });
+
+  app.post("/api/admin/import", async request => {
+    const u = await asAdmin(request);
+    const b = consoleBodies.fleetImport.parse(request.body);
+    if (!b.stepUpToken) throw new Refused("step_up_required", 403, "an import needs an authenticator code");
+    return importClientsAndSites(o.pool, u.userId, b.rows, boundTo(b.stepUpToken, b));
   });
 
   app.put("/api/admin/sites/:id", async request => {

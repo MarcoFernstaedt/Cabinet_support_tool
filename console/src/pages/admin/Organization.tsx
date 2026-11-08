@@ -1,7 +1,8 @@
 // Clients and sites (create, rename, remove), issue types (create, edit) and suppressions
 // (create with a reason, renew, disable) — docs/spec/06-console-spec.md "Admin screens".
 import { useState } from "react";
-import { api } from "../../lib/api";
+import { api, describeError } from "../../lib/api";
+import { parseImport, type ImportLine } from "../../lib/import-rows";
 import { Link } from "../../lib/router";
 import { fullTime } from "../../lib/time";
 import { Breadcrumbs } from "../../components/Layout";
@@ -49,6 +50,7 @@ export function ClientsAndSites() {
         <label className="field inline"><span>New client</span><input required maxLength={128} value={newClient} onChange={e => setNewClient(e.target.value)} /></label>
         <button className="btn primary" type="submit">Create client</button>
       </form>
+      <ImportClientsAndSites step={step} onImported={text => { setDone(text); reload(); }} />
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (data.length === 0 ? <Empty>No clients yet.</Empty> : paged.rows.map(c => (
         <section key={c.id} className="panel" aria-label={`Client ${c.name}`}>
@@ -83,6 +85,66 @@ export function ClientsAndSites() {
       <Pager {...paged} label="clients" />
       {step.dialog}
     </div>
+  );
+}
+
+interface PlannedRow { client: string; site: string; newClient: boolean; newSite: boolean }
+interface ImportPlan { rows: PlannedRow[]; newClients: number; newSites: number }
+
+/**
+ * Clients and sites in bulk (F6.R4): a pasted list (one line per site: client, site) is previewed against what exists, then imported with
+ * one authenticator code bound to exactly the previewed rows. What exists is used as it is, so the same list can be imported again.
+ */
+function ImportClientsAndSites({ step, onImported }: { step: ReturnType<typeof useStepUp>; onImported: (text: string) => void }) {
+  const [text, setText] = useState("");
+  const [rows, setRows] = useState<ImportLine[] | null>(null);
+  const [plan, setPlan] = useState<ImportPlan | null>(null);
+  const [lineProblems, setLineProblems] = useState<{ line: number; text: string }[]>([]);
+  const [problem, setProblem] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const preview = async () => {
+    setProblem(null); setPlan(null);
+    const parsed = parseImport(text);
+    setLineProblems(parsed.problems);
+    if (parsed.problems.length > 0 || parsed.rows.length === 0) { setRows(null); if (!parsed.rows.length && !parsed.problems.length) setProblem("Paste at least one line: client, site."); return; }
+    setBusy(true);
+    try { setPlan(await api<ImportPlan>("POST", "/api/admin/import/preview", { rows: parsed.rows })); setRows(parsed.rows); }
+    catch (e) { setProblem(describeError(e)); }
+    finally { setBusy(false); }
+  };
+  const doImport = () => {
+    if (!rows || !plan) return;
+    const body = { rows };
+    step.ask("fleet.import", "fleet", <p>Create {plan.newClients} {plan.newClients === 1 ? "client" : "clients"} and {plan.newSites} {plan.newSites === 1 ? "site" : "sites"} from the list.</p>,
+      async token => {
+        await api("POST", "/api/admin/import", { ...body, stepUpToken: token });
+        setText(""); setRows(null); setPlan(null);
+        onImported(`Imported ${plan.newClients} new ${plan.newClients === 1 ? "client" : "clients"} and ${plan.newSites} new ${plan.newSites === 1 ? "site" : "sites"}.`);
+      }, body);
+  };
+  return (
+    <details className="panel">
+      <summary><strong>Import clients and sites</strong></summary>
+      <p className="muted small">One line per site: the client, a comma (or a tab, pasted from a spreadsheet), then the site. Clients and sites that already exist are
+        kept as they are. Cabinets arrive by enrolling: make a site installer under <Link to="/admin/setup">Setup</Link> and approve them together under Pending cabinets.</p>
+      {/* Named by its caption alone: a label wrapping a textarea would also read out everything pasted into it. */}
+      <label className="field"><span id="import-list-label">Clients and sites</span>
+        <textarea aria-labelledby="import-list-label" rows={6} value={text} onChange={e => { setText(e.target.value); setPlan(null); setRows(null); }} placeholder={"Harbour Health, Pier\nHarbour Health, Dock 2"} /></label>
+      <div className="row gap"><button className="btn" disabled={busy || !text.trim()} onClick={preview}>Preview</button>
+        {plan && <button className="btn primary" disabled={busy || plan.newSites === 0} onClick={doImport}>Import</button>}</div>
+      {lineProblems.length > 0 && <div className="error" role="alert"><p>These lines need fixing before the list can be previewed:</p>
+        <ul className="plain">{lineProblems.map(p => <li key={p.line}>Line {p.line}: {p.text}</li>)}</ul></div>}
+      {problem && <p className="error" role="alert">{problem}</p>}
+      {plan && <>
+        <p role="status">{plan.newSites === 0 ? "Everything in the list already exists; there is nothing to import."
+          : `${plan.newClients} new ${plan.newClients === 1 ? "client" : "clients"} and ${plan.newSites} new ${plan.newSites === 1 ? "site" : "sites"} will be created.`}</p>
+        <table className="table">
+          <caption className="sr-only">What the import would do with each line</caption>
+          <thead><tr><th scope="col">Client</th><th scope="col">Site</th><th scope="col">Result</th></tr></thead>
+          <tbody>{plan.rows.map((r, i) => <tr key={i}><td>{r.client}{r.newClient && <> <Badge tone="info">New</Badge></>}</td><td>{r.site}</td>
+            <td>{r.newSite ? <Badge tone="ok">Will be created</Badge> : <Badge tone="off">Already exists</Badge>}</td></tr>)}</tbody>
+        </table></>}
+    </details>
   );
 }
 

@@ -69,6 +69,16 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "A setting the server needs for this is missing, so nothing was changed.",
     fix: "Ask whoever runs the server to set CONSOLE_SECRET_KEY as in deploy/README.md, then try again.",
   },
+  nothing_to_import: {
+    title: "Nothing to import",
+    detail: "Every client and site in the list already exists, so the import would create nothing.",
+    fix: "Add the new sites to the list, or leave it: everything in it is already set up.",
+  },
+  duplicate_row: {
+    title: "A site is listed twice",
+    detail: "The list names the same site of the same client on two lines (capitals do not make a different name).",
+    fix: "Remove one of the two lines and preview again.",
+  },
   nothing_to_apply: {
     title: "Nothing to apply",
     detail: "None of the chosen standards has a value to apply: the site's cabinets do not report it yet, or the other site does not set it.",
