@@ -104,7 +104,26 @@ export function isSignatureKey(key: string): boolean {
 /** The BugCheck sources that write the stop code; Kernel-Power 41 and EventLog 6008 say a restart was unexpected but not why. */
 const SOURCES = ["bugcheck", "microsoft-windows-wer-systemerrorreporting"];
 
-interface Crash { cabinetId: string; at: Date; sig: CrashSignature }
+export interface Crash { cabinetId: string; at: Date; sig: CrashSignature }
+
+/**
+ * BugCheck 1001 entries, ordered by cabinet then time, as one crash each. Windows logs one crash under both sources: an entry is the other
+ * half of the crash before it when it is the same cabinet and signature, from the other source, within 10 minutes, and that crash has not
+ * been paired yet; two real crashes minutes apart (a reboot loop) stay two. An entry with no stop code is not a crash of any kind.
+ */
+export function oneCrashEach(rows: readonly { cabinet_id: string; occurred_at: Date; message: string | null; src: string }[]): Crash[] {
+  const crashes: Crash[] = [];
+  const last = new Map<string, { at: Date; src: string; paired: boolean }>();
+  for (const r of rows) {
+    const sig = r.message ? crashSignature(r.message) : null;
+    if (!sig) continue;
+    const id = r.cabinet_id.toLowerCase(), k = `${id}|${sig.key}`, prev = last.get(k);
+    if (prev && !prev.paired && prev.src !== r.src && r.occurred_at.getTime() - prev.at.getTime() < BUG_CHECK_PAIR_MS) { prev.paired = true; continue; }
+    last.set(k, { at: r.occurred_at, src: r.src, paired: false });
+    crashes.push({ cabinetId: id, at: r.occurred_at, sig });
+  }
+  return crashes;
+}
 
 /** Blue screens in the window on active cabinets (optionally one client's), one per crash: Windows logs the same crash under both sources. */
 async function crashesIn(db: Queryable, f: { from: Date; to: Date; clientId?: string | undefined }): Promise<{ crashes: Crash[]; cabinets: Map<string, Population> }> {
@@ -120,18 +139,7 @@ async function crashesIn(db: Queryable, f: { from: Date; to: Date; clientId?: st
       WHERE e.occurred_at BETWEEN $1 AND $2 AND e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3))
         AND LOWER(JSON_VALUE(e.source, '$.source')) IN ($4, $5) AND TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) = 1001
       ORDER BY e.cabinet_id, e.occurred_at`, [f.from, f.to, [...cabinets.keys()], ...SOURCES])).rows;
-  const crashes: Crash[] = [];
-  // Windows logs one crash under both sources. An entry is the other half of the crash before it when it is the same cabinet and signature,
-  // from the other source, within 10 minutes, and that crash has not been paired yet; two real crashes minutes apart (a reboot loop) stay two.
-  const last = new Map<string, { at: Date; src: string; paired: boolean }>();
-  for (const r of rows) {
-    const sig = r.message ? crashSignature(r.message) : null;
-    if (!sig) continue;
-    const id = r.cabinet_id.toLowerCase(), k = `${id}|${sig.key}`, prev = last.get(k);
-    if (prev && !prev.paired && prev.src !== r.src && r.occurred_at.getTime() - prev.at.getTime() < BUG_CHECK_PAIR_MS) { prev.paired = true; continue; }
-    last.set(k, { at: r.occurred_at, src: r.src, paired: false });
-    crashes.push({ cabinetId: id, at: r.occurred_at, sig });
-  }
+  const crashes = oneCrashEach(rows);
   return { crashes, cabinets };
 }
 

@@ -4,6 +4,7 @@
 import { scheduleDailyJobs } from "./services/maintenance.js";
 import { OpsReporter } from "./services/ops-meter.js";
 import { scheduleOpsChecks } from "./services/ops-health.js";
+import { clusterNewCrashKinds } from "./services/crash-clusters.js";
 import { scheduleTroubleshootingJobs } from "./services/error-trends.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
@@ -135,6 +136,8 @@ if (runsServices) {
     checkQuietLoops(jobs).then(() => sweepCrashIncidents(jobs)).catch(failed("reboot loop and crash incident check"));
     // Health against the baselines: contact can lapse, and come back, with no event to trigger a judgement.
     sweepHealth(jobs).catch(failed("health sweep"));
+    // Hourly: a new kind of blue screen on 2 or more cabinets is its own fleet pattern (F17, D52).
+    if (minutes % 60 === 0) clusterNewCrashKinds(jobs).catch(failed("new crash kind check"));
     // Hourly: a security alert a week before an active cabinet's unrenewed certificate expires.
     if (minutes++ % 60 === 0) checkExpiringCertificates(jobs).catch(failed("certificate expiry check"));
   });
