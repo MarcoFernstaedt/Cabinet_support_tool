@@ -42,6 +42,36 @@ the guards in place.
 
 ---
 
+## D48. Firmware that differs from its model's expectation is a named, minor alert (2026-11-08)
+
+**What the code did** (F19.R7): the agent already reads the BIOS version and date into the `hardware` item of the `system` category,
+and baselines can already be approved for a model and expect any field of any item. So a model baseline expecting `biosVersion` already
+made a cabinet on other firmware drift. But drift only feeds health (and only a required item degrades it), and nothing raised an alert.
+Old or silently changed firmware stayed a line in a drift list, and the brief asks for "detect, alert, hand to a human".
+
+**The decision** (mine, within the brief):
+- **Raised from the drift.** When a cabinet's drift includes the hardware item's `biosVersion` or `biosDate`, one minor alert opens:
+  issue type `firmware_drift`, migration 0029. It reads "BIOS 1.12.0, expected 1.18.0; BIOS date …", and the title follows the latest
+  drift.
+- **Closed automatically.** When the drift clears, the alert closes through `closeAutomatically`, audited by `firmware-drift`.
+- **Minor, not major.** Firmware that differs is a risk to look at, not a failure. A required item in the baseline still degrades health
+  for whoever wants that.
+- **Equality, not "at least".** A newer, unplanned firmware is drift too: the brief names "silently changed" beside "old", and the fix for
+  an approved newer firmware is to approve it in the baseline.
+- **Never flashed.** The platform never updates firmware. A vendor's signed driver package installs like any other package.
+
+**How it was proven.** `server/test/firmware-drift.test.ts`, through the real baseline approval, ingest and drift:
+- A cabinet of the model on older firmware opens one minor alert naming both values. Reporting the expected firmware closes it, audited
+  by `firmware-drift`.
+- A cabinet that matched and then reported a newer, unplanned firmware opens it. A cabinet of a model with no baseline opens nothing.
+- The title shows "unknown" for a missing value.
+
+`baselines.test.ts` and `audit-sweep.test.ts` still pass.
+
+The red check: without the firmware check in the drift evaluation, tests 1 and 2 fail.
+
+---
+
 ## D47. A close found by the cabinet's reading names the fix it verifies, with before and after (2026-11-08)
 
 **What the code did** (F18.R1): an alert whose condition the cabinet's own reading shows gone was already closed by the platform, and the
