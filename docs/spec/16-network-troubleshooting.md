@@ -73,6 +73,7 @@ A diagnosis keeps everything it read (`diagnoses.readings`), whether or not anyt
 - the routing table and the ARP table;
 - five pings to the gateway, with loss, minimum, average, maximum and jitter, and a lookup through each DNS server;
 - a path to the platform server and one to the sync cabinet (`network.trace`).
+  A trace to the sync cabinet, like a connection test, is aimed only where the console's settings say: the server replaces any address the browser sends with the site's sync cabinet's, and drops it when there is none or the target is another kind (audit-network.md item 7). The agent still checks the address is private and on one of its own networks.
 
 `server/src/diagnose/network-observations.ts` turns that into findings that don't need a baseline. It flags a lease that has run out or ends within two hours, a non-standard MTU, error and discard counts, packet loss (a problem from 20%), slow or uneven replies, ARP entries that never completed, more than one default route, and whether the sync cabinet and the platform server can be reached. Each says what was seen and what it often means. None is a verdict.
 
