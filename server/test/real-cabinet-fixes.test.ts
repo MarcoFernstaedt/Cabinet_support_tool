@@ -49,11 +49,16 @@ async function realCabinet(client: string, site: string, name: string, scenario:
 
 let answering: NodeJS.Timeout | undefined;
 let inFlight: Promise<void> = Promise.resolve();
+let ticking = false;
 /** Stands in for the agent: takes what the server queued for each real cabinet and stores a schema-valid answer, as the agent API does. */
 function startAgents() {
   // The tick's promise is kept so teardown can wait for the one that is already running: a query left in flight when the
   // pool closes is an unhandled rejection that fails this whole file, not the test that was running.
-  answering = setInterval(() => { inFlight = (async () => {
+  // One tick at a time, as one agent polls. Started every 40 ms regardless, ticks overlapped (up to three at once even with this file
+  // alone, more under the full suite's load). Two takes for one cabinet in the same millisecond both see its commands (commands.ts,
+  // takeLeasedCommands: a real agent answers the repeat once), so two ticks answered one command; the second answer was refused
+  // (result_not_expected) after the file ended, and the file failed on that unhandled rejection.
+  answering = setInterval(() => { if (ticking) return; ticking = true; inFlight = (async () => {
     for (const c of real) {
       for (const cmd of await takeQueuedCommands(db.app, c.id)) {
         const subnet = "10.77.1", baseline = baselineFor(subnet);
@@ -63,7 +68,7 @@ function startAgents() {
         await storeResult(db.app, c.id, { commandId: cmd.commandId, status: "succeeded", startedAt, finishedAt: new Date().toISOString(), output: demoOutput(cmd.operation, cmd.params as Record<string, unknown>, ctx) } as never);
       }
     }
-  })(); }, 40);
+  })().finally(() => { ticking = false; }); }, 40);
 }
 
 test.before(async () => {
