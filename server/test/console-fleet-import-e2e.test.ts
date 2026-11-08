@@ -25,6 +25,8 @@ test("a pasted list is previewed, a bad line named, and the list imported with o
     page.on("console", m => { if (m.type() === "error" && !/status of 401/.test(m.text())) problems.push(m.text()); });
     await c.signIn(page);
     await page.goto(`${c.origin}/admin/clients`);
+    // The panel opens once the page has its clients, so a click is not lost to the page's first render.
+    await page.getByRole("region", { name: "Client Harbour Health" }).waitFor();
     await page.getByText("Import clients and sites").click();
     const box = page.getByLabel("Clients and sites", { exact: true });
     await box.fill("Client, Site\nHarbour Health, Pier\nHarbour Health, Dock 2\nOnly a client\n\"Smith, Jones Clinic\", North");

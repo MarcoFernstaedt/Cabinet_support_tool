@@ -127,8 +127,9 @@ function ImportClientsAndSites({ step, onImported }: { step: ReturnType<typeof u
       <summary><strong>Import clients and sites</strong></summary>
       <p className="muted small">One line per site: the client, a comma (or a tab, pasted from a spreadsheet), then the site. Clients and sites that already exist are
         kept as they are. Cabinets arrive by enrolling: make a site installer under <Link to="/admin/setup">Setup</Link> and approve them together under Pending cabinets.</p>
-      <label className="field"><span>Clients and sites</span>
-        <textarea rows={6} value={text} onChange={e => { setText(e.target.value); setPlan(null); setRows(null); }} placeholder={"Harbour Health, Pier\nHarbour Health, Dock 2"} /></label>
+      {/* Named by its caption alone: a label wrapping a textarea would also read out everything pasted into it. */}
+      <label className="field"><span id="import-list-label">Clients and sites</span>
+        <textarea aria-labelledby="import-list-label" rows={6} value={text} onChange={e => { setText(e.target.value); setPlan(null); setRows(null); }} placeholder={"Harbour Health, Pier\nHarbour Health, Dock 2"} /></label>
       <div className="row gap"><button className="btn" disabled={busy || !text.trim()} onClick={preview}>Preview</button>
         {plan && <button className="btn primary" disabled={busy || plan.newSites === 0} onClick={doImport}>Import</button>}</div>
       {lineProblems.length > 0 && <div className="error" role="alert"><p>These lines need fixing before the list can be previewed:</p>

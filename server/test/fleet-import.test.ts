@@ -69,7 +69,8 @@ test("a list is previewed, then imported in one action: new clients and sites ar
   assert.ok(ids.every((x: unknown) => typeof x === "string"), "every row says which site it is");
   const actions = (await db.app.query<{ action: string; details: { via?: string } }>(
     "SELECT action, details FROM audit_log WHERE actor_id = $1 AND action IN ('client.create', 'site.create', 'fleet.import') ORDER BY seq", [ada.id])).rows;
-  assert.deepEqual(actions.map(x => x.action), ["client.create", "site.create", "site.create", "site.create", "fleet.import"]);
+  // In the order of the rows: Harbour's new Dock 2, then the new Inland client and its two sites, then the import's own entry.
+  assert.deepEqual(actions.map(x => x.action), ["site.create", "client.create", "site.create", "site.create", "fleet.import"]);
   assert.ok(actions.slice(0, 4).every(x => x.details.via === "import"));
 
   // The same list again creates nothing, and says so; extended by one row, only that row is created.
