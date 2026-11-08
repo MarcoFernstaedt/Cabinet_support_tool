@@ -6,6 +6,36 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D47. A close found by the cabinet's reading names the fix it verifies, with before and after (2026-11-08)
+
+**What the code did** (F18.R1): an alert whose condition the cabinet's own reading shows gone was already closed by the platform, and the
+close was audited (F4). The time zone, clock, firewall policy, service watch and network baseline checks all work this way. The
+platform writes that fix those issues already return their before and after (`time.setZone`, `firewall.applyPolicy`, `service.control`,
+`network.setDns`, and so on). But nothing joined the two: the audit said "closed automatically", never "closed because the zone change
+person X made at 10:02 took, from Pacific to Eastern".
+
+**The decision** (mine, within the brief):
+- **Joined in the one closing path.** `closeAutomatically`, which every automatic close goes through, looks up the fix for each closed
+  alert: the newest successful platform write of an operation that fixes that issue type, on that cabinet, since the alert opened.
+- **What the audit records.** The entry's `verifiedFix` carries the command, operation, who, when, and before and after from the write's
+  own result. `time.sync` gives the last successful syncs.
+- **No credit without a fix.** `verifiedFix` is null when nothing the platform did since the alert opened explains the close, so a
+  cabinet that put itself right is never shown as fixed by someone.
+- **Why since the alert opened.** A write from before the alert did not fix it; crediting it would be wrong.
+- **Bounded.** At most 100 closes in one call look the fix up (one indexed read each). A fleet-wide sweep that closes more audits the
+  rest without it.
+
+**How it was proven.** `server/test/verified-fix.test.ts`, through the real time check:
+- A cabinet in the wrong zone opens the alert. A `time.setZone` the platform ran, then the cabinet's next reading showing the site's
+  zone, closes it. The audit names `time.setZone`, the person, and Pacific → Eastern.
+- A cabinet that put itself right is closed with `verifiedFix: null`. A write from an hour before the alert opened is not credited.
+
+`audit-sweep.test.ts` still passes.
+
+The red check: with the lookup removed, the first test fails.
+
+---
+
 ## D45. "Nothing to compare" always says why (2026-11-08)
 
 **What the code did** (F8.R5): with no healthy mark, `/compare-healthy` returned an empty answer, and both tabs said "This cabinet has not

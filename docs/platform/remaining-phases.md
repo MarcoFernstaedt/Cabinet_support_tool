@@ -341,7 +341,7 @@ changes it with the behaviour.
 | 7 | The chain under the workload: database, its error log, the monitoring agent | F15 | Open |
 | 8 | Process history: trends, leak and wedge, tree, holder | F13 | Open |
 | 9 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | F16 | Open |
-| 10 | Fixes carried, verified, fleet-run; the watchdog | F18 | Open |
+| 10 | Fixes carried, verified, fleet-run; the watchdog | F18 | R1 a close found by the reading names the fix it verifies, with before and after (D47). Open: R2 (#199), R3 the watchdog (agent) |
 | 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | Open |
 | 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
 | 13 | Sharpening the two no-expectation detectors | F17 | Open |
