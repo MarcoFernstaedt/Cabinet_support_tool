@@ -77,7 +77,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   firewall_changes: { owner: "services/commands.ts", also: ["demo/demo.ts", "services/events.ts"] },
   fleet_job_targets: { owner: "services/fleet-jobs.ts", also: ["demo/demo.ts"] },
   fleet_jobs: { owner: "services/fleet-jobs.ts", also: ["demo/demo.ts"] },
-  fleet_patterns: { owner: "services/fleet-patterns.ts", also: ["services/crash-clusters.ts"] },
+  fleet_patterns: { owner: "services/fleet-patterns.ts", also: [] },
   health_hourly: { owner: "services/maintenance.ts", also: [] },
   health_samples: { owner: "services/cabinets.ts", also: ["demo/demo.ts", "services/maintenance.ts", "services/readings.ts"] },
   health_transitions: { owner: "services/cabinet-health.ts", also: [] },

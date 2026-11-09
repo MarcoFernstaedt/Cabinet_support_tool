@@ -31,6 +31,43 @@ transaction as before, so behaviour is unchanged.
 
 ---
 
+## D65. The first cross-module write paid down: every write to fleet_patterns goes through its owner (2026-11-09)
+
+**What the code did:** `fleet_patterns` is owned by `services/fleet-patterns.ts` (D56), but `services/crash-clusters.ts` opened,
+counted up and resolved its own patterns with its own SQL. The same three writes appeared twice more inside the owner, in the
+minute sweep and the rising-errors pass, each with its own copy of the insert, the audit, the alarm and the notification.
+
+**The decision** (F21.R2; the shape is mine):
+- **Three writers in the owner:**
+  - `openPattern`: insert, audit `fleet_pattern.open`, ring if it deserves to (D25), notify every console.
+  - `countUpPattern`: counts only grow while the pattern is open, and a major reading makes it major.
+  - `resolvePattern`: resolve one by id, audit, notify.
+- **All three callers use them:** the sweep, the rising errors and the new-kind pass. Behaviour is unchanged. The sweep's own
+  bulk resolve, which runs one statement over many patterns, stays as it is, inside the owner.
+- **Input checked at the boundary**, before anything is written:
+  - a key of 1 to 450 characters;
+  - a title of 1 to 300;
+  - major or minor;
+  - counts that are whole numbers from 1;
+  - real times.
+- **Each write can be repeated safely.** A second open of the same key returns null and writes nothing (the unique key on open
+  patterns). A second resolve does nothing and audits nothing. Counting up a resolved pattern finds none open.
+- `crash-clusters.ts` comes off the debt list in `table-owners.ts`, which now holds 107 cross-module writes. The ownership test fails
+  if it is listed again without a write.
+
+**Proven by:**
+- `fleet-patterns.test.ts`, "the pattern writers": 13 malformed or hostile inputs are refused with nothing written; a repeated open,
+  count-up and resolve behave as above, with one audit row each. It fails without the input check, and fails without the
+  duplicate-open handling.
+- `table-ownership.test.ts` fails with `crash-clusters.ts` still listed ("no longer writes fleet_patterns").
+- The existing fleet-pattern, crash-cluster and rising-error tests pass unchanged, 18 of 18.
+- The full suite run for this change caught a race in `fleet-patterns.test.ts` itself. It swept straight after storing events, while the
+  background check that storing events asks for (`checkFleetSoon`) could run at the same moment. The losing sweep counts nothing
+  until the next one, so it read 50 occurrences against 51. The race is on main too; in service the next minute's sweep counts the
+  difference. Every sweep in that test now waits for the background check first (`fleetCheckSettled`), as one already did.
+
+---
+
 ## D64. A network diagnosis settles its baseline alert before it says it is done (2026-11-09)
 
 **What the code did:** `run` in `server/src/diagnose/network.ts` (lines 182 to 183) wrote the diagnosis as done, then raised or closed the

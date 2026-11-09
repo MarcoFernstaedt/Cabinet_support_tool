@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { storeEvents } from "../src/services/events.js";
-import { fleetCheckSettled, fleetPatternReport, listFleetPatterns, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
+import { countUpPattern, fleetCheckSettled, fleetPatternReport, listFleetPatterns, openPattern, resolvePattern, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
 import { upsertSetting } from "../src/services/settings.js";
 import { ISSUE } from "../src/services/rules.js";
 import { transaction } from "../src/db/db.js";
@@ -41,6 +41,11 @@ const appError = (minutesAgo: number) => ({ eventId: randomUUID(), kind: "error"
 const driverInstall = (minutesAgo: number) => ({ eventId: randomUUID(), kind: "change" as const, occurredAt: iso(minutesAgo), severityHint: "minor" as const,
   source: { log: "System" as const, source: "Microsoft-Windows-UserPnp", eventId: 20001, level: "information" as const, recordId: rec++ },
   detail: { message: "Driver Management concluded the process to install driver contoso_usb_9.2.inf for Device Instance ID USB\\VID_1234&PID_9999\\1 with the following status: 0x0." } });
+/**
+ * A sweep once the background check that storing events asks for (checkFleetSoon) has run: run side by side, the test's sweep and that
+ * check race to open the same pattern, and the one that loses counts nothing until the next sweep, so exact counts read too low.
+ */
+const sweep = async () => { await fleetCheckSettled(); return sweepFleetPatterns(db.app); };
 const patternsFor = async (title: string) => (await listFleetPatterns(db.app)).filter(p => p.title.includes(title));
 
 test("50 of 100 sites showing one error after the same driver install: one fleet alert, the driver named as what they have in common", async () => {
@@ -50,7 +55,7 @@ test("50 of 100 sites showing one error after the same driver install: one fleet
   for (let s = 50; s < 60; s++) await storeEvents(db.app, f.cabinets[s]![0]!, { events: [driverInstall(180)] });
   // The same error again on one cabinet folds into its alert; it does not count as another site.
   await storeEvents(db.app, f.cabinets[0]![0]!, { events: [appError(5)] });
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const found = await patternsFor("Contoso Pharmacy Bridge event 7101");
   assert.equal(found.length, 1, JSON.stringify((await listFleetPatterns(db.app)).map(p => p.title)));
   const p = found[0]!;
@@ -59,7 +64,7 @@ test("50 of 100 sites showing one error after the same driver install: one fleet
   assert.equal(p.resolvedAt, null);
   // A second sweep counts it up; it never makes a second pattern.
   for (let s = 50; s < 55; s++) await storeEvents(db.app, f.cabinets[s]![0]!, { events: [appError(3)] });
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const again = await patternsFor("Contoso Pharmacy Bridge event 7101");
   assert.equal(again.length, 1);
   assert.equal(again[0]!.sites, 55);
@@ -79,7 +84,7 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   const loop = async (k: string) => db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, $2, 'major', 'reboot_loop', 'Restarting repeatedly (possible reboot loop): 3 starts within an hour', DATEADD(minute, -30, SYSUTCDATETIME()), SYSUTCDATETIME(), 3, 'fleet')`, [k, ISSUE.rebootLoop]);
   for (let s = 0; s < 60; s++) for (const k of f.cabinets[s]!) await loop(k);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const loops = await patternsFor("Restarting repeatedly");
   assert.equal(loops.length, 1);
   assert.deepEqual([loops[0]!.sites, loops[0]!.cabinets], [60, 120], "two cabinets at a site are one site");
@@ -89,11 +94,11 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   // Four sites with a new problem: below the threshold.
   for (let s = 60; s < 64; s++) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, $2, 'minor', $3, 'Clock out of step', SYSUTCDATETIME(), SYSUTCDATETIME(), 9, 'fleet')`, [f.cabinets[s]![0], ISSUE.clock, `issue:${ISSUE.clock}`]);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   assert.equal((await patternsFor("Clock out of step")).length, 0, "4 sites stay ordinary alerts");
   // An Admin lowers the threshold to 3 sites: now it is one.
   await transaction(db.app, c => upsertSetting(c, "alerts.fleetPatternSites", 3, null));
-  await sweepFleetPatterns(db.app);
+  await sweep();
   assert.equal((await patternsFor("Clock out of step")).length, 1);
   assert.equal((await patternsFor("Clock out of step"))[0]!.alarmedAt, null, "a minor one at 3 sites is listed, not rung");
   await transaction(db.app, c => upsertSetting(c, "alerts.fleetPatternSites", 5, null));
@@ -103,7 +108,7 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   // the pattern itself and leave this sweep nothing to do (seen under load in review of #181).
   await fleetCheckSettled();
   await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE issue_type_id = $1", [ISSUE.rebootLoop]);
-  const r = await sweepFleetPatterns(db.app);
+  const r = await sweep();
   assert.ok(r.resolved >= 1);
   const after = await patternsFor("Restarting repeatedly");
   assert.equal(after.length, 1);
@@ -113,7 +118,7 @@ test("60 sites in reboot loops at once are one fleet alert; four sites are not; 
   assert.deepEqual(audits, ["fleet_pattern.open", "fleet_pattern.alarm", "fleet_pattern.resolve"]);
   // The next sweeps still see those alerts within the look-back window, resolved: they are what the pattern was, not a new one. Nothing
   // opens again, so no alarm rings again and no console is told of a "new" fleet pattern every minute after the fleet recovered.
-  for (let i = 0; i < 2; i++) assert.equal((await sweepFleetPatterns(db.app)).opened, 0, "a resolved pattern's alerts do not open it again");
+  for (let i = 0; i < 2; i++) assert.equal((await sweep()).opened, 0, "a resolved pattern's alerts do not open it again");
   assert.equal((await patternsFor("Restarting repeatedly")).length, 1);
   assert.deepEqual((await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_kind = 'fleet_pattern' AND target_id = $1 ORDER BY seq", [after[0]!.id])).rows.map(a => a.action),
     audits, "its trail is the same: it did not open, ring or resolve again");
@@ -123,14 +128,14 @@ test("alerts older than the window and demo cabinets never make a real fleet pat
   const f = await fleet(8);
   for (let s = 0; s < 8; s++) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, NULL, 'minor', 'unrecognized:System|old source|1', 'Old error', DATEADD(day, -3, SYSUTCDATETIME()), DATEADD(day, -2, SYSUTCDATETIME()), 1, 'fleet')`, [f.cabinets[s]![0]]);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   assert.equal((await patternsFor("Old error")).length, 0, "two days old is outside the 24 hours");
   // Three real sites and three demo sites with the same problem: neither side reaches 5.
   const g = await fleet(6);
   for (let s = 0; s < 3; s++) await db.app.query("UPDATE cabinets SET demo_scenario = 'healthy' WHERE id = $1", [g.cabinets[s]![0]]);
   for (let s = 0; s < 6; s++) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, NULL, 'minor', 'unrecognized:System|mixed|2', 'Mixed error', SYSUTCDATETIME(), SYSUTCDATETIME(), 1, 'fleet')`, [g.cabinets[s]![0]]);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   assert.equal((await patternsFor("Mixed error")).length, 0);
   assert.equal(await fleetPatternReport(db.app, randomUUID()), null);
 });
@@ -142,7 +147,7 @@ test("5 real sites and 5 demo sites with one error are two patterns, each with i
   const raise = (k: string) => db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, NULL, 'minor', $2, 'Split probe error', SYSUTCDATETIME(), SYSUTCDATETIME(), 2, 'fleet')`, [k, sig]);
   for (const ks of [...real.cabinets, ...demo.cabinets]) await raise(ks[0]!);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const found = await patternsFor("Split probe error");
   assert.equal(found.length, 2, "the demo fleet is a pattern of its own");
   for (const p of found) {
@@ -160,7 +165,7 @@ test("5 real sites and 5 demo sites with one error are two patterns, each with i
   // Resolving the real alerts resolves the real pattern only; the demo one stays open while its alerts are.
   await db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1 AND cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2))",
     [sig, JSON.stringify([...realIds])]);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const after = await patternsFor("Split probe error");
   const byId = new Map(after.map(p => [p.id, p]));
   const realId = found[reports.findIndex(r => r!.cabinets.every(c => realIds.has(c.id)))]!.id;
@@ -174,7 +179,7 @@ test("incident response: the report counts who has recovered and who has not, an
   const sig = `unrecognized:System|recovery probe ${randomBytes(3).toString("hex")}|3`;
   for (const ks of f.cabinets) for (const k of ks) await db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
       VALUES ($1, NULL, 'major', $2, 'Recovery probe', DATEADD(hour, -3, SYSUTCDATETIME()), SYSUTCDATETIME(), 1, 'fleet')`, [k, sig]);
-  await sweepFleetPatterns(db.app);
+  await sweep();
   const p = (await patternsFor("Recovery probe"))[0]!;
   let r = (await fleetPatternReport(db.app, p.id))!;
   assert.deepEqual([r.recovered, r.stillAffected], [0, 12]);
@@ -214,28 +219,57 @@ test("alarm level (D25): a major pattern rings when it opens; a minor one is lis
   try {
     await raise(5, "major", `Major ${tag}`);
     await raise(5, "minor", `Minor ${tag}`);
-    await sweepFleetPatterns(db.app);
+    await sweep();
     const major = (await patternsFor(`Major ${tag}`))[0]!, minor = (await patternsFor(`Minor ${tag}`))[0]!;
     assert.ok(major.alarmedAt, "a major one rings at once");
     assert.equal(minor.alarmedAt, null, "a minor one at 5 sites is listed, not rung");
     assert.equal(Number(await rang(minor.id)), 0);
     // It spreads to 7 sites: still quiet. Then to 8: it rings, once.
     await raise(2, "minor", `Minor ${tag}`);
-    await sweepFleetPatterns(db.app);
+    await sweep();
     assert.equal((await patternsFor(`Minor ${tag}`))[0]!.alarmedAt, null);
     await raise(1, "minor", `Minor ${tag}`);
-    await sweepFleetPatterns(db.app);
-    await sweepFleetPatterns(db.app);
+    await sweep();
+    await sweep();
     const now = (await patternsFor(`Minor ${tag}`))[0]!;
     assert.equal(now.id, minor.id, "the same pattern, now ringing");
     assert.ok(now.alarmedAt);
     assert.equal(Number(await rang(minor.id)), 1, "it rings once, not at every sweep");
     // Raising the level afterwards does not silence an alarm already rung.
     await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 500, null));
-    await sweepFleetPatterns(db.app);
+    await sweep();
     assert.equal((await patternsFor(`Minor ${tag}`))[0]!.alarmedAt, now.alarmedAt);
     assert.equal(Number(await rang(major.id)), 1);
   } finally {
     await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 20, null));
   }
+});
+
+test("the pattern writers (F21.R2, D65): input is checked before anything is written, and each can be repeated safely", async () => {
+  const key = `test:${randomUUID()}`, at = new Date(Date.now() - 60_000);
+  const base = { key, issueTypeId: null, title: "Fleet pattern: a test", severity: "minor", clients: 1, sites: 3, cabinets: 4, occurrences: 9, firstSeen: at, lastSeen: at };
+  const rows = async () => (await db.app.query<{ id: string; sites: number; occurrences: number; resolved: number }>(
+    "SELECT id, sites, occurrences, CASE WHEN resolved_at IS NULL THEN 0 ELSE 1 END AS resolved FROM fleet_patterns WHERE pattern_key = $1", [key])).rows;
+  const audits = async (id: string) => (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [id])).rows.map(r => r.action);
+  // Refused before the database: a missing or overlong key or title, a severity that is neither, counts that are not whole numbers from 1, a time that is not one.
+  for (const bad of [{ key: "" }, { key: "k".repeat(451) }, { title: "" }, { title: "t".repeat(301) }, { severity: "critical" }, { severity: "major'; DROP TABLE fleet_patterns; --" },
+    { sites: -1 }, { sites: 0 }, { cabinets: 1.5 }, { occurrences: Number.NaN }, { clients: "2" }, { firstSeen: new Date("not a date") }, { lastSeen: "yesterday" }])
+    await assert.rejects(openPattern(db.app, { ...base, ...bad } as never, {}, 99), /fleet pattern/, JSON.stringify(bad));
+  await assert.rejects(countUpPattern(db.app, key, { clients: 1, sites: -2, cabinets: 1, occurrences: 1, lastSeen: at }), /fleet pattern/);
+  assert.deepEqual(await rows(), [], "nothing was written");
+  // Opened once: a second open of the same key finds it open and writes nothing more.
+  const id = (await openPattern(db.app, base, { key }, 99))!;
+  assert.ok(id);
+  assert.equal(await openPattern(db.app, base, { key }, 99), null);
+  assert.equal((await rows()).length, 1);
+  assert.deepEqual(await audits(id), ["fleet_pattern.open"]);
+  // Counts only grow while it is open.
+  assert.equal(await countUpPattern(db.app, key, { clients: 1, sites: 2, cabinets: 2, occurrences: 20, lastSeen: new Date() }), true);
+  assert.deepEqual((await rows()).map(r => [Number(r.sites), Number(r.occurrences)]), [[3, 20]]);
+  // Resolved once: a second resolve does nothing and audits nothing; counting up a resolved pattern finds none open.
+  assert.equal(await resolvePattern(db.app, id), true);
+  assert.equal(await resolvePattern(db.app, id), false);
+  assert.deepEqual(await audits(id), ["fleet_pattern.open", "fleet_pattern.resolve"]);
+  assert.equal(await countUpPattern(db.app, key, { clients: 9, sites: 9, cabinets: 9, occurrences: 99, lastSeen: new Date() }), false);
+  assert.deepEqual((await rows()).map(r => [Number(r.sites), Number(r.resolved)]), [[3, 1]]);
 });
