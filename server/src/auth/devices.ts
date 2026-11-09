@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { isUniqueViolation, type Queryable } from "../db/db.js";
 import { networkOf, raiseSecurityAlert } from "../services/security.js";
+import { addSignIn } from "./sessions.js";
 
 export const DEVICE_MAX_AGE_SECONDS = 400 * 24 * 3600;
 const DEVICE_VALUE = /^[A-Za-z0-9_-]{43}$/;
@@ -66,8 +67,6 @@ export async function recordSignIn(db: Queryable, a: { userId: string; username:
   if (newDevice)
     await raiseSecurityAlert(db, { kind: "new_device", signature: `new_device|${a.userId}|${hashDevice(value).toString("hex").slice(0, 16)}`, userId: a.userId,
       title: `${a.username} signed in from a device not used before (${label})`, detail: { device: label, network, address: a.address } });
-  const id = (await db.query<{ id: string }>(
-    "INSERT INTO sign_ins (user_id, address, network, device_label, new_network, new_device) OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6)",
-    [a.userId, a.address.slice(0, 64), network, label, newNetwork, newDevice])).rows[0]!.id;
-  return { signInId: Number(id), deviceValue: value, newNetwork, newDevice };
+  const signInId = await addSignIn(db, { userId: a.userId, address: a.address.slice(0, 64), network, deviceLabel: label, newNetwork, newDevice });
+  return { signInId, deviceValue: value, newNetwork, newDevice };
 }

@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #226)
+## Where it stands (2026-11-09, after #227)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -12,7 +12,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F17: all five requirements, D50 to D54.
 - F18.R1 and R2.
 - F19.R7.
-- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67) and `notifications` (#226, D68) through their owners, and the ownership reader now sees writes with a row limit (#224).
+- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67), `notifications` (#226, D68) and `issue_types` (#227, D69) through their owners, and the ownership reader now sees writes with a row limit (#224).
 - A network diagnosis settles its baseline alert before it says it is done, found in review of #219 (#222, D64).
 - F21.R3: the cabinets' ingest and the console run apart when asked to (SERVER_ROLES, #218, D60).
 - F21.R4, first view: the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (#219, D61).
@@ -26,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, fifth paydown: the Admin's create and edit of `issue_types` go through rules.ts, its owner, with the rule path (D69). 117 cross-module writes are left on the debt list.
+**In review:** F21.R2, sixth paydown: `sign_ins` and `user_devices`, each written by the other auth module, go through their owners (D70). 115 cross-module writes are left on the debt list.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 117 listed cross-module writes behind their owners (fleet_patterns D65, config_changes D66, enrollment_baselines D67 and notifications D68 done, issue_types in review D69; 14 of them are the retention sweeps in maintenance.ts), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 115 listed cross-module writes behind their owners (fleet_patterns D65, config_changes D66, enrollment_baselines D67 and notifications D68 and issue_types D69 done; sign_ins and user_devices D70 in review; 14 of them are the retention sweeps in maintenance.ts), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |

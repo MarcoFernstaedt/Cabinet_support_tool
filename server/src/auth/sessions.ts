@@ -2,6 +2,7 @@
 // (docs/spec/02-security-model.md control 6).
 import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
+import { forgetTrustedDevices } from "./devices.js";
 
 export type Stage = "totp" | "totp_setup" | "password_change" | "complete";
 export { SESSION_COOKIE as COOKIE } from "./cookies.js";
@@ -59,7 +60,7 @@ export const endSession = (db: Queryable, sessionHash: Buffer) => db.query("DELE
 /** Ends every session of a user: after a password or authenticator reset, or disabling the account. */
 /** Ends every session of the account and forgets the browsers it was trusted on: each must pass the full sign-in again. */
 export const endAllSessions = async (db: Queryable, userId: string) => {
-  await db.query("UPDATE user_devices SET trusted_at = NULL WHERE user_id = $1 AND trusted_at IS NOT NULL", [userId]);
+  await forgetTrustedDevices(db, userId);
   return db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
 };
 
@@ -74,3 +75,22 @@ export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePas
 
 export const policyFrom = (s: { sessionIdleMinutes: number; sessionAbsoluteHours: number }): SessionPolicy =>
   ({ idleMinutes: s.sessionIdleMinutes, absoluteHours: s.sessionAbsoluteHours });
+
+// ---- The record of sign-ins (F21.R2, decision-log D70) -------------------------------------------------------------------------------
+// Every row of sign_ins is written here: devices.ts works out whether the network and device are new, and records the sign-in through
+// this function; setStage marks it complete. What it is given is checked against the table's own rules first.
+
+export interface SignInRow { userId: string; address: string; network: string; deviceLabel: string; newNetwork: boolean; newDevice: boolean }
+const USER_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const text = (v: unknown, max: number) => typeof v === "string" && v.length >= 1 && v.length <= max;
+
+/** Records one sign-in that got past the password and returns its id. Each call is one sign-in, so each records a row of its own. */
+export async function addSignIn(db: Queryable, r: SignInRow): Promise<number> {
+  if (typeof r?.userId !== "string" || !USER_ID.test(r.userId)) throw new Error("a sign-in needs the user's id");
+  if (!text(r.address, 64) || !text(r.network, 64) || !text(r.deviceLabel, 120)) throw new Error("a sign-in's address and network are 1 to 64 characters, its device 1 to 120");
+  if (typeof r.newNetwork !== "boolean" || typeof r.newDevice !== "boolean") throw new Error("a sign-in says whether its network and device are new");
+  const id = (await db.query<{ id: string }>(
+    "INSERT INTO sign_ins (user_id, address, network, device_label, new_network, new_device) OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6)",
+    [r.userId, r.address, r.network, r.deviceLabel, r.newNetwork, r.newDevice])).rows[0]!.id;
+  return Number(id);
+}

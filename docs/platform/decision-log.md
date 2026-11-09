@@ -6,6 +6,41 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D70. sign_ins and user_devices: each auth module stops writing the other's table (2026-11-09)
+
+**What the code did:** the two sign-in tables are owned by two modules (D56), and each wrote the other's:
+- **`sign_ins`** is owned by `auth/sessions.ts`, but `auth/devices.ts` inserted the row in `recordSignIn` (line 69 before this change).
+- **`user_devices`** is owned by `auth/devices.ts`, but `endAllSessions` in `auth/sessions.ts` cleared every trusted browser of the
+  account with its own `UPDATE` (line 62). That was the same statement as `forgetTrustedDevices` in the owner, with nothing kept.
+
+**The decision** (F21.R2):
+- **`sign_ins`:** the insert moves into `sessions.ts` as `addSignIn`. Before anything is written, it checks the input against the
+  table's own rules:
+  - the user's id;
+  - an address and a network of 1 to 64 characters;
+  - a device label of 1 to 120 characters;
+  - the two new-or-not flags as booleans.
+  Each call is one sign-in, so each records a row of its own; that is the table's purpose, not a repeat to suppress.
+- **`user_devices`:** `endAllSessions` calls `forgetTrustedDevices(db, userId)`, so the owner's statement does the work. It is safe to
+  repeat: a browser already forgotten stays forgotten.
+- The two modules now import each other, as `alerts.ts` and `crashes.ts` already do. Each uses the other's function only when called,
+  never while loading.
+- Both come off the debt list, which leaves 115 entries.
+
+**Proven by:**
+- `sign-in-record.test.ts`, a new file: a sign-in is recorded and returned by its id; 13 malformed or hostile sign-ins are refused with
+  nothing written.
+- The existing sign-in, sign-in limit, account and settings tests pass unchanged, 60 of 60. That includes "changing the password
+  forgets every other trusted browser; ending all sessions forgets them all".
+
+**Red checks:**
+- Without `addSignIn`'s check, the hostile test fails.
+- With `endAllSessions` no longer forgetting, "ending all sessions forgets them all" fails.
+- With the old `devices.ts`, and separately the old `sessions.ts`, `table-ownership.test.ts` names the cross write: "auth/devices.ts
+  writes sign_ins" and "auth/sessions.ts writes user_devices".
+
+---
+
 ## D69. Every write to issue_types goes through rules.ts (2026-11-09)
 
 **What the code did:** `issue_types` is owned by `services/rules.ts` (D56). Two places wrote it, in two different ways:
