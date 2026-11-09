@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D73. Finished fleet jobs and their results are retained by fleet-jobs.ts (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` deleted a finished job's per-cabinet results, then the job itself, once
+both were older than the job retention setting. Both tables are owned by `services/fleet-jobs.ts`.
+
+**The decision** (F21.R2, the D71 pattern):
+- `fleet-jobs.ts` exports `pruneFinishedJobs`. It runs the two statements in the same order as before (targets first, so no job loses
+  its results while it is still there), each through `inBatches` with the same audit table names, and returns the number of jobs
+  removed.
+- **A running job is never removed,** as before.
+- **The commands a job sent, and the audit log, stay.**
+- **Input check:** a cut-off that is not a time already passed is refused.
+- **Safe to repeat:** a second run removes nothing more.
+- Two entries come off the debt list, which leaves 109. Eight of those are the remaining sweeps.
+
+**Proven by:** `fleet-jobs-retention.test.ts`, a new file:
+- an old done job and an old cancelled job go with their results;
+- an old running job and a recent job stay, results and all;
+- one audited batch per table, and a repeat removes nothing;
+- 6 bad cut-offs are refused with nothing removed.
+
+**Red checks:**
+- Without the cut-off check, the refusal test fails.
+- With the old statements back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes
+  fleet_job_targets (owned by services/fleet-jobs.ts)" and the same for `fleet_jobs`.
+- The retention test in `admin.test.ts` and the audit sweep pass.
+
+---
+
 ## D72. Old command results and firewall history are retained by commands.ts (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` cleared old command results (`UPDATE TOP … commands SET result =

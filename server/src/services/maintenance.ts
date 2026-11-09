@@ -10,6 +10,7 @@ import { crashArgs, crashPredicate } from "./crashes.js";
 import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
+import { pruneFinishedJobs } from "./fleet-jobs.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -260,11 +261,8 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // The record of configuration changes and health transitions is kept as long as events are (the stored versions are bounded by count instead).
   const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o, { table: "config_changes", cutoff: cut(r.eventsDays) });
   const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o, { table: "health_transitions", cutoff: cut(r.eventsDays) });
-  // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
-  await inBatches(pool, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
-                           (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o, { table: "fleet_job_targets", cutoff: cut(r.jobsDays) });
-  const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
-                                        AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o, { table: "fleet_jobs", cutoff: cut(r.jobsDays) });
+  // A finished job and its per-cabinet results, removed by their owner, fleet-jobs.ts (D73); the commands it sent and the audit log stay.
+  const jobs = await pruneFinishedJobs(pool, cut(r.jobsDays), o);
   // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed.
   const incidents = await inBatches(pool, "DELETE TOP ($1) FROM incidents WHERE closed_at IS NOT NULL AND closed_at < $2", [cut(r.alertsDays)], o, { table: "incidents", cutoff: cut(r.alertsDays) });
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
