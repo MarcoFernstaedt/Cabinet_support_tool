@@ -14,7 +14,7 @@ It checks, and prints PASS, WARN or FAIL for each:
 - both services: installed, running, automatic, and under the right account (the broker as LocalSystem, the network service as
   `NT SERVICE\CabinetAgentNetwork`, which is not in the local Administrators group);
 - the programs' signatures (a development build warns);
-- the program and data folders' owner and permissions;
+- the owner and permissions of the program folder and every file in it, and of the data folder;
 - the configuration and the platform CA;
 - whether the platform server answers on its port;
 - whether the agent wrote its log in the last 15 minutes.

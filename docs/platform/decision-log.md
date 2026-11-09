@@ -20,8 +20,23 @@ checked by hand during the real-machine tests.
   outside the Administrators group, signatures, folder owners and who can write, the configuration and CA, the path to the server,
   and a recent log.
 - **Read only.** It changes nothing, writes only its results file, never opens a token, a key or the certificate store, and prints
-  only the server address from the configuration. A test in `installer-scripts.test.ts` holds it to that, and to ASCII (Windows
-  PowerShell 5.1 reads a BOM-less script as ANSI).
+  only the server address from the configuration.
+- **Held to that by an allowlist, not a list of forbidden commands.** A test in `installer-scripts.test.ts` removes the comments, the
+  help block and every string's contents from the script. It then requires each word left to be on a reviewed vocabulary: keywords,
+  its own functions and parameters, and the read-only cmdlets, .NET types, methods and properties it calls. Any new word fails,
+  whatever it does. The forms that could run text are held to their one reading use:
+  - the call operator only as `& $Body`;
+  - `.Invoke` only as `.Invoke('Members')`;
+  - `InvokeMember` only as `'GetProperty'`;
+  - nothing dot-sourced.
+
+  Its writes are held to their single use: `New-Item` for its results folder, `WriteAllText` to its results file. The test also holds
+  the script to ASCII (Windows PowerShell 5.1 reads a BOM-less script as ANSI).
+- **The review of #217** showed the first version of that test was a list of forbidden verbs, which stayed green for a download, a
+  registry delete, a service disabled through a script block built from Base64, .NET file writes, `icacls` and more. Those thirteen
+  forms are now probes the test must catch.
+- **The program folder is checked item by item,** owner and who can write, as the installer checks it. A loosened permission on one
+  program inside a sound folder is caught; the first version read only the folder's own permissions.
 - **Exit 0 or 1,** with a JSON results file, so the remote management tool and support read the same thing.
 - **The uninstaller removes it**, and with `-RemoveData` its results.
 - **Rejected:** a new agent operation that reports the same facts (an agent change, which cannot be built here, and a new write path
@@ -32,9 +47,11 @@ checked by hand during the real-machine tests.
 PowerShell 7 is installed, and is skipped here. Its first run on a real cabinet is its proof.
 
 The red checks:
-- a write added to the script fails the read-only test;
-- dropping it from the package fails the same test;
+- the review's three lines (a download, a registry delete, a script block from Base64) added to the script fail the read-only test;
+- dropping the script from the package fails the same test;
 - a non-ASCII character fails the ASCII test.
+
+The per-item walk is PowerShell and runs only on Windows, so it has no test here; its first run on a cabinet is its proof.
 
 ## D57. A site installer as a script a remote management tool runs as SYSTEM (2026-11-09)
 

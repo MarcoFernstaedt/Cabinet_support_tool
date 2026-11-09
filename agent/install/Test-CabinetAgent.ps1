@@ -113,9 +113,17 @@ Invoke-Check 'Agent version' {
 
 Invoke-Check 'Program folder permissions' {
     if (-not (Test-Path -LiteralPath $programDir -PathType Container)) { Add-Result 'FAIL' 'Program folder permissions' ($programDir + ' does not exist'); return }
-    $others = @(Get-UntrustedWriters $programDir @())
-    if ($others.Count -eq 0) { Add-Result 'PASS' 'Program folder permissions' 'only SYSTEM and Administrators can change the programs' }
-    else { Add-Result 'FAIL' 'Program folder permissions' ('can also be changed by: ' + (($others | Select-Object -Unique) -join ', ')) }
+    # Every item, as the installer checks them: a loosened permission on one program inside a sound folder is still a way in.
+    $items = @(Get-Item -LiteralPath $programDir -Force) + @(Get-ChildItem -LiteralPath $programDir -Recurse -Force -ErrorAction SilentlyContinue)
+    $problems = @()
+    foreach ($item in $items) {
+        $owner = (Get-Acl -LiteralPath $item.FullName).GetOwner([Security.Principal.SecurityIdentifier]).Value
+        if ($trustedWriters -notcontains $owner) { $problems += ($item.FullName + ' is owned by ' + $owner) }
+        $others = @(Get-UntrustedWriters $item.FullName @())
+        if ($others.Count -gt 0) { $problems += ($item.FullName + ' can be changed by ' + (($others | Select-Object -Unique) -join ', ')) }
+    }
+    if ($problems.Count -eq 0) { Add-Result 'PASS' 'Program folder permissions' ('only SYSTEM and Administrators own or can change the folder and its ' + [string]($items.Count - 1) + ' files and folders') }
+    else { Add-Result 'FAIL' 'Program folder permissions' ([string]$problems.Count + ' problems, first: ' + $problems[0]) }
 }
 
 Invoke-Check 'Data folder permissions' {

