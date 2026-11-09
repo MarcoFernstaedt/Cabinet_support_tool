@@ -8,7 +8,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ## D64. A network diagnosis settles its baseline alert before it says it is done (2026-11-09)
 
-**What the code did:** `runDiagnosis` in `server/src/diagnose/network.ts` wrote the diagnosis as done, then raised or closed the
+**What the code did:** `run` in `server/src/diagnose/network.ts` (lines 182 to 183) wrote the diagnosis as done, then raised or closed the
 cabinet's network-baseline alert in a second statement. Anyone who saw the diagnosis done in between, the console or a batch, saw
 the alert it was about to close still open. The review of #219 found it as a failure under load in `network-troubleshooting.test.ts`
 ("Uptown Exam 1: the baseline alert closed"), which passed 10 of 10 alone.
