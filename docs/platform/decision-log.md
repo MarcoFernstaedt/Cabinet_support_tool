@@ -23,6 +23,12 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Import cycle:** the auth modules import the batching helper from `maintenance.ts`, which imports their prunes back. Each uses the
   other only when called, never while loading. `server-roles.test.ts` starts the real built server and passes.
 - Two entries come off the debt list, which leaves 113. Twelve of those are the remaining sweeps.
+- **The audit sweep learns what `inBatches` does.** `audit-sweep.test.ts` accepted the old sweeps only because `runRetention`, around
+  them, called `audit(`. A prune calls no `audit(` of its own: it passes `{ table, cutoff }` to `inBatches`, which writes a
+  `retention.batch` row for every batch that removed anything. The full suite at 826989f failed on exactly the two prunes. The sweep now
+  counts a change as audited when it runs through `inBatches` with that argument, on the statement's line or the two after. Without the
+  argument the batches are not logged, and the change still fails. A test holds the rule both ways, so the next twelve sweeps need no
+  exception each.
 
 **Proven by:**
 - `auth-retention.test.ts`, a new file, run for each table:
@@ -32,6 +38,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 **Red checks:**
 - Without the cut-off check, the two refusal tests fail.
+- Without the sweep's new rule, the audit sweep names `auth/sessions.ts` and `auth/stepup.ts` as unaudited deletes.
 - With the old sweeps back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes sessions (owned by
   auth/sessions.ts)" and the same for `step_up_tokens`.
 

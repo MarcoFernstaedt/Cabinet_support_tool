@@ -54,6 +54,12 @@ const changes = (sql: string): boolean => { CHANGE.lastIndex = 0; return CHANGE.
 /** Where a top-level function starts: a declaration at the start of a line. */
 const DECLARATION = /^(export )?(async )?function |^(export )?const \w+ = (async )?\(/;
 const AUDITS = /\baudit(Many)?\(/;
+/**
+ * A change run through inBatches with its audit argument (`{ table: … }`): inBatches writes a retention.batch audit row for every batch that
+ * changed anything, in the batch's own transaction (maintenance.ts). Owners' prunes are written this way (D71). The call and its argument
+ * are looked for on the statement's line and the two after it; without the argument, the batches are not audited and the change is not.
+ */
+export const auditedByBatches = (text: string): boolean => /\binBatches\(/.test(text) && /\{\s*table\s*:/.test(text);
 
 function sources(dir: string, out: string[] = []): string[] {
   for (const name of readdirSync(dir)) {
@@ -79,6 +85,7 @@ function unaudited(): { found: string[]; listedButGone: string[] } {
       const listed = NOT_TRANSITIONS.findIndex(n => n.file === file && (lines[i]!.includes(n.has) || statement.includes(n.has)));
       if (listed >= 0) { seen.add(listed); continue; }
       if (statement.includes("CLOSED_OUTPUT") || lines.slice(i, i + 3).join(" ").includes("CLOSED_OUTPUT")) continue;
+      if (auditedByBatches(lines.slice(i, i + 3).join(" "))) continue;
       const from = [...starts].reverse().find(s => s <= i) ?? 0, to = starts.find(s => s > i) ?? lines.length;
       if (!AUDITS.test(lines.slice(from, to).join("\n"))) found.push(`${file}:${i + 1} ${lines[i]!.trim().slice(0, 100)}`);
     }
@@ -106,6 +113,13 @@ test("the sweep sees what it is meant to: an unaudited close or delete, laid out
     "UPDATE alerts SET last_seen = SYSUTCDATETIME()\n WHERE state = 'open'", "UPDATE commands SET ack_at = @now\n  WHERE status = 'delivered'",
     "UPDATE alerts SET title = $2 OUTPUT inserted.state INTO @o WHERE id = $1"])
     assert.ok(!changes(sql), sql);
+});
+
+test("a change run through inBatches counts as audited only with the audit argument that makes inBatches log each batch", () => {
+  assert.ok(auditedByBatches(`return inBatches(db, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cutoff], o, { table: "sessions", cutoff });`));
+  assert.ok(auditedByBatches(`await inBatches(pool, "DELETE TOP ($1) FROM x WHERE y < $2", [c], o,\n    { table: "x", cutoff: c });`));
+  assert.ok(!auditedByBatches(`return inBatches(db, "DELETE TOP ($1) FROM notifications WHERE [at] < $2", [], o);`), "no audit argument: the batches are not logged");
+  assert.ok(!auditedByBatches(`await db.query("DELETE TOP ($1) FROM sessions", [n]); const o = { table: "sessions" };`), "an object named table is not a batch call");
 });
 
 let db: TestDatabase;
