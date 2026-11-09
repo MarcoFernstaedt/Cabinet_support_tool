@@ -6,6 +6,7 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { storeEvents } from "../src/services/events.js";
 import { crashSignature, crashSignatureReport, fleetCrashSignatures, isSignatureKey, stopParametersOf } from "../src/services/crash-signatures.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
+import { ISSUE } from "../src/services/rules.js";
 
 const msg = (code: string, p: string[]) => `The computer has rebooted from a bugcheck.  The bugcheck was: ${code} (${p.join(", ")}). A dump was saved in: C:\\Windows\\Minidump\\110426-9875-01.dmp. Report Id: 4f1c.`;
 
@@ -111,4 +112,24 @@ test("across the fleet: one crash logged twice is one crash, a reboot loop's cra
   assert.ok(driver?.standsOut, "the driver all eight installed before crashing stands out against the four that did not crash with it");
   assert.equal(await crashSignatureReport(db.app, { from, to, clientId: f.client, key: "0x0000007E/0xC0000005", demo: true }), null, "the demo fleet's version is not this one");
   assert.equal(await crashSignatureReport(db.app, { from, to, clientId: f.client, key: "0x00000050", demo: false }), null);
+});
+
+test("the list reads what the alerts engine filed as a blue screen: an unfiled entry, another source, or a removed cabinet is not a crash in it", async () => {
+  const f = await cabinets(4);
+  const m = msg("0x00000050", ["0xffffd50f3a2e7a58", "0x0", "0xfffff8012a4b1c20", "0x2"]);
+  for (const id of f.ids) await storeEvents(db.app, id, { events: [bugcheck(60, "BugCheck", m)] });
+  const to = new Date(Date.now() + 60_000), from = new Date(Date.now() - 2 * 86_400_000);
+  const count = async () => (await fleetCrashSignatures(db.app, { from, to, clientId: f.client })).map(r => [r.key, r.cabinets]);
+  assert.deepEqual(await count(), [["0x00000050", 4]]);
+  // An entry the engine filed under no alert (an approved suppress rule leaves it so) is not listed.
+  await db.app.query("UPDATE events SET alert_id = NULL WHERE cabinet_id = $1", [f.ids[0]]);
+  // An entry held by the blue-screen alert that is not BugCheck 1001 (regrouped there by a rule) is not a crash, whatever its message.
+  const crashAlert = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2", [f.ids[1], ISSUE.crash])).rows[0]!.id;
+  await db.app.query("UPDATE events SET alert_id = NULL WHERE cabinet_id = $1", [f.ids[1]]);
+  await storeEvents(db.app, f.ids[1]!, { events: [{ ...bugcheck(50, "BugCheck", m), source: { log: "System" as const, source: "Contoso-Watchdog", eventId: 1001, level: "error" as const, recordId: rec++ } },
+    { ...bugcheck(49, "BugCheck", m), source: { log: "System" as const, source: "BugCheck", eventId: 1002, level: "error" as const, recordId: rec++ } }] });
+  await db.app.query("UPDATE events SET alert_id = $2 WHERE cabinet_id = $1 AND alert_id IS NOT NULL", [f.ids[1], crashAlert]);
+  // A removed cabinet's crashes are not the fleet's.
+  await db.app.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [f.ids[2]]);
+  assert.deepEqual(await count(), [["0x00000050", 1]], "only the cabinet whose blue screen was filed, from its own source, and is still in service");
 });

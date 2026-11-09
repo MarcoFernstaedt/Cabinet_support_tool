@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #211)
+## Where it stands (2026-11-09, after #217)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -12,14 +12,16 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F17: all five requirements, D50 to D54.
 - F18.R1 and R2.
 - F19.R7.
-- F21.R1.
+- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56).
+- F6: a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
+- The cabinet at a glance (D58) and a read-only acceptance check on the cabinet (D59), both asked for by the owner.
 - F20: which Windows the fleet runs, by edition, build family and architecture (#211, D55).
 - F7: the role level, the Differences view by role, watched services from the role baseline.
 - F14.R3: a service set to restart the computer is alerted.
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, table ownership written down and enforced as a ratchet, run-time table names included (D56); F6, a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
+**In review:** F21.R3, the cabinets' ingest and the console run apart when asked to (#218, D60); F21.R4, the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (D61).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
@@ -27,11 +29,11 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 |---|---|---|
 | Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
 | The agent-facing ingest as its own process and port, with no shared in-process state | F21.R3 | about 2 |
-| Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets | F21.R4 | about 2 or 3 |
+| Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen are in review; drives at risk already reads its aggregate. | F21.R4 | about 1 or 2 more |
 | A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 
-That is about 18 to 27 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 17 to 26 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 

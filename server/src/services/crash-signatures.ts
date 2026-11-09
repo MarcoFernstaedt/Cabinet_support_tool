@@ -8,6 +8,7 @@
 // "The computer has rebooted from a bugcheck.  The bugcheck was: 0x0000003b (0x00000000c0000005, 0xfffff80123456789, 0x…, 0x0). A dump was saved in: …"
 import type { Queryable } from "../db/db.js";
 import { BUG_CHECK_PAIR_MS, compareChanges, describeStopCode, stopCodeOf, stopCodeText, type ChangeComparison } from "./crashes.js";
+import { ISSUE } from "./rules.js";
 
 /** Stop codes whose first parameter is an exception code: the low 32 bits are the code (64-bit Windows may sign-extend it). */
 const EXCEPTION_FIRST = new Set([0x1E, 0x3B, 0x7E, 0x8E, 0x1000007E, 0x1000008E]);
@@ -127,20 +128,39 @@ export function oneCrashEach(rows: readonly { cabinet_id: string; occurred_at: D
 
 /** Blue screens in the window on active cabinets (optionally one client's), one per crash: Windows logs the same crash under both sources. */
 async function crashesIn(db: Queryable, f: { from: Date; to: Date; clientId?: string | undefined }): Promise<{ crashes: Crash[]; cabinets: Map<string, Population> }> {
-  const pop = (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; demo: number }>(
-    `SELECT k.id, k.name, s.name AS site, c.name AS client, k.agent_version, CASE WHEN k.demo_scenario IS NULL THEN 0 ELSE 1 END AS demo
-       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
-      WHERE k.status = 'active' ${f.clientId ? "AND s.client_id = $1" : ""}`, f.clientId ? [f.clientId] : [])).rows;
-  const cabinets = new Map(pop.map(p => [p.id.toLowerCase(), { ...p, id: p.id.toLowerCase(), demo: p.demo === 1 }]));
-  const rows = (await db.query<{ cabinet_id: string; occurred_at: Date; message: string | null; src: string }>(
-    `SELECT e.cabinet_id, e.occurred_at, LOWER(JSON_VALUE(e.source, '$.source')) AS src,
+  // Only the events a blue-screen alert holds (F21.R4, decision-log D61): the alerts are found by issue type (alerts_issue_recent) and
+  // their events through the filtered events_alert index, so the cost follows the number of crashes, never the size of the fleet or its
+  // event volume. Both sources map to the blue-screen issue in the built-in rules, and every event is linked to the alert it raised or folded into; an alert
+  // last seen before the window holds no event in it. The cabinets' names come second, for the crashed cabinets only: a filter on the
+  // cabinets in the same statement lets SQL Server start from every active cabinet instead, and a filter on the JSON source lets it scan
+  // every event, so the source and event ID are read in the select list and checked here, on the alert's few rows (performance.md).
+  const rows = (await db.query<{ cabinet_id: string; occurred_at: Date; message: string | null; src: string; event_id: number | null }>(
+    `SELECT e.cabinet_id, e.occurred_at, LOWER(JSON_VALUE(e.source, '$.source')) AS src, TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) AS event_id,
             (SELECT j.message FROM OPENJSON(e.detail) WITH (message nvarchar(max) '$.message') j) AS message
-       FROM events e
-      WHERE e.occurred_at BETWEEN $1 AND $2 AND e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3))
-        AND LOWER(JSON_VALUE(e.source, '$.source')) IN ($4, $5) AND TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) = 1001
-      ORDER BY e.cabinet_id, e.occurred_at`, [f.from, f.to, [...cabinets.keys()], ...SOURCES])).rows;
-  const crashes = oneCrashEach(rows);
-  return { crashes, cabinets };
+       FROM alerts a JOIN events e ON e.alert_id = a.id
+      WHERE a.issue_type_id = $3 AND a.last_seen >= $1 AND e.occurred_at BETWEEN $1 AND $2
+      ORDER BY e.cabinet_id, e.occurred_at`, [f.from, f.to, ISSUE.crash])).rows
+    .filter(r => r.event_id === 1001 && (SOURCES as readonly string[]).includes(r.src));
+  const ids = [...new Set(rows.map(r => r.cabinet_id.toLowerCase()))];
+  const cabinets = new Map<string, Population>();
+  if (ids.length > 0) {
+    const named = (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; demo: number }>(
+      `SELECT k.id, k.name, s.name AS site, c.name AS client, k.agent_version, CASE WHEN k.demo_scenario IS NULL THEN 0 ELSE 1 END AS demo
+         FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
+        WHERE k.id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND k.status = 'active' ${f.clientId ? "AND s.client_id = $2" : ""}`,
+      f.clientId ? [ids, f.clientId] : [ids])).rows;
+    for (const r of named) { const id = r.id.toLowerCase(); cabinets.set(id, { id, name: r.name, site: r.site, client: r.client, agent_version: r.agent_version, demo: r.demo === 1 }); }
+  }
+  // A crash on a cabinet out of scope (removed, or another client's) is not in the list.
+  return { crashes: oneCrashEach(rows).filter(c => cabinets.has(c.cabinetId)), cabinets };
+}
+
+/** The comparison group for one kind's report: the active cabinets of the scope, of the same kind (real or demo). */
+async function population(db: Queryable, f: { clientId?: string | undefined; demo: boolean }): Promise<string[]> {
+  return (await db.query<{ id: string }>(
+    `SELECT k.id FROM cabinets k JOIN sites s ON s.id = k.site_id
+      WHERE k.status = 'active' AND ${f.demo ? "k.demo_scenario IS NOT NULL" : "k.demo_scenario IS NULL"} ${f.clientId ? "AND s.client_id = $1" : ""}`,
+    f.clientId ? [f.clientId] : [])).rows.map(r => r.id.toLowerCase());
 }
 
 interface Population { id: string; name: string; site: string; client: string; agent_version: string | null; demo: boolean }
@@ -198,7 +218,7 @@ export async function crashSignatureReport(db: Queryable, f: { from: Date; to: D
     p.crashes++; if (c.at < p.first) p.first = c.at; if (c.at > p.last) p.last = c.at;
     per.set(c.cabinetId, p);
   }
-  const ids = [...cabinets.values()].filter(p => p.demo === f.demo).map(p => p.id);
+  const ids = await population(db, f);
   const commonFactors = (await compareChanges(db, { ids, affected: new Map([...per].map(([id, p]) => [id, p.first])), from: new Date(f.from.getTime() - 3 * DAY), to: f.to }))
     .filter(c => c.category !== "error" || c.standsOut);
   return {
