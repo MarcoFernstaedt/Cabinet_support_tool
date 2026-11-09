@@ -12,9 +12,18 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { enableDemo } from "../src/demo/demo.js";
 import { envelopes } from "../src/contracts.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
+import { storeResult } from "../src/services/commands.js";
+import { searchableByName } from "../src/services/readings.js";
+import { SEARCHED_BY_NAME, searchText } from "../src/services/reading-search-text.js";
 import { ConsoleHarness, ORIGIN } from "./console-harness.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
+import { readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// dist/test/ -> contracts/examples/operations
+const examples = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "contracts", "examples", "operations");
 
 let db: TestDatabase;
 let app: FastifyInstance;
@@ -207,4 +216,45 @@ test("hostile text in the new searches is plain text, and malformed searches are
     for (const q of ["", "a\nb", "x".repeat(81)]) assert.equal((await search(t1, op, q)).status, 400, `${op} ${JSON.stringify(q)}`);
   assert.equal((await search(t1, "printer.list", "x")).status, 400);
   assert.equal((await h.call("GET", "/api/readings/search?operation=network.hosts&q=x&path=C:/Windows", undefined, t1)).status, 400, "no extra parameter");
+});
+
+test("a stored reading keeps its searchable names beside it, and the search reads them: literally, without case, never the JSON when they exist", async () => {
+  const t1 = await h.account("tier1");
+  const [a, b, c] = [await cab("Exam Room 1"), await cab("Exam Room 2"), await cab("Exam Room 3")];
+  /** A result through the real path: a delivered command, then the cabinet's answer to it. */
+  const deliver = async (cabinetId: string, operation: string, output: unknown) => {
+    const id = randomUUID(), at = new Date();
+    await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, delivered_at)
+                        VALUES ($1, $2, $3, '{}', $4, $5, $6, 'delivered', $5)`, [id, cabinetId, operation, owner, at, new Date(at.getTime() + 300_000)]);
+    await storeResult(db.app, cabinetId, { commandId: id, status: "succeeded", startedAt: at.toISOString(), finishedAt: at.toISOString(), output } as never);
+    return id;
+  };
+  const textOf = async (id: string) => (await db.app.query<{ t: string | null }>("SELECT search_text AS t FROM commands WHERE id = $1", [id])).rows[0]!.t;
+
+  const ida = await deliver(a.id, "software.list", software("ÉCLAIR Scanner", "50%_off [Beta] O'Brien"));
+  assert.equal(await textOf(ida), "éclair scanner\nexample\n50%_off [beta] o'brien\nexample\nkb5034441", "the names, publishers and update numbers, lower case, one per line");
+  const idb = await deliver(b.id, "software.list", software("Plain Tool"));
+  // A reading the search does not cover by name keeps no text.
+  const power = await deliver(c.id, "power.status", JSON.parse(readFileSync(join(examples, "power.status", "output", "valid", "typical.json"), "utf8")));
+  assert.equal(await textOf(power), null);
+
+  const names = async (q: string) => (await search(t1, "software.list", q)).body.matches.map((m: { name: string }) => m.name).sort();
+  assert.deepEqual(await names("éclair"), ["Exam Room 1"], "without case, past ASCII");
+  for (const q of ["%_off [", "%", "_", "[beta]", "o'brien"]) assert.deepEqual(await names(q), ["Exam Room 1"], `${q} is plain text`);
+  assert.deepEqual(await names("éclair scanner\nexample".split("\n")[0]!), ["Exam Room 1"]);
+  // The search text is what is read when it exists: one that names a program the JSON does not is found, and one that leaves out a
+  // program the JSON has is not. (Never so in service: both are written together. This shows which one the search reads.)
+  await db.app.query("UPDATE commands SET search_text = $2 WHERE id = $1", [idb, "decoy program"]);
+  assert.deepEqual(await names("decoy"), ["Exam Room 2"]);
+  assert.deepEqual(await names("plain tool"), [], "the JSON is not read where the text exists");
+  // A result stored before the text existed has none, and is read from its JSON as before.
+  await db.app.query("UPDATE commands SET search_text = NULL WHERE id = $1", [idb]);
+  assert.deepEqual(await names("plain tool"), ["Exam Room 2"]);
+});
+
+test("the search text covers exactly the readings the search reads by name", () => {
+  assert.deepEqual([...SEARCHED_BY_NAME].sort(), searchableByName().sort());
+  assert.equal(searchText("software.list", { programs: [{ name: "Two\r\nLines", publisher: null }], hotfixes: "not a list" }), "two lines", "a value never spans two lines; malformed parts are skipped");
+  assert.equal(searchText("power.status", { fastStartup: true }), null);
+  assert.equal(searchText("software.list", null), null);
 });

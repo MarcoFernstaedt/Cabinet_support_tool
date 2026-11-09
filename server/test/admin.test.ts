@@ -395,11 +395,11 @@ test("issue types are created and edited; suppressions need a reason, expire aft
 
 test("retention removes old events, alerts and firewall history and clears old command results; the audit log is never pruned", async () => {
   const before = (await db.app.query<any>("SELECT COUNT(*) AS n FROM audit_log")).rows[0].n;
-  const old = randomUUID();
+  const old = randomUUID(), oldCommand = randomUUID();
   await asOwner(db, async k => {
     await k.query<any>(`INSERT INTO events (event_id, cabinet_id, kind, occurred_at, received_at, detail) VALUES ($1, $2, 'error', DATEADD(day, -200, SYSUTCDATETIME()), DATEADD(day, -200, SYSUTCDATETIME()), '{}')`, [old, cabinetId]);
-    await k.query<any>(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at)
-                   VALUES ($1, $2, 'system.info', '{}', $3, DATEADD(day, -100, SYSUTCDATETIME()), DATEADD(day, -99, SYSUTCDATETIME()), 'succeeded', '{"x":1}', DATEADD(day, -100, SYSUTCDATETIME()))`, [randomUUID(), cabinetId, boss.id]);
+    await k.query<any>(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result, result_at, search_text)
+                   VALUES ($1, $2, 'software.list', '{}', $3, DATEADD(day, -100, SYSUTCDATETIME()), DATEADD(day, -99, SYSUTCDATETIME()), 'succeeded', '{"x":1}', DATEADD(day, -100, SYSUTCDATETIME()), 'old program')`, [oldCommand, cabinetId, boss.id]);
   });
   // The newer classes: a network diagnosis, a boot record, and a finished fleet job past their retention (30, 365 and 365
   // days by default); a running job is never removed, however old.
@@ -413,6 +413,8 @@ test("retention removes old events, alerts and firewall history and clears old c
   });
   const run = await runRetention(db.app);
   assert.ok(run.events >= 1 && run.commandResults >= 1);
+  // A cleared result takes its search text with it (D63).
+  assert.deepEqual((await db.app.query<any>("SELECT result, search_text FROM commands WHERE id = $1", [oldCommand])).rows[0], { result: null, search_text: null });
   assert.ok(run.diagnoses >= 1 && run.boots >= 1);
   assert.equal(run.jobs, 1);
   assert.equal((await db.app.query<any>("SELECT 1 FROM fleet_jobs WHERE id = $1", [running])).rowCount, 1, "a running job is kept");

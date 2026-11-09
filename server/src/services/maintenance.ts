@@ -231,7 +231,7 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // The cleared rows only free space inside their pages; compacting the index gives it back (incremental: a stopped run is not lost).
   if (eventsCleared > 0) await pool.query("EXEC reorganize_events", [], { timeoutMs: 20 * 60_000 });
   const opsCounters = await pruneOpsCounters(pool, now);
-  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o,
+  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL, search_text = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o,
     { table: "commands.result", cutoff: cut(r.commandsDays) });
   // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
   await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
