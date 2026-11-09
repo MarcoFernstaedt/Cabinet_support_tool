@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
 import { forgetTrustedDevices } from "./devices.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../services/maintenance.js";
 
 export type Stage = "totp" | "totp_setup" | "password_change" | "complete";
 export { SESSION_COOKIE as COOKIE } from "./cookies.js";
@@ -93,4 +94,10 @@ export async function addSignIn(db: Queryable, r: SignInRow): Promise<number> {
     "INSERT INTO sign_ins (user_id, address, network, device_label, new_network, new_device) OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6)",
     [r.userId, r.address, r.network, r.deviceLabel, r.newNetwork, r.newDevice])).rows[0]!.id;
   return Number(id);
+}
+
+/** Removes sessions that expired before `cutoff`, in batches, each batch audited (retention, decision-log D71). */
+export async function pruneExpiredSessions(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cutoff], o, { table: "sessions", cutoff });
 }

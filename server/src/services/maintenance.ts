@@ -7,6 +7,8 @@ import { platformSettings, upsertSetting } from "./settings.js";
 import { closeStaleSecurityAlerts, raiseSecurityAlert } from "./security.js";
 import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
+import { pruneExpiredSessions } from "../auth/sessions.js";
+import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -115,6 +117,14 @@ export async function inBatches(db: Queryable, statement: string, params: readon
     if (n < o.batch) return total;
     await sleep(o.pauseMs);
   }
+}
+
+/**
+ * A retention cut-off as each owner's prune takes it (F21.R2, decision-log D71): a real time, not in the future. A prune only ever removes
+ * rows older than it, so running one again removes nothing more.
+ */
+export function checkRetentionCutoff(cutoff: unknown): asserts cutoff is Date {
+  if (!(cutoff instanceof Date) || Number.isNaN(cutoff.getTime()) || cutoff.getTime() > Date.now()) throw new Error("a retention cut-off is a time that has already passed");
 }
 
 /** Notifications only wake other server processes (each reads them within a second), so one older than an hour is of no use. */
@@ -239,8 +249,9 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   const alerts = await inBatches(pool, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
                                           AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o, { table: "alerts", cutoff: cut(r.alertsDays) });
   const firewallChanges = await inBatches(pool, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cut(r.firewallDays)], o, { table: "firewall_changes", cutoff: cut(r.firewallDays) });
-  const sessions = await inBatches(pool, "DELETE TOP ($1) FROM sessions WHERE expires_at < $2", [cut(1)], o, { table: "sessions", cutoff: cut(1) });
-  const stepUpTokens = await inBatches(pool, "DELETE TOP ($1) FROM step_up_tokens WHERE expires_at < $2", [cut(1)], o, { table: "step_up_tokens", cutoff: cut(1) });
+  // Expired sign-in sessions and step-up tokens, a day after they expired: each owner removes its own (D71).
+  const sessions = await pruneExpiredSessions(pool, cut(1), o);
+  const stepUpTokens = await pruneExpiredStepUpTokens(pool, cut(1), o);
   const diagnoses = await inBatches(pool, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cut(r.diagnosesDays)], o, { table: "diagnoses", cutoff: cut(r.diagnosesDays) });
   const samples = await rollUpAndTrimSamples(pool, now, o);
   const notifications = await pruneNotifications(pool, o);
