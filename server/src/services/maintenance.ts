@@ -9,6 +9,7 @@ import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
 import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
+import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -241,14 +242,14 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // The cleared rows only free space inside their pages; compacting the index gives it back (incremental: a stopped run is not lost).
   if (eventsCleared > 0) await pool.query("EXEC reorganize_events", [], { timeoutMs: 20 * 60_000 });
   const opsCounters = await pruneOpsCounters(pool, now);
-  const commandResults = await inBatches(pool, "UPDATE TOP ($1) commands SET result = NULL, search_text = NULL WHERE result IS NOT NULL AND result_at < $2", [cut(r.commandsDays)], o,
-    { table: "commands.result", cutoff: cut(r.commandsDays) });
+  // Old command results and firewall history: their owner, commands.ts, clears and removes them (D72).
+  const commandResults = await clearOldCommandResults(pool, cut(r.commandsDays), o);
   // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
   await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
                           WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cut(r.alertsDays)], o, { table: "events.alert_id", cutoff: cut(r.alertsDays) });
   const alerts = await inBatches(pool, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
                                           AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o, { table: "alerts", cutoff: cut(r.alertsDays) });
-  const firewallChanges = await inBatches(pool, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cut(r.firewallDays)], o, { table: "firewall_changes", cutoff: cut(r.firewallDays) });
+  const firewallChanges = await pruneFirewallChanges(pool, cut(r.firewallDays), o);
   // Expired sign-in sessions and step-up tokens, a day after they expired: each owner removes its own (D71).
   const sessions = await pruneExpiredSessions(pool, cut(1), o);
   const stepUpTokens = await pruneExpiredStepUpTokens(pool, cut(1), o);

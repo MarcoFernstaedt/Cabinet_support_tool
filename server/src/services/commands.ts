@@ -6,6 +6,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "./maintenance.js";
 import { ingestAndEvaluate } from "./config-service.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
@@ -262,4 +263,22 @@ export async function expireCommands(pool: Pool): Promise<number> {
           automatic: true } })));
     return expired.length;
   });
+}
+
+// ---- Retention (F21.R2, decision-log D72) -----------------------------------------------------------------------------------------------
+
+/**
+ * Clears the stored answer, and its search text, of commands whose result arrived before `cutoff`. The command itself (what was asked,
+ * who asked and when, its outcome) stays in the history. In batches, each batch audited; a repeat clears nothing more.
+ */
+export async function clearOldCommandResults(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "UPDATE TOP ($1) commands SET result = NULL, search_text = NULL WHERE result IS NOT NULL AND result_at < $2", [cutoff], o,
+    { table: "commands.result", cutoff });
+}
+
+/** Removes firewall changes that happened before `cutoff`, in batches, each batch audited; a repeat removes nothing more. */
+export async function pruneFirewallChanges(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cutoff], o, { table: "firewall_changes", cutoff });
 }

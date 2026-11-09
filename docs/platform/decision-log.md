@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D72. Old command results and firewall history are retained by commands.ts (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` cleared old command results (`UPDATE TOP … commands SET result =
+NULL, search_text = NULL`) and deleted old firewall changes. Both tables are owned by `services/commands.ts`.
+
+**The decision** (F21.R2, the D71 pattern):
+- `commands.ts` exports `clearOldCommandResults` and `pruneFirewallChanges`. Each runs its own statement through `inBatches`, with the
+  same table name in the batch audit as before (`commands.result`, `firewall_changes`).
+- `maintenance.ts` passes the cut-offs from the retention settings, as before.
+- **Input check:** a cut-off that is not a time already passed is refused (`checkRetentionCutoff`).
+- **Safe to repeat:** a second run changes nothing more.
+- **The command itself stays:** what was asked, who asked, when, and the outcome. Only the stored answer and its search text are
+  cleared, as before.
+- Two entries come off the debt list, which leaves 111. Ten of those are the remaining sweeps.
+
+**Proven by:** `commands-retention.test.ts`, a new file:
+- old results are cleared together with their search text, while the commands and the newer results stay;
+- old firewall history goes and newer stays;
+- each has one audited batch, and a repeat changes nothing;
+- 5 bad cut-offs are refused for both, with nothing changed.
+
+**Red checks:**
+- Without the cut-off check, the refusal test fails.
+- With the old statements back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes commands (owned
+  by services/commands.ts)" and the same for `firewall_changes`.
+- The retention test in `admin.test.ts`, the audit sweep and `server-roles` pass.
+
+---
+
 ## D71. Retention sweeps move to the tables' owners, starting with sessions and step-up tokens (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` deleted old rows from 14 tables other modules own, each with its own
