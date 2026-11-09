@@ -6,6 +6,31 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D66. The write to config_changes from the drift check goes through its owner (2026-11-09)
+
+**What the code did:** `config_changes` is owned by `services/config-ingest.ts` (D56). After working out a cabinet's drift,
+`services/baseline-drift.ts` set `violates_baseline` on the cabinet's changes of the last 30 days with its own `UPDATE` (line 69
+before this change).
+
+**The decision** (F21.R2): the statement moves into the owner as `markBaselineViolations(c, cabinetId)`, called in the same
+transaction as before, so behaviour is unchanged.
+- **Input check:** anything but a cabinet id is refused before the database is touched.
+- **Safe to repeat:** the flag is set from the drift as it stands, so calling it again changes nothing.
+- **Debt list:** `baseline-drift.ts` comes off it; 106 cross-module writes remain.
+
+**Proven by:** `config-changes.test.ts`, a new file, since no test checked the flag before.
+- A change against its baseline is marked and a matching one is not.
+- A change older than 30 days and another cabinet's change are left alone.
+- A repeat changes nothing, and a cleared drift clears the flag.
+- 8 hostile or malformed ids are refused.
+
+**Red checks:**
+- Without the id check, the hostile test fails.
+- With the old `UPDATE` back in `baseline-drift.ts`, `table-ownership.test.ts` fails with "services/baseline-drift.ts writes config_changes (owned by services/config-ingest.ts)".
+- The baselines tests pass unchanged.
+
+---
+
 ## D64. A network diagnosis settles its baseline alert before it says it is done (2026-11-09)
 
 **What the code did:** `run` in `server/src/diagnose/network.ts` (lines 182 to 183) wrote the diagnosis as done, then raised or closed the

@@ -151,6 +151,20 @@ export interface IngestSummary { first: number; unchanged: number; changed: numb
  * Verifies and stores a batch, oldest first. Every snapshot is verified before any is stored, so a malformed batch changes nothing.
  * The follow-up (drift and health for the cabinet) is the caller's: it runs once, after the batch.
  */
+const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Marks each of a cabinet's changes of the last 30 days as violating its baseline or not, from the cabinet's drift as it stands now
+ * (F21.R2, decision-log D66: the one write to config_changes from outside this module, moved here). It sets the flag from the drift
+ * each time, so calling it again changes nothing. The cabinet id is checked before anything is written.
+ */
+export async function markBaselineViolations(c: Queryable, cabinetId: string): Promise<void> {
+  if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("a cabinet id is required to mark baseline violations");
+  await c.query(
+    `UPDATE ch SET violates_baseline = CASE WHEN EXISTS (SELECT 1 FROM cabinet_drift d WHERE d.cabinet_id = ch.cabinet_id AND d.category = ch.category AND d.item_key = ch.item_key) THEN 1 ELSE 0 END
+       FROM config_changes ch WHERE ch.cabinet_id = $1 AND ch.observed_at > DATEADD(day, -30, SYSUTCDATETIME())`, [cabinetId]);
+}
+
 export async function ingestConfig(pool: Pool, cabinetId: string, snapshots: readonly Snapshot[], source: "agent" | "refresh"): Promise<IngestSummary> {
   for (const s of snapshots) verifySnapshot(s);
   const summary: IngestSummary = { first: 0, unchanged: 0, changed: 0, stale: 0, categoriesChanged: [], latestObservedAt: null };

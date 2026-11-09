@@ -63,7 +63,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   case_notes: { owner: "services/case-notes.ts", also: ["demo/troubleshooting.ts"] },
   clients: { owner: "services/admin.ts", also: ["demo/demo.ts", "services/approved-apps.ts", "services/client-scanner.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/firewall-policy.ts", "services/fleet-import.ts", "services/time.ts", "services/watched-services.ts", "services/writes.ts"] },
   commands: { owner: "services/commands.ts", also: ["demo/demo.ts", "services/firewall-policy.ts", "services/fleet-jobs.ts"] },
-  config_changes: { owner: "services/config-ingest.ts", also: ["services/baseline-drift.ts"] },
+  config_changes: { owner: "services/config-ingest.ts", also: [] },
   config_current: { owner: "services/config-ingest.ts", also: [] },
   config_versions: { owner: "services/config-ingest.ts", also: [] },
   diagnoses: { owner: "diagnose/cabinet.ts", also: ["demo/demo.ts", "diagnose/network.ts"] },
