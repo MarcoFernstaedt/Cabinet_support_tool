@@ -10,6 +10,7 @@ import { lock, safeJson, transaction, type Pool, type Queryable } from "../db/db
 import { Refused } from "./errors.js";
 import { configHash, type Item } from "./config-canonical.js";
 import { diffItems } from "./config-diff.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 export const CATEGORIES = ["network", "services", "drivers", "updates", "firewall", "time", "devices", "applications", "hosts", "tasks", "system"] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -206,3 +207,10 @@ export async function currentItems(db: Queryable, cabinetId: string, only?: read
   }
   return out;
 }
+
+/** Removes configuration changes observed before `cutoff` (the stored versions are bounded by count instead), in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneOldConfigChanges(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cutoff], o, { table: "config_changes", cutoff });
+}
+

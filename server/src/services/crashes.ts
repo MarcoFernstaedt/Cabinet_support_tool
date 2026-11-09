@@ -8,6 +8,7 @@ import { upsertAlert } from "./alerts.js";
 import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { ISSUE } from "./rules.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 // ---- Boots and reboot loops ------------------------------------------------------------------------------------------
 
@@ -454,3 +455,10 @@ export async function compareChanges(db: Queryable, o: { ids: readonly string[];
   }).filter(c => c.affected > 0).sort((a, b) => Number(b.standsOut) - Number(a.standsOut) || (b.affectedShare - b.unaffectedShare) - (a.affectedShare - a.unaffectedShare)).slice(0, 40);
 
 }
+
+/** Removes boot records from before `cutoff`, in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneOldBoots(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cutoff], o, { table: "cabinet_boots", cutoff });
+}
+
