@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/operations/database.connectivity.schema.json",
   "title": "database.connectivity",
-  "description": "Whether a SQL Server answers on the site's sync cabinet, step by step: TCP, a login-free TDS pre-login, and the TLS handshake inside it. No credential is sent, no login is made, no query runs, and it is never a connection to the cabinet application's database: only the pre-login and TLS handshake that come before any login (docs/platform/diagnostic-engine-execution.md, decision 7). Runs in the unprivileged network service.",
+  "description": "Whether a SQL Server answers on the site's sync cabinet, step by step: TCP, a login-free TDS pre-login, and the TLS handshake inside it. No credential is sent, no login is made, no query runs, and it is never a connection to the cabinet application's database: only the pre-login and TLS handshake that come before any login (docs/platform/archive/diagnostic-engine-execution.md, decision 7). Runs in the unprivileged network service.",
   "$defs": {
     "params": {
       "type": "object",

@@ -1,5 +1,7 @@
 # Diagnostic engine: execution plan
 
+> **Archived 2026-11-09.** Kept as history, not as current state: the engine it sequenced is built (parts 1 to 5b); what is left of it is in remaining-phases.md.
+
 2026-10-25. The seven decisions parked in [diagnostic-engine-audit.md](diagnostic-engine-audit.md) are answered. This is
 the order the engine is built in, the scope of the first session, and the proof each step has to produce. **Nothing is
 built until the last line of this document is approved**, and nothing merges to `main` without the error-path review.
@@ -60,8 +62,8 @@ ladder → then the rest of phases 2 to 6** as section 5 of the audit maps them 
 application; controlled remediation; extended; intelligence). Each phase ends with passing tests, documentation and a
 review before the next starts.
 
-The phase numbering is the [roadmap's](../spec/13-roadmap.md), and **five phases are left (2, 3, 4, 5, 6)** — see
-[remaining-phases.md](remaining-phases.md), which also maps these six engine phases into those five so nothing is counted
+The phase numbering is the [roadmap's](../../spec/13-roadmap.md), and **five phases are left (2, 3, 4, 5, 6)** — see
+[remaining-phases.md](../remaining-phases.md), which also maps these six engine phases into those five so nothing is counted
 twice.
 
 ## The foundation in detail

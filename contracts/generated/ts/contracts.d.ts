@@ -1631,7 +1631,7 @@ export interface ReadingSearch {
 }
 
 /**
- * Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key. A release is one version for one Windows architecture (docs/platform/second-architecture.md): the architecture is declared here, and the package's own programs are read to make sure it really is that one, because it cannot live in the signed manifest - that schema is closed and every already-installed agent validates it.
+ * Adds a signed agent release to the update store (docs/spec/07-upgrade-channel.md step 3): the manifest exactly as the pipeline signed it, and its detached signature. The server checks the signature against the release keys it knows of; the package zip follows in a second request and must match the manifest's hash and size. None of this is the protection: each agent checks everything again against its own compiled-in key. A release is one version for one Windows architecture (docs/platform/archive/second-architecture.md): the architecture is declared here, and the package's own programs are read to make sure it really is that one, because it cannot live in the signed manifest - that schema is closed and every already-installed agent validates it.
  */
 export interface ReleaseCreate {
   /**
@@ -1650,7 +1650,7 @@ export interface ReleaseCreate {
 }
 
 /**
- * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/platform/second-architecture.md), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.
+ * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/platform/archive/second-architecture.md), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.
  */
 export interface RolloutStart {
   /**
@@ -2361,7 +2361,7 @@ export interface WritePause {
 }
 
 /**
- * One diagnostic module (docs/platform/diagnostic-engine-execution.md, "The foundation in detail", item 1): a declaration of what a check applies to, which catalog reads and events it uses, the ordered checks it runs, the evidence it keeps, the causes it can name, the catalog operations that may repair each one and how each repair is verified, what it cannot tell, and when it hands over to a person. It is data, never code: a check is a catalog read or a named rule written and tested on the server, and a repair is only a catalog write with its own role and confirmation. Nothing here can run a program, a script or a command line. The server checks again, beyond this schema, that every operation named is in the catalog and of the right kind, that every read's parameters pass that operation's own schema, and that every reference inside the module resolves (server/src/diagnose/module.ts).
+ * One diagnostic module (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 1): a declaration of what a check applies to, which catalog reads and events it uses, the ordered checks it runs, the evidence it keeps, the causes it can name, the catalog operations that may repair each one and how each repair is verified, what it cannot tell, and when it hands over to a person. It is data, never code: a check is a catalog read or a named rule written and tested on the server, and a repair is only a catalog write with its own role and confirmation. Nothing here can run a program, a script or a command line. The server checks again, beyond this schema, that every operation named is in the catalog and of the right kind, that every read's parameters pass that operation's own schema, and that every reference inside the module resolves (server/src/diagnose/module.ts).
  */
 export interface DiagnosticModule {
   /**
@@ -2820,7 +2820,7 @@ export interface DiagnosticModule {
 }
 
 /**
- * The capability registry (docs/platform/diagnostic-engine-execution.md, "The foundation in detail", item 3): one entry per diagnostic module, built or planned, saying what it can do (detect, diagnose, repair, verify), which version is registered, what it depends on, what runs after it, and the engine phase it belongs to. It sits above the operation catalog: an entry never names an operation, it names a module, and the module names catalog operations. Supported hardware is the module's own applicability, so it is written once. The server checks, beyond this schema, that every built entry has its module at that version, that what an entry claims the module can actually do (a repair only with every repair verified), that every reference resolves, that dependencies have no cycle, and that every module the server has is registered (server/src/diagnose/registry.ts).
+ * The capability registry (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 3): one entry per diagnostic module, built or planned, saying what it can do (detect, diagnose, repair, verify), which version is registered, what it depends on, what runs after it, and the engine phase it belongs to. It sits above the operation catalog: an entry never names an operation, it names a module, and the module names catalog operations. Supported hardware is the module's own applicability, so it is written once. The server checks, beyond this schema, that every built entry has its module at that version, that what an entry claims the module can actually do (a repair only with every repair verified), that every reference resolves, that dependencies have no cycle, and that every module the server has is registered (server/src/diagnose/registry.ts).
  */
 export interface CapabilityRegistry {
   /**

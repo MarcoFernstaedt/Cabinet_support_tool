@@ -1,10 +1,12 @@
 # Cabinet Diagnostics Platform: status report
 
+> **Archived 2026-11-09.** Kept as history, not as current state: a status report as of 2026-11-04; the current state is the top of remaining-phases.md.
+
 **As of 4 November 2026.** Main at `b4a06aa`, after #153 and #155 merged; the figures were measured at `e15498a`, the tree those two PRs landed as. The work started on 1 October 2026.
 
 Every figure here says whether it was **measured** (and where) or **worked out**. Nothing is an estimate presented as a measurement.
-The detailed sources are [remaining-phases.md](remaining-phases.md), [performance.md](performance.md), [cost.md](cost.md),
-[readiness.md](readiness.md) and the [decision log](decision-log.md).
+The detailed sources are [remaining-phases.md](../remaining-phases.md), [performance.md](../performance.md), [cost.md](../cost.md),
+[readiness.md](readiness.md) and the [decision log](../decision-log.md).
 
 ---
 

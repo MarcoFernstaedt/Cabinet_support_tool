@@ -6,7 +6,7 @@
 // installer picks the package for the machine's own Windows, so nobody has to know whether a cabinet is 32-bit or 64-bit.
 //
 // Two architectures exist because Windows cannot run a 64-bit program on 32-bit Windows, so the agent is built once per
-// architecture (docs/platform/second-architecture.md). An architecture whose package is not on this server is reported as
+// architecture (docs/platform/archive/second-architecture.md). An architecture whose package is not on this server is reported as
 // missing rather than silently swapped for the other one: the other one cannot install at all.
 import { createHash } from "node:crypto";
 import { createReadStream, statSync } from "node:fs";
