@@ -44,6 +44,40 @@ The red checks:
 - the reader's own test covers alias forms and reads that do not write.
 
 Boundary input validation and idempotent writers (the rest of F21.R2) are not part of this change.
+## D55. Which Windows the fleet runs, from what it already reports; what F20 leaves open (2026-11-08)
+
+**What the code did** (F20): the brief's F20 "today" lists four gaps. Three are already closed in the code, so this entry records them,
+naming the file and line, rather than building them again:
+- **Release uploads isolated per attempt:** each upload streams to its own file, `uploadTempName(version, architecture, randomUUID())`
+  opened with `wx` (`server/src/services/releases.ts:169`, `:231`, `:242`). Tested in `integrity-release-upload.test.ts`, "streams to a
+  temporary file of its own, named for that upload".
+- **Bounded, paginated list paths:** site and cabinet detail page their cabinets with `pageWindow`, `OFFSET … FETCH`, and `hasMore`
+  (`server/src/services/fleet.ts:138` and `:167`).
+- **A bounded fleet-wide read search:** two searches at once and four waiting, then 429; a match cap; a time limit
+  (`server/src/services/readings.ts:146`, `SEARCH_CONCURRENCY`, `SEARCH_QUEUE`, `MAX_MATCHES`, `limitMs`).
+
+What was missing is the distribution report: which Windows the fleet runs.
+
+**The decision** (mine, within the brief):
+- **Built from what cabinets already report.** The edition and build come from each cabinet's latest `system.info` answer (`osVersion`,
+  `osBuild`), and the architecture from the one recorded at approval. Grouped by edition, build family (before the first dot) and
+  architecture, with the lowest and highest full build in each family. The revision is compared as a number, because 19044.999 is older
+  than 19044.5011. At most 200 groups. Demo cabinets are left out.
+- **Honest about what it does not know.** Cabinets never read are counted apart. The update source is not read by any operation, so
+  the report says so rather than guessing.
+- **Cost.** One grouped statement over the latest answer per cabinet, through the existing `commands_result_by_operation` index. No new
+  table or stream.
+- **Left open, and why:**
+  - **The update source** needs an agent operation (the agent cannot be built here: NU3018 behind the HTTPS-only proxy).
+  - **The real-cabinet smoke test per build family** needs real cabinets of each family.
+
+  Both stay open in the tracker.
+
+The red checks:
+- counting every answer instead of the newest fails the first test;
+- comparing revisions as text fails it;
+- letting demo cabinets in fails it;
+- hiding the panel fails the browser test.
 
 ## D54. A change that leaves a cabinet unlike all its peers is an alert, where no baseline declares the setting (2026-11-08)
 
