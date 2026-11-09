@@ -37,6 +37,7 @@ import { CabinetSyncLine, type CabinetSync } from "../../components/SyncCabinets
 import { SECTIONS, groupedSections, type SectionId } from "../../lib/sections";
 import { ReapplyPanel } from "../../components/ReapplyPanel";
 import type { Reapply } from "../../lib/replacement";
+import { CabinetSystem } from "../../components/CabinetSystem";
 
 /** Last known healthy, as the health evaluation defines it (F8.R1): now, a time, or why there is none. */
 export interface LastHealthy { now: boolean; at: string | null; reason: "not_evaluated" | "no_configuration" | "no_baseline" | "never_healthy" | null }
@@ -198,6 +199,7 @@ function Overview({ cabinet, onChanged }: { cabinet: CabinetDetail; onChanged: (
   const { me } = useSession();
   return (<>
     <Summary cabinet={cabinet} />
+    <CabinetSystem cabinetId={cabinet.id} cabinetName={cabinet.name} />
     <section className="panel" aria-labelledby="details-heading">
       <h2 id="details-heading">Details</h2>
       <KeyValues rows={[

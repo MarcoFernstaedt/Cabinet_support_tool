@@ -45,6 +45,8 @@
   /* Radii: restrained */
   --r-sm: 4px; --r-md: 6px; --r-lg: 8px;
   --control-h: 32px; --control-h-sm: 26px;
+  /* Density: table cells and panels, kept tight so a fleet screen shows more at once */
+  --cell-y: 6px; --cell-x: 10px; --panel-pad: 14px;
   --topbar-h: 52px;
 }
 
@@ -160,7 +162,7 @@ legend { font-size: var(--fs-sm); color: var(--text-2); margin-bottom: var(--s-1
 .jump-results li.active { background: var(--accent-soft); }
 .jump-results .kind { font-size: var(--fs-xs); text-transform: uppercase; color: var(--muted); letter-spacing: 0.6px; }
 main:focus { outline: none; }
-.page { padding: var(--s-5) var(--s-6) var(--s-8); max-width: 1440px; margin: 0 auto; }
+.page { padding: var(--s-4) var(--s-5) var(--s-6); max-width: 1600px; margin: 0 auto; }
 .page.narrow { max-width: 960px; }
 .crumbs ol { list-style: none; display: flex; flex-wrap: wrap; gap: var(--s-2); padding: 0; margin: 0 0 var(--s-2); font-size: var(--fs-sm); color: var(--muted); }
 .crumbs li + li::before { content: "/"; margin-right: var(--s-2); color: var(--muted); }
@@ -176,14 +178,14 @@ main:focus { outline: none; }
 
 /* Tables and lists: dense and readable */
 .table { width: 100%; border-collapse: separate; border-spacing: 0; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); overflow: hidden; margin: var(--s-2) 0; }
-.table th, .table td { text-align: left; padding: var(--s-2) var(--s-3); border-bottom: 1px solid var(--line); vertical-align: top; }
+.table th, .table td { text-align: left; padding: var(--cell-y) var(--cell-x); border-bottom: 1px solid var(--line); vertical-align: top; }
 .table tbody tr:last-child > * { border-bottom: 0; }
 .table tbody tr:hover > * { background: var(--surface-2); }
 .table thead th { font-size: var(--fs-xs); font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); background: var(--surface-2); white-space: nowrap; }
 .table tbody th { font-weight: 600; }
 .table td { font-variant-numeric: tabular-nums; }
 .table.compact th, .table.compact td { padding: var(--s-1) var(--s-2); }
-.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: var(--s-2) var(--s-5); margin: var(--s-2) 0 var(--s-3); }
+.kv { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--s-2) var(--s-4); margin: var(--s-2) 0; }
 .kv div { display: flex; flex-direction: column; }
 .kv dt { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; }
 .kv dd { margin: 0; overflow-wrap: anywhere; }
@@ -191,7 +193,7 @@ main:focus { outline: none; }
 .links { padding-left: var(--s-5); display: flex; flex-direction: column; gap: var(--s-1); }
 
 /* Panels: one level only, never nested decoration */
-.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--s-4); margin: var(--s-3) 0; }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); padding: var(--panel-pad); margin: var(--s-2) 0; }
 .panel .panel { background: transparent; border: 0; border-top: 1px solid var(--line); border-radius: 0; padding: var(--s-3) 0 0; }
 .panel-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--s-3); margin-bottom: var(--s-2); }
 .panel-head h2, .panel-head h3 { margin: 0; }
@@ -336,6 +338,20 @@ details > summary { cursor: pointer; color: var(--accent); margin: var(--s-2) 0;
 .bar { display: inline-block; width: 80px; height: 8px; background: var(--surface-3); border-radius: var(--r-sm); overflow: hidden; vertical-align: middle; margin-right: var(--s-1); }
 .bar > span { display: block; height: 100%; }
 .bar.crit > span { background: var(--crit); } .bar.off > span { background: var(--muted); }
+/* A cabinet at a glance (CabinetSystem): tiles of label, value and detail, and usage meters coloured by status. */
+.sysgrid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: var(--s-2); }
+.tile { display: flex; flex-direction: column; gap: 2px; min-width: 0; padding: var(--s-2) var(--s-3); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-md); }
+.tile.wide { grid-column: 1 / -1; }
+.tile-label { font-size: var(--fs-xs); color: var(--muted); text-transform: uppercase; letter-spacing: 0.4px; display: flex; gap: var(--s-2); align-items: baseline; }
+.tile-value { font-weight: 600; overflow-wrap: anywhere; }
+.tile .when { text-transform: none; letter-spacing: 0; }
+.tile-sub { font-size: var(--fs-sm); color: var(--text-2); }
+.tile .table { margin: var(--s-1) 0 0; background: transparent; }
+.meter { display: inline-block; width: 100%; max-width: 160px; height: 6px; background: var(--surface-3); border-radius: var(--r-sm); overflow: hidden; vertical-align: middle; }
+.tile > .meter { max-width: none; margin: 2px 0; }
+.meter > span { display: block; height: 100%; }
+.meter.ok > span { background: var(--ok); } .meter.warn > span { background: var(--warn); } .meter.crit > span { background: var(--crit); }
+.volumes td .meter { width: 120px; margin-right: var(--s-1); }
 
 /* The guided demo: a side panel, not a popup; the page stays usable */
 .demo-tour { position: fixed; right: var(--s-4); bottom: var(--s-4); z-index: 40; width: min(380px, calc(100vw - var(--s-8)));

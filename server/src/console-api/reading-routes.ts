@@ -10,6 +10,7 @@ import { healthHistory, latestReading, latestReadings, searchReadings } from "..
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 import { HEAVY_LIMIT_MS, HeavyQuery } from "./heavy.js";
+import { cabinetSummary } from "../services/cabinet-summary.js";
 
 /** A search scans every cabinet's stored reading, so one person runs one at a time and each is stopped (cancelled in the database) after 15 seconds. */
 const searching = new Set<string>();
@@ -34,6 +35,11 @@ export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     await o.guards.role(request, "tier1");
     const q = consoleBodies.healthQuery.parse(request.query);
     return { hours: Number(q.hours ?? 24), points: await healthHistory(o.pool, await cabinet(id(request)), Number(q.hours ?? 24)) };
+  });
+  // The cabinet at a glance: machine, Windows, memory and storage, each from its latest stored read with the time it was read.
+  app.get("/api/cabinets/:id/summary", async request => {
+    await o.guards.role(request, "tier1");
+    return cabinetSummary(o.pool, await cabinet(id(request)));
   });
   // Each drive's level of concern and its history, and the drives that are a concern anywhere in the fleet.
   app.get("/api/cabinets/:id/drives", async request => {
