@@ -270,7 +270,13 @@ export function isBusy(e: unknown, depth = 0): boolean {
 }
 
 /** Wakes the other server processes (and this one) listening on a channel; see the notifications table and src/db/notifications.ts. */
+const NOTIFY_CHANNEL = /^[a-z_]{1,40}$/;
+
 export async function notify(db: Queryable, channel: string, payload: string): Promise<void> {
+  // Every write to notifications comes through here (F21.R2, decision-log D68). A channel is a fixed name in lower case; the payload is
+  // text, cut to the column. A notification is a wake-up call: every listener re-reads what changed, so one sent twice does no harm.
+  if (typeof channel !== "string" || !NOTIFY_CHANNEL.test(channel)) throw new Error("a notification channel is a name of 1 to 40 lower-case letters and underscores");
+  if (typeof payload !== "string") throw new Error("a notification payload is text");
   await db.query("INSERT INTO notifications (channel, payload) VALUES ($1, $2)", [channel, payload.slice(0, 450)]);
 }
 

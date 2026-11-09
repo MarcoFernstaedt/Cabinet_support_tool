@@ -36,11 +36,12 @@ export async function authenticate(db: Queryable, serialHex: string, subjectCabi
   if (row.first_use) {
     // The first connection with a renewed certificate retires the one it replaced (once per certificate, not per request), and tells
     // every server process, so a connection still using the retired certificate is checked again at once.
-    await db.query(
+    const retired = Number((await db.query<{ retired: number }>(
       `DECLARE @used TABLE (renewed_from nvarchar(450) NULL);
        UPDATE cabinet_certificates SET first_used_at = SYSUTCDATETIME() OUTPUT inserted.renewed_from INTO @used WHERE serial = $1 AND first_used_at IS NULL;
        UPDATE cabinet_certificates SET revoked_at = SYSUTCDATETIME() WHERE serial IN (SELECT renewed_from FROM @used) AND revoked_at IS NULL;
-       IF @@ROWCOUNT > 0 INSERT INTO notifications (channel, payload) VALUES ($2, $3);`, [serialHex, REVOCATION_CHANNEL, row.cabinet_id]);
+       SELECT @@ROWCOUNT AS retired;`, [serialHex])).rows[0]?.retired ?? 0);
+    if (retired > 0) await notify(db, REVOCATION_CHANNEL, row.cabinet_id);
     noteRevocation();
   }
   return { id: row.cabinet_id, serial: serialHex, notAfter: row.not_after };
