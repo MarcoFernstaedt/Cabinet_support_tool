@@ -377,10 +377,14 @@ machine: 4 cores, 15 GB, SQL Server 2022 in Docker, nothing else running. Five r
 | View | Data | Before | Now |
 |---|---|---|---|
 | Kinds of blue screen (`fleetCrashSignatures`) | 300,050 events, 50 blue screens | 3,861 ms (3,534 to 4,102) | 11 ms (10 to 12) |
+| Readings search by name (`searchReadings`, software) | 20,000 software lists of 81 programs, 100 cabinets match | 9,256 ms (8,440 to 9,602) | 943 ms (832 to 1,128) |
 | Drives at risk (`drivesAtRisk`) | | reads `drive_status`, one row per drive, already | not measured |
 
-How to run it: `cd server && npm run build && node dist/test/crash-kinds-at-scale.bench.js`. It seeds a test database, prints the
-timings and drops the database. What made the difference is in decision-log D61: in the same statement, a filter on the JSON source
+How to run them: `cd server && npm run build`, then `node dist/test/crash-kinds-at-scale.bench.js` or
+`node dist/test/readings-search-at-scale.bench.js` (`WITH_TEXT=0` seeds the stored answers as they were before the search text, which
+gives the "before" figure). Each seeds a test database, prints the timings and drops the database. The readings search's "before" is
+past the pools' 10 s statement limit at real software lists (often 150 to 300 programs) and close to the console's 15 s search limit at
+the 81 measured here; D63 has what changed. What made the difference is in decision-log D61: in the same statement, a filter on the JSON source
 or on the cabinets' status turned the index seek into a scan.
 
 ## Still to do before going wide

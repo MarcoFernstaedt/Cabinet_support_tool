@@ -81,6 +81,9 @@ const KEYWORD_FOUND: Record<string, (o: Out) => string[]> = {
   no_domain_controller: o => [`No domain controller found for ${o.name ?? "the domain"}`],
 };
 
+/** The readings searched by name; reading-search-text.ts keeps a search text for exactly these. */
+export const searchableByName = (): string[] => Object.keys(NAMES);
+
 const NAMES: Record<string, Searchable> = {
   "software.list": {
     where: `EXISTS (SELECT 1 FROM ${ITEMS("programs", { name: "name", publisher: "publisher" }, "p")} WHERE CHARINDEX($3, LOWER(p.name)) > 0 OR CHARINDEX($3, LOWER(COALESCE(p.publisher, ''))) > 0)
@@ -170,13 +173,18 @@ export async function searchReadings(db: Queryable, operation: string, q: string
   const keywords = allowed?.includes(text) ? allowed : undefined;
   if (allowed && !keywords && !NAMES[operation]) throw new Refused("unknown_keyword", 400, `search ${operation} by one of: ${allowed.join(", ")}`);
   if (!allowed && !NAMES[operation]) throw new Refused("not_searchable", 400, "that reading cannot be searched");
-  const condition = keywords ? KEYWORD_WHERE[text]! : NAMES[operation]!.where;
+  // A name search reads the result's search text, its names lower case one per line, written when the result arrived (F21.R4,
+  // decision-log D63): reading every cabinet's stored JSON apart took about 9 s at 10,000 cabinets. A result stored before the text
+  // existed has none and is read as before. CHARINDEX takes the text as it is: no character in it is a pattern.
+  const condition = keywords ? KEYWORD_WHERE[text]!
+    : `(cm.search_text IS NOT NULL AND CHARINDEX(CAST($3 AS nvarchar(4000)) COLLATE Latin1_General_100_BIN2, cm.search_text) > 0) OR (cm.search_text IS NULL AND (${NAMES[operation]!.where}))`;
   const inScope = `k.status = 'active' AND (CAST($1 AS nvarchar(36)) IS NULL OR s.client_id = TRY_CAST($1 AS uniqueidentifier)) AND (CAST($2 AS nvarchar(36)) IS NULL OR s.id = TRY_CAST($2 AS uniqueidentifier))`;
   const params = [scope.clientId ?? null, scope.siteId ?? null, keywords ? "" : text, operation];
   /** The cabinets of the scope that have a stored result for this operation; the page and its counts are read from it together. */
+  // Each cabinet's newest result is chosen from the index alone; only the chosen rows' text is read (it is kept out of the row).
   const latest = `latest AS (
-       SELECT x.cabinet_id, x.result_at, x.result FROM (
-         SELECT cm.cabinet_id, cm.result_at, cm.result, ROW_NUMBER() OVER (PARTITION BY cm.cabinet_id ORDER BY cm.result_at DESC) AS rn
+       SELECT x.id FROM (
+         SELECT cm.id, ROW_NUMBER() OVER (PARTITION BY cm.cabinet_id ORDER BY cm.result_at DESC) AS rn
            FROM commands cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id
           WHERE cm.operation = $4 AND cm.status = 'succeeded' AND cm.result IS NOT NULL AND ${inScope}) x
         WHERE x.rn = 1)`;
@@ -190,7 +198,7 @@ export async function searchReadings(db: Queryable, operation: string, q: string
        inscope AS (SELECT COUNT(*) AS total FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE ${inScope})
      SELECT TOP (${MAX_MATCHES + 1}) k.id, k.name, k.role, s.name AS site, c.name AS client, c.demo, cm.result_at AS read_at, JSON_QUERY(cm.result, '$.output') AS output,
             (SELECT cabinets_read FROM counted) AS cabinets_read, (SELECT total FROM inscope) AS total
-       FROM latest cm JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
+       FROM latest l JOIN commands cm ON cm.id = l.id JOIN cabinets k ON k.id = cm.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE (${condition}) ORDER BY c.name, s.name, k.name`, params, left())).rows;
     // Nothing matched, so no row carried the counts; they are asked for on their own (a search that finds nothing is the rare case).
     const counts = rows[0] ?? (await db.query<{ cabinets_read: string; total: string }>(

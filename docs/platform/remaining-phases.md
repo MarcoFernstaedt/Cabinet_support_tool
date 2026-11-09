@@ -29,7 +29,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 | Work | Finding | PRs |
 |---|---|---|
 | Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
-| Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen are in review; drives at risk already reads its aggregate. | F21.R4 | about 1 or 2 more |
+| Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen are done (D61) and the readings search is in review (D63); drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 

@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D63. The readings search reads each answer's names, not its stored JSON (2026-11-09)
+
+**What the code did:** a fleet search by name (`searchReadings` in `server/src/services/readings.ts`) took the newest stored answer
+of each cabinet and opened its JSON (`OPENJSON`) to compare every name in it. At 10,000 cabinets, a software search took a median
+of 9,256 ms with 81 programs a cabinet (measured below). Real software lists are longer, so it ran past the pools' 10 s statement
+limit and near the console's 15 s search limit.
+
+**The decision** (F21.R4; the approach is mine):
+- **The searchable names are stored beside the answer**, in a new `commands.search_text` column (migration 0032). They are written in
+  the same statement as the result (`storeResult`), in lower case, one value per line. The fields are exactly those the search
+  compares, defined once in `server/src/services/reading-search-text.ts`. A test holds that list equal to the readings searched by
+  name.
+- **The search reads that text**, with a binary `CHARINDEX`, and opens the JSON only for the matches it shows. Each cabinet's newest
+  answer is chosen from the index alone.
+- **An answer stored before this has no text** and is read from its JSON as before, so nothing is lost while the fleet re-reads.
+  Retention clears the text with the result.
+- **Case:** both sides are lower-cased by the server's JavaScript, so a match no longer depends on SQL Server's `LOWER` for
+  non-ASCII text.
+
+**Measured** (`server/test/readings-search-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000
+active cabinets, two software lists each of 81 programs, 100 of them match; 5 runs after one warm-up): without the text (as before)
+median 9,256 ms (best 8,440, worst 9,602); with it, median 943 ms (best 832, worst 1,128).
+
+**Tried first, and dropped** (each measured on the same data):
+- **Choosing the newest answer by the index alone:** 8,896 ms, no gain on its own.
+- **A text check of the stored JSON before opening it:** 13,583 ms; 20,938 ms with the column's own collation. A case-insensitive
+  search of 70 MB of text costs more than it saves.
+
+**Alternatives:** a table of one row per name, which is a second table to keep in step for no measured gain over a column. A full-text
+index, which needs the full-text feature (not in every SQL Server Express install) and matches words, not parts of names.
+
+**Proven by:** `readings.test.ts`:
+- An answer stored through `storeResult` carries its names, and a reading the search does not cover by name keeps none.
+- `%`, `_`, `[` and `'` are plain text, and non-ASCII matches without case.
+- A text that disagrees with its JSON is what the search follows, which shows the text is read. With the old condition, that test
+  fails. Without the write in `storeResult`, it fails too.
+- `admin.test.ts`: retention clears the text; without that, it fails.
+
+---
+
 ## D61. The kinds of blue screen are read through their alerts, not from every event (2026-11-09)
 
 **What the code did:** the console's list of blue-screen kinds and each kind's report (`crashesIn` in

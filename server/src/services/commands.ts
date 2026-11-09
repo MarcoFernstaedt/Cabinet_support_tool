@@ -10,6 +10,7 @@ import { ingestAndEvaluate } from "./config-service.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
+import { searchText } from "./reading-search-text.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
@@ -174,7 +175,10 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       if (!output || result.output === undefined || !output.is(result.output))
         throw new Refused("invalid_output", 400, "the output does not match the operation's output schema");
     }
-    await c.query("UPDATE commands SET status = $2, result = $3, result_at = SYSUTCDATETIME() WHERE id = $1", [result.commandId, result.status, safeJson(result)]);
+    // The names the fleet's readings search matches, kept beside the result so a search does not read every stored JSON (D63).
+    const text = result.status === "succeeded" ? searchText(command.operation, result.output) : null;
+    await c.query("UPDATE commands SET status = $2, result = $3, result_at = SYSUTCDATETIME(), search_text = $4 WHERE id = $1",
+      [result.commandId, result.status, safeJson(result), text]);
     // What the cabinet says about its make and model keeps the model baseline applying to it.
     if (result.status === "succeeded" && command.operation === "system.hardware") {
       const hw = result.output as { manufacturer?: string | null; model?: string | null };
