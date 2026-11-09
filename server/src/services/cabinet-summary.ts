@@ -9,11 +9,14 @@ const obj = (v: unknown): Out | null => v !== null && typeof v === "object" && !
 const num = (v: unknown): number | null => typeof v === "number" && Number.isFinite(v) ? v : null;
 const text = (v: unknown): string | null => typeof v === "string" && v.trim() !== "" ? v : null;
 const bool = (v: unknown): boolean | null => typeof v === "boolean" ? v : null;
+/** The three Secure Boot states the contract allows; anything else is unknown, never on or off. */
+const secureBootState = (v: unknown): "on" | "off" | "unsupported" | null => v === "on" || v === "off" || v === "unsupported" ? v : null;
 
 export interface CabinetSummary {
   machine: { manufacturer: string | null; model: string | null; cpu: string | null; logicalCores: number | null; memoryBytes: number | null;
     memoryModules: number | null; biosVersion: string | null; biosDate: string | null; tpm: { present: boolean; enabled: boolean | null; version: string | null } | null;
-    secureBoot: boolean | null; lastBoot: string | null; readAt: string } | null;
+    /** As the contract stores it (system.hardware): "on", "off", or "unsupported" on a machine without UEFI Secure Boot. */
+    secureBoot: "on" | "off" | "unsupported" | null; lastBoot: string | null; readAt: string } | null;
   windows: { edition: string | null; build: string | null; architecture: string | null; uptimeSeconds: number | null; readAt: string | null } | null;
   memory: { totalBytes: number; availableBytes: number; readAt: string } | null;
   volumes: { drive: string; label: string | null; fileSystem: string | null; sizeBytes: number; freeBytes: number }[];
@@ -54,7 +57,7 @@ export async function cabinetSummary(db: Queryable, cabinetId: string): Promise<
     manufacturer: text(h.manufacturer), model: text(h.model), cpu: text(cpu?.model), logicalCores: num(cpu?.logicalCores),
     memoryBytes: num(mem?.totalBytes), memoryModules: num(mem?.moduleCount), biosVersion: text(bios?.version), biosDate: text(bios?.date),
     tpm: tpm && typeof tpm.present === "boolean" ? { present: tpm.present, enabled: bool(tpm.enabled), version: text(tpm.version) } : null,
-    secureBoot: bool(h.secureBoot), lastBoot: text(h.lastBoot), readAt: hw.at.toISOString(),
+    secureBoot: secureBootState(h.secureBoot), lastBoot: text(h.lastBoot), readAt: hw.at.toISOString(),
   } : null;
 
   const info = reads.get("system.info");

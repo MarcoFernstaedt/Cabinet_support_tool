@@ -8,7 +8,7 @@ import { architectureLabel } from "../lib/architecture";
 
 interface Summary {
   machine: { manufacturer: string | null; model: string | null; cpu: string | null; logicalCores: number | null; memoryBytes: number | null; memoryModules: number | null;
-    biosVersion: string | null; biosDate: string | null; tpm: { present: boolean; enabled: boolean | null; version: string | null } | null; secureBoot: boolean | null;
+    biosVersion: string | null; biosDate: string | null; tpm: { present: boolean; enabled: boolean | null; version: string | null } | null; secureBoot: "on" | "off" | "unsupported" | null;
     lastBoot: string | null; readAt: string } | null;
   windows: { edition: string | null; build: string | null; architecture: string | null; uptimeSeconds: number | null; readAt: string | null } | null;
   memory: { totalBytes: number; availableBytes: number; readAt: string } | null;
@@ -27,6 +27,8 @@ function Meter({ used, warnAt = 85, critAt = 95 }: { used: number; warnAt?: numb
 /** How old a figure is, after a separator: "· 10 min ago". */
 const When = ({ at }: { at: string | null | undefined }) => at ? <span className="muted small when" title={fullTime(at)}>· {ago(at)}</span> : null;
 const unknown = <span className="muted">Not read yet</span>;
+/** The three states the agent reports, worded as the Windows tab words them. */
+const SECURE_BOOT = { on: "on", off: "off", unsupported: "not supported" } as const;
 
 export function CabinetSystem({ cabinetId, cabinetName }: { cabinetId: string; cabinetName: string }) {
   const { data, problem, reload } = useLoad<Summary>(`/api/cabinets/${cabinetId}/summary`);
@@ -68,7 +70,7 @@ export function CabinetSystem({ cabinetId, cabinetName }: { cabinetId: string; c
             <span className="tile-label">Machine</span>
             <span className="tile-value">{[m?.manufacturer, m?.model].filter(Boolean).join(" ") || unknown}</span>
             <span className="tile-sub">{m?.biosVersion ? `BIOS ${m.biosVersion}${m.biosDate ? ` (${m.biosDate.slice(0, 10)})` : ""}` : " "}</span>
-            <span className="tile-sub">{m ? <>TPM {m.tpm ? (m.tpm.present ? `${m.tpm.version ?? "present"}${m.tpm.enabled === false ? ", disabled" : ""}` : "not present") : "unknown"} · Secure Boot {m.secureBoot === null ? "unknown" : m.secureBoot ? "on" : "off"}</> : " "}</span>
+            <span className="tile-sub">{m ? <>TPM {m.tpm ? (m.tpm.present ? `${m.tpm.version ?? "present"}${m.tpm.enabled === false ? ", disabled" : ""}` : "not present") : "unknown"} · Secure Boot {m.secureBoot === null ? "unknown" : SECURE_BOOT[m.secureBoot]}</> : " "}</span>
           </div>
           <div className="tile wide">
             <span className="tile-label">Storage {data.volumesReadAt && <When at={data.volumesReadAt} />}</span>

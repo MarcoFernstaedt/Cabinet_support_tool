@@ -75,6 +75,11 @@ layout; the shape is mine):
 - **Denser everywhere, from the tokens.** Table cells, panel padding, the key-value grid and page margins are tightened in the
   design tokens (`--cell-y`, `--cell-x`, `--panel-pad`), so every page gets more on screen without a page-by-page change. The type
   scale and control heights are unchanged, so nothing gets harder to read or to hit.
+- **Fixtures come from the contract.** The tests start from the contract's example answers, and check every stored answer against
+  the operation's output contract before storing it. The first version read Secure Boot as a boolean. The contract stores `"on"`,
+  `"off"` or `"unsupported"`, so the tile said "unknown" on every cabinet. Its fixtures used `true`, a value the agent cannot send,
+  so the tests passed (review of #215). The panel now reads the three states, words "unsupported" as "not supported" as the
+  Windows tab does, and treats any other value as unknown.
 - **Rejected:** a new periodic read for these figures. The stored reads and the heartbeat already carry them. A new stream would need
   its own line in the capacity budget, and the brief allows none without one.
 
