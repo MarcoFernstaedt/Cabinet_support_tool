@@ -3,7 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
 import { forgetTrustedDevices } from "./devices.js";
-import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../services/maintenance.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 export type Stage = "totp" | "totp_setup" | "password_change" | "complete";
 export { SESSION_COOKIE as COOKIE } from "./cookies.js";

@@ -12,7 +12,7 @@ import { catalog, operations } from "../contracts.js";
 import { audit, auditMany, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
-import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "./maintenance.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";

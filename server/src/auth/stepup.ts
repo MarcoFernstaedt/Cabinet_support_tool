@@ -5,7 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { paramsHash } from "./canonical.js";
-import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../services/maintenance.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 export const STEP_UP_SECONDS = 120;
 const hash = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();

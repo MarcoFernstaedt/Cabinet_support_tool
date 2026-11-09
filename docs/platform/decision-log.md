@@ -21,6 +21,19 @@ both were older than the job retention setting. Both tables are owned by `servic
 - **Safe to repeat:** a second run removes nothing more.
 - Two entries come off the debt list, which leaves 109. Eight of those are the remaining sweeps.
 
+**What went wrong first, and the fix.** The first version had `fleet-jobs.ts` import the batching helpers from `maintenance.ts`, which
+imports `fleet-jobs.ts` back. The full suite at 8556807 failed six files before any test ran: "Cannot access 'LIVE_LINK' before
+initialization". In that cycle, `fleet.ts` ran before `sync-cabinets.ts` had set the constant it reads while loading. D71 had judged
+such a cycle harmless because each side only calls the other later. That holds only until the cycle drags in a module that reads a
+constant while it loads, so the judgement was wrong.
+- **The fix:** the batching helpers (`inBatches`, `BatchOptions`, `RETENTION_BATCH`, `BatchAudit`, `checkRetentionCutoff`) move to
+  `db/batches.ts`, which imports nothing but `db.ts`. Every owner's prune takes them from there: the two auth modules from #229,
+  `commands.ts` from #230, and `fleet-jobs.ts`. `maintenance.ts` re-exports them for its other callers.
+- **The guard:** `import-cycles.test.ts` reads the import graph of `src/` and fails when `maintenance.ts` is part of any cycle, naming
+  the module that leads back. Loading a few files is not a guard: with `fleet-jobs.ts` pointed back at `maintenance.ts`, the two files
+  that had failed loaded fine, because whether a cycle bites depends on load order. The graph test names `services/fleet-jobs.ts` every
+  time.
+
 **Proven by:** `fleet-jobs-retention.test.ts`, a new file:
 - an old done job and an old cancelled job go with their results;
 - an old running job and a recent job stay, results and all;
@@ -31,7 +44,8 @@ both were older than the job retention setting. Both tables are owned by `servic
 - Without the cut-off check, the refusal test fails.
 - With the old statements back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes
   fleet_job_targets (owned by services/fleet-jobs.ts)" and the same for `fleet_jobs`.
-- The retention test in `admin.test.ts` and the audit sweep pass.
+- With `fleet-jobs.ts` importing `maintenance.ts` again, `import-cycles.test.ts` fails, naming `services/fleet-jobs.ts`.
+- The retention test in `admin.test.ts`, the audit sweep, `replacement-reapply`, `sync-cabinets` and `server-roles` pass.
 
 ---
 
