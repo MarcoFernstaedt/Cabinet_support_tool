@@ -169,3 +169,27 @@ test("the installer refuses a source anyone but SYSTEM and administrators can ch
   assert.match(code, /Get-ChildItem -LiteralPath \$incoming -Recurse -File -Include '\*\.exe', '\*\.dll'/);
   assert.match(code, /finally \{[\s\S]*Remove-Item -LiteralPath \$incoming/);
 });
+
+test("the acceptance check only reads: it changes nothing but its own results file, prints no secret, and ships with the agent", () => {
+  const text = readFileSync(join(installDir, "Test-CabinetAgent.ps1"), "utf8");
+  // The code alone: the help block (<# ... #>) and comment lines describe what it does not do, in words.
+  const code = text.replace(/<#[\s\S]*?#>/g, "").split("\n").filter(l => !l.trim().startsWith("#")).join("\n");
+  // Nothing that changes the machine: services, permissions, files, the registry, processes, the network configuration.
+  for (const verb of ["Set-Acl", "Set-Service", "New-Service", "Stop-Service", "Start-Service", "Restart-Service", "Remove-Item", "Set-ItemProperty", "New-ItemProperty",
+    "Copy-Item", "Move-Item", "Stop-Process", "Start-Process", "sc.exe", "netsh", "reg.exe", "Invoke-Expression", "iex ", "Invoke-WebRequest", "Invoke-RestMethod", "Add-Content", "Set-Content", "Out-File"])
+    assert.ok(!code.includes(verb), `the acceptance check must not use ${verb}`);
+  // The one write: its own results folder.
+  const writes = [...code.matchAll(/WriteAllText\(([^,]+),/g)].map(m => m[1]!.trim());
+  assert.deepEqual(writes, ["$outFile"]);
+  assert.ok(code.includes("Join-Path $env:ProgramData 'Mashura\\CabinetAgent-Acceptance'"), "results go to their own folder");
+  assert.equal([...code.matchAll(/New-Item /g)].length, 1, "the only folder it creates is the results folder");
+  // It never opens a token, a key or the certificate store, and prints only the server address from the configuration.
+  for (const secret of ["token", "Cng", "Cert:", "X509Store", "private"]) assert.ok(!code.toLowerCase().includes(secret.toLowerCase()), `the acceptance check must not touch ${secret}`);
+  // A tool reads the exit code: 0 when nothing failed, 1 when something did.
+  assert.ok(code.includes("if ($failed -gt 0) { exit 1 }") && code.trimEnd().endsWith("exit 0"));
+  // Shipped in the package, left on the cabinet by the installer, and removed by the uninstaller.
+  assert.ok(readFileSync(join(root, "deploy", "Dockerfile"), "utf8").includes("agent/install/Test-CabinetAgent.ps1"), "the package carries it");
+  assert.ok(readFileSync(join(installDir, "Install-CabinetAgent.ps1"), "utf8").includes("'Test-CabinetAgent.ps1'"), "the installer leaves it on the cabinet");
+  const uninstall = readFileSync(join(installDir, "Uninstall-CabinetAgent.ps1"), "utf8");
+  assert.ok(uninstall.includes("Mashura\\Test-CabinetAgent.ps1") && uninstall.includes("Mashura\\CabinetAgent-Acceptance"), "the uninstaller removes it and, with -RemoveData, its results");
+});

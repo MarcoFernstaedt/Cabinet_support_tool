@@ -2,6 +2,28 @@
 
 Use this after you install the agent on a real computer, to check that what the console shows is the machine's own data and not a simulation.
 
+## On the cabinet first
+
+Run the read-only acceptance check the installer leaves on every cabinet. Run it as SYSTEM from the remote management tool, or from
+an administrator Windows PowerShell:
+
+    & "C:\Program Files\Mashura\Test-CabinetAgent.ps1"
+
+It checks, and prints PASS, WARN or FAIL for each:
+- Windows edition, build and architecture;
+- both services: installed, running, automatic, and under the right account (the broker as LocalSystem, the network service as
+  `NT SERVICE\CabinetAgentNetwork`, which is not in the local Administrators group);
+- the programs' signatures (a development build warns);
+- the program and data folders' owner and permissions;
+- the configuration and the platform CA;
+- whether the platform server answers on its port;
+- whether the agent wrote its log in the last 15 minutes.
+
+The results are written to `C:\ProgramData\Mashura\CabinetAgent-Acceptance\`, with the exit code 0 when nothing failed and 1 when
+something did. Send the file with any report.
+
+## Then from the console
+
 1. Install and approve the agent (Admin, Set up and demo, steps 2 and 3). A live cabinet is tagged **Live agent**. Simulated ones say **Demo: simulated cabinet**.
 2. Open the cabinet and look at its **Overview**. Under "Test <cabinet>" click **Run the checks**. The same panel is on the Set up page, step 4. It runs thirteen read-only checks one after another and changes nothing on the machine:
 

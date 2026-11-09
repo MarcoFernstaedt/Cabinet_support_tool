@@ -19,6 +19,16 @@ If the install stops:
 
 The cabinet must be able to reach the server's agent address on port 8443 (it only connects out).
 
+Install on many cabinets at once:
+  For a site, tick "Make a fleet install script (PowerShell)" when creating the installer, and run the script as SYSTEM
+  from your remote management tool. See docs/platform/fleet-install.md.
+
+Check an installed cabinet (read only; as SYSTEM from a remote management tool, or an administrator PowerShell):
+  & "C:\Program Files\Mashura\Test-CabinetAgent.ps1"
+  It prints PASS, WARN or FAIL for each check (services, permissions, signatures, configuration, the path to the
+  server, the agent's log), writes the results to C:\ProgramData\Mashura\CabinetAgent-Acceptance\, and exits with 0
+  when nothing failed. Then, in the console, open the cabinet and run "Test <cabinet>" on its Overview.
+
 Remove (from an administrator Windows PowerShell):
   & "C:\Program Files\Mashura\Uninstall-CabinetAgent.ps1" -RemoveData
 

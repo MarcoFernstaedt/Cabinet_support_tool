@@ -6,6 +6,36 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D59. A read-only acceptance check on the cabinet itself (2026-11-09)
+
+**What the code did:** a freshly installed agent was checked from the console only ("Test <cabinet>": read-only operations through the
+platform). That proves the agent answers. It cannot show whether the install itself is sound: which accounts the services run as,
+whether a non-administrator can change the programs or the data folder, whether the cabinet reaches the server at all. Those were
+checked by hand during the real-machine tests.
+
+**The decision** (the owner asked for a test ready to run when the agent is on a machine; the shape is mine):
+- **`agent/install/Test-CabinetAgent.ps1`**, shipped in the package and left by the installer beside the uninstaller in
+  `C:\Program Files\Mashura`, so it is on every cabinet and runs from the remote management tool as SYSTEM.
+- **What it checks** is the install's own security promises, read back: the two services and their accounts, the network service
+  outside the Administrators group, signatures, folder owners and who can write, the configuration and CA, the path to the server,
+  and a recent log.
+- **Read only.** It changes nothing, writes only its results file, never opens a token, a key or the certificate store, and prints
+  only the server address from the configuration. A test in `installer-scripts.test.ts` holds it to that, and to ASCII (Windows
+  PowerShell 5.1 reads a BOM-less script as ANSI).
+- **Exit 0 or 1,** with a JSON results file, so the remote management tool and support read the same thing.
+- **The uninstaller removes it**, and with `-RemoveData` its results.
+- **Rejected:** a new agent operation that reports the same facts (an agent change, which cannot be built here, and a new write path
+  to the server for what a local read-only script answers); a check of every catalog read on the cabinet itself (that is the
+  console's "Test <cabinet>", through the real path).
+
+**What is not proven here.** The script is Windows PowerShell and this environment has no Windows. The parse test runs where
+PowerShell 7 is installed, and is skipped here. Its first run on a real cabinet is its proof.
+
+The red checks:
+- a write added to the script fails the read-only test;
+- dropping it from the package fails the same test;
+- a non-ASCII character fails the ASCII test.
+
 ## D57. A site installer as a script a remote management tool runs as SYSTEM (2026-11-09)
 
 **What the code did** (F6, "a site set up end to end in one sitting"): the installer for a site was a `.cmd` launcher

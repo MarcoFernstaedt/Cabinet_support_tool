@@ -269,6 +269,9 @@ foreach ($service in @{ Name = $broker; Project = 'Cabinet.Agent.Broker' }, @{ N
 $installDir = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $PSCommandPath }
 $uninstaller = Join-Path $installDir 'Uninstall-CabinetAgent.ps1'
 if (Test-Path -LiteralPath $uninstaller -PathType Leaf) { Copy-Item -LiteralPath $uninstaller -Destination (Join-Path (Split-Path $programDir -Parent) 'Uninstall-CabinetAgent.ps1') -Force }
+# The read-only acceptance check stays beside it, so a cabinet can be checked after install from a remote management tool.
+$acceptance = Join-Path $installDir 'Test-CabinetAgent.ps1'
+if (Test-Path -LiteralPath $acceptance -PathType Leaf) { Copy-Item -LiteralPath $acceptance -Destination (Join-Path (Split-Path $programDir -Parent) 'Test-CabinetAgent.ps1') -Force }
 
 # 2. Services. The network service depends on the broker and runs as its virtual account.
 $brokerExe = Join-Path $programDir 'Cabinet.Agent.Broker\Cabinet.Agent.Broker.exe'
