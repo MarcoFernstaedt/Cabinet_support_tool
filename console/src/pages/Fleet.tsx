@@ -1,5 +1,6 @@
 import { Pager, usePaged } from "../components/Pager";
 import { DrivesAtRisk } from "../components/DriveTrends";
+import { WindowsInFleet } from "../components/WindowsInFleet";
 import { useEffect, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
@@ -60,6 +61,7 @@ export function FleetHome() {
         </table></div>
       )}
       <Pager {...paged} label="clients" />
+      <WindowsInFleet />
     </div>
   );
 }
