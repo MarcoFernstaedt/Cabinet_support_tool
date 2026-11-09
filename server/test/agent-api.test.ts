@@ -383,7 +383,14 @@ test("renewal works once: a lost answer can be asked again, but once the new cer
   assert.equal(renewed.status, 200);
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: lostKey, certPem: lost.body.certificate })).status, 401, "the unused certificate was revoked");
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 200, "the old one works until the new one is used");
+  const notices = async () => Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM notifications WHERE channel = 'certificates_revoked' AND payload = $1",
+    [cab.cabinetId])).rows[0]!.n);
+  const before = await notices();
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
+  // Retiring the old certificate tells every server process, once (D68); later connections with the new one retire nothing more.
+  assert.equal(await notices(), before + 1);
+  assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, { key: newKey, certPem: renewed.body.certificate })).status, 200);
+  assert.equal(await notices(), before + 1);
   // A copy of the old certificate now neither connects nor renews.
   assert.equal((await call("POST", "/agent/v1/heartbeat", heartbeat, cab)).status, 401);
   assert.equal((await call("POST", "/agent/v1/renew", { csr: csrFor(ecKey()) }, cab)).status, 401);

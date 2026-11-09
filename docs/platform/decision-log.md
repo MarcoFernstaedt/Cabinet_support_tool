@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D68. The certificate check's write to notifications goes through notify() (2026-11-09)
+
+**What the code did:** `notifications` is owned by `db/db.ts`, whose `notify()` every other caller already used. The one exception was
+`authenticate` in `services/cabinets.ts`. When a renewed certificate was used for the first time, it retired the certificate it
+replaced and, in the same batch, inserted the revocation notice itself (`IF @@ROWCOUNT > 0 INSERT INTO notifications`).
+
+**The decision** (F21.R2):
+- **The batch reports instead of writing.** It returns how many certificates it retired, and `authenticate` calls
+  `notify(REVOCATION_CHANNEL, cabinetId)` when that is more than 0. This adds one round trip, only on the first use of a renewed
+  certificate, never per request.
+- **`notify()` checks its input before writing.** A channel is a name of 1 to 40 lower-case letters and underscores, as every channel
+  in the code is. The payload must be text, and is still cut to the column.
+- **Repeating is safe.** A notification is a wake-up call: every listener re-reads what changed, so one sent twice does no harm.
+- `services/cabinets.ts` comes off the debt list for `notifications`, which leaves 118 entries.
+
+**Proven by:**
+- `notify.test.ts`, a new file: a notification is written with its payload cut to 450 characters, and 9 malformed or hostile channels
+  and 4 non-text payloads are refused with nothing written.
+- `agent-api.test.ts`, the renewal test, now also checks the notice: the first use of the new certificate sends exactly one, and a
+  later use sends none.
+
+**Red checks:**
+- Without the channel check, the notify test fails.
+- Without the notice in `authenticate`, the renewal test fails.
+- With the old inline `INSERT` back, `table-ownership.test.ts` fails with "services/cabinets.ts writes notifications (owned by db/db.ts)".
+
+---
+
 ## D67. Approval's write to enrollment_baselines goes through its owner (2026-11-09)
 
 **What the code did:** `enrollment_baselines` is owned by `services/baselines.ts` (D56), which reads it and moves a capture from
