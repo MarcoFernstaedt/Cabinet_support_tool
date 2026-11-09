@@ -48,7 +48,7 @@ export async function readingRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   });
   app.get("/api/fleet/drives-at-risk", async request => {
     const u = await o.guards.role(request, "tier1");
-    // Reads every cabinet's drive history: one at a time per person, stopped after 15 s.
+    // Reads the drive_status aggregate (one row per drive): one at a time per person, stopped after 15 s.
     return { drives: await drivesAtRiskQueries.run(u.userId, o.pool, db => drivesAtRisk(db)) };
   });
   app.get("/api/readings/search", async request => {

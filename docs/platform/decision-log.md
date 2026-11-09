@@ -42,6 +42,40 @@ each rule. Red checks: with `events` placed with the platform, two tests fail (t
 
 ---
 
+## D61. The kinds of blue screen are read through their alerts, not from every event (2026-11-09)
+
+**What the code did:** the console's list of blue-screen kinds and each kind's report (`crashesIn` in
+`server/src/services/crash-signatures.ts`) loaded every active cabinet of the scope with its names, then scanned every event in the
+window for those cabinets, filtering each one's JSON source for BugCheck 1001. The cost grew with the fleet and its event volume,
+not with the number of crashes.
+
+**The decision** (F21.R4; the approach is mine):
+- **Read the events the blue-screen alerts hold.** The alerts are found by issue type (`alerts_issue_recent`) and their events
+  through the filtered `events_alert` index, as the hourly new-kind pass already does (`crash-clusters.ts`). Both BugCheck sources
+  map to the blue-screen issue in the built-in rules, and the engine links every event to the alert it raised or folded into.
+- **Two statements, not one.** The cabinets' names are read second, for the crashed cabinets only. A filter on the JSON source in the
+  first statement made SQL Server scan every event (1,849 ms against 4 ms without it, measured below), and a filter on
+  `cabinets.status` made it start from every active cabinet (189 ms against 3 ms). So the source and event ID are read in the
+  select list and checked in code, over the alerts' rows only.
+- **The report's comparison group** (the active cabinets of the same kind, real or demo) is fetched on its own, only when a report
+  is asked for.
+
+**What changes for a person:** a blue screen that an approved rule hides, or files under another issue, is no longer on the list,
+since no blue-screen alert holds it. Every alert view and the hourly new-kind pass (D52) already work this way. Nothing else changes.
+
+**Measured** (`server/test/crash-kinds-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 active
+cabinets, 300,050 events, 50 blue screens, 5 runs after one warm-up): the old query median 3,861 ms (best 3,534, worst 4,102); the
+whole list now median 11 ms (best 10, worst 12). Recorded in `performance.md`.
+
+**Alternatives:** an aggregate table of crashes per cabinet and signature, kept by the ingest. Not needed at these numbers, and a new
+write with its own rollback; the alerts already are the aggregate. A computed, indexed column for the event source: a schema change
+to the largest table for a query that no longer needs it.
+
+**Proven by:** `crash-signatures.test.ts`, "the list reads what the alerts engine filed as a blue screen". It fails with the old
+query (an unfiled entry is listed) and without the check in code (an entry from another source held by the alert is counted).
+
+---
+
 ## D60. The cabinets' ingest and the console run apart when asked to (2026-11-09)
 
 **What the code did** (F21.R3, "the agent-facing ingest can be deployed separately from the console API: separate port and process,
@@ -86,6 +120,8 @@ Plus the role parsing with hostile values, the plan for every combination, and t
 
 The red check: with the plan ignoring the roles, the plan test and the two-process test fail. The second process takes ports and work
 that belong to the first.
+
+---
 
 ## D59. A read-only acceptance check on the cabinet itself (2026-11-09)
 
