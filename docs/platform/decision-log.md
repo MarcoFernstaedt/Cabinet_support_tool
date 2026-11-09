@@ -6,6 +6,51 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D69. Every write to issue_types goes through rules.ts (2026-11-09)
+
+**What the code did:** `issue_types` is owned by `services/rules.ts` (D56). Two places wrote it, in two different ways:
+- **`services/admin.ts`**, for the Admin's create and edit, took a name lock and checked the exact name before writing.
+- **`rules.ts` itself**, when an Admin mapping a symptom created a new issue type, inserted it with neither and relied on the table's
+  unique key.
+
+**The decision** (F21.R2):
+- **Two writers in the owner:**
+  - `addIssueType`: check, lock the names, check the exact name, insert, audit `issue_type.create`, noting `from` when it came from a
+    mapping.
+  - `editIssueType`: check, lock the row, take the same name lock and exact-name check, update, audit `issue_type.update` with what the
+    issue type was.
+- **Callers:** both the Admin routes and the mapping path use them, so every new name goes through one lock. `admin.ts` keeps the
+  step-up check and calls the owner.
+- **Input checked first, by the table's own rules:**
+  - a name of 1 to 128 characters that is not blank;
+  - major or minor;
+  - a description of up to 1,024 characters.
+- **Safe to repeat:**
+  - A repeated create is refused by name (`name_taken`) and leaves one issue type.
+  - An edit with the same values writes and audits nothing.
+
+**What changes for a person:**
+- An edit that changes nothing is no longer written to the audit log.
+- A mapping that creates an issue type now waits on the same name lock as the Admin's list. Its answer to a name already taken is the
+  same `name_taken`.
+
+`admin.ts` comes off the debt list for `issue_types`, which leaves 117 entries.
+
+**Proven by:**
+- `issue-types.test.ts`, a new file:
+  - a created type is audited once, and the same name again is refused;
+  - an edit is audited with what it was, a repeat audits nothing, and a taken name and an unknown id are refused;
+  - 10 malformed or hostile issue types are refused with nothing written.
+- The existing issue type, alert and rule tests pass unchanged: `sqlserver-services`, `admin`, `alerts` and `alerts-sql`, 77 of 77
+  with `table-ownership`.
+
+**Red checks:**
+- Without the input check, the hostile test fails.
+- Without the unchanged-edit check, the edit test fails.
+- With the old `admin.ts` back, `table-ownership.test.ts` fails with "services/admin.ts writes issue_types (owned by services/rules.ts)".
+
+---
+
 ## D68. The certificate check's write to notifications goes through notify() (2026-11-09)
 
 **What the code did:** `notifications` is owned by `db/db.ts`, whose `notify()` every other caller already used. The one exception was
