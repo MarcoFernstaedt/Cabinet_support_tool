@@ -3,10 +3,9 @@
 // batches (BATCH rows each, with a pause between them and a time limit on each), so the log, the locks and the buffer pool of a 10,000-cabinet
 // database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
 import { advanceAuditCheckpoint, audit, auditChainHeadAnchor, auditCheckpoint, Pool, transaction, verifyAuditChain, type ChainCheck, type ChainCheckpoint, type Queryable } from "../db/db.js";
-import { platformSettings, upsertSetting } from "./settings.js";
+import { platformSettings } from "./settings.js";
 import { closeStaleSecurityAlerts, raiseSecurityAlert } from "./security.js";
 import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
-import { crashArgs, crashPredicate } from "./crashes.js";
 import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
