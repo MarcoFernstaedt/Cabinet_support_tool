@@ -65,9 +65,14 @@ test("the reader finds writes however they are spelled, through an alias too, an
     "db.query(`SELECT * FROM users u JOIN sessions s ON s.user_id = u.id`);",
     "db.query(`UPDATE ${TABLE[level]} SET name = $2 WHERE id = $1`);",
     "db.query(`DELETE FROM ${table} WHERE cabinet_id = $1`);",
+    // A row limit between the verb and the table, as the retention sweeps write (review of #224).
+    "db.query(\"DELETE TOP ($1) FROM cabinets WHERE id IS NOT NULL\");",
+    "db.query(`UPDATE TOP (500) incidents SET state = 'closed' WHERE id = $1`);",
+    "db.query(`UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id`);",
+    "db.query(`DELETE TOP ( 100 ) ${TABLE[level]} WHERE id = $1`);",
   ].join("\n"));
-  const found = tableWriters(join(root, "src"), new Set(["alerts", "fleet_patterns", "cabinet_drift", "job_leases", "users", "sessions"]));
-  assert.deepEqual([...found.keys()].sort(), ["alerts", "cabinet_drift", "fleet_patterns", "job_leases"]);
+  const found = tableWriters(join(root, "src"), new Set(["alerts", "fleet_patterns", "cabinet_drift", "job_leases", "users", "sessions", "cabinets", "incidents", "events"]));
+  assert.deepEqual([...found.keys()].sort(), ["alerts", "cabinet_drift", "cabinets", "events", "fleet_patterns", "incidents", "job_leases"]);
   assert.deepEqual([...found.get("alerts")!], ["services/a.ts"]);
-  assert.deepEqual([...runtimeTableWrites(join(root, "src"))], [["services/a.ts", 2]], "the two writes through a table named at run time are seen");
+  assert.deepEqual([...runtimeTableWrites(join(root, "src"))], [["services/a.ts", 3]], "the three writes through a table named at run time are seen, one with a row limit");
 });

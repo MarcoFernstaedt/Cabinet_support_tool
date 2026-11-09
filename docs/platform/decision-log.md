@@ -16,9 +16,25 @@ before this change).
 transaction as before, so behaviour is unchanged.
 - **Input check:** anything but a cabinet id is refused before the database is touched.
 - **Safe to repeat:** the flag is set from the drift as it stands, so calling it again changes nothing.
-- **Debt list:** `baseline-drift.ts` comes off it; 106 cross-module writes remain.
+- **Debt list:** `baseline-drift.ts` comes off it.
+- **The reader was blind to a row limit, and the list was short by 14 (review of #224).** `test/table-writes.ts` took a write's
+  table to follow its verb (or `FROM`/`INTO`) directly, so `DELETE TOP ($1) FROM t` and `UPDATE TOP ($1) t` were never seen. The
+  retention sweeps in `services/maintenance.ts` write that way. The reviewer proved it with a planted `DELETE TOP ($1) FROM cabinets`
+  in a file nobody listed, and the ownership test stayed green. The reader now takes an optional `TOP (…)` between the verb and the
+  table, in both the literal and the run-time reader. It finds 14 more writes, all `maintenance.ts` sweeps:
+  - alerts, cabinet_boots, commands and config_changes;
+  - diagnoses, drive_samples and firewall_changes;
+  - fleet_jobs and fleet_job_targets;
+  - health_transitions, incidents and notifications;
+  - sessions and step_up_tokens.
 
-**Proven by:** `config-changes.test.ts`, a new file, since no test checked the flag before.
+  They are listed as debt. The list holds 120 cross-module writes, not the 108 that D56 counted or the 106 this change first said.
+
+**Proven by:**
+- `table-ownership.test.ts`: the reader test now plants four writes with a row limit (a `DELETE TOP … FROM`, an `UPDATE TOP` on a
+  table, an `UPDATE TOP` through an alias, and one on a table named at run time). With the old reader that test fails, and so does
+  the stale-entry test, since the 14 entries would read as writes that are not there.
+- `config-changes.test.ts`, a new file, since no test checked the flag before.
 - A change against its baseline is marked and a matching one is not.
 - A change older than 30 days and another cabinet's change are left alone.
 - A repeat changes nothing, and a cleared drift clears the flag.

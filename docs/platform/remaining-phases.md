@@ -26,18 +26,18 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, second paydown: the drift check's write to `config_changes` goes through its owner (D66). 106 cross-module writes are left on the debt list.
+**In review:** F21.R2, second paydown: the drift check's write to `config_changes` goes through its owner (#224, D66). The ownership reader now sees writes with a row limit (`TOP`), which put 14 retention sweeps on the debt list: 120 cross-module writes are left.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 106 listed cross-module writes behind their owners (fleet_patterns done, D65; config_changes in review, D66), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
+| Move the 120 listed cross-module writes behind their owners (fleet_patterns done, D65; config_changes in review, D66; 14 of them are the retention sweeps in maintenance.ts), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 
-That is about 15 to 22 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
