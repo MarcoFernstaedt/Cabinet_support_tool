@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D71. Retention sweeps move to the tables' owners, starting with sessions and step-up tokens (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` deleted old rows from 14 tables other modules own, each with its own
+`DELETE TOP` (D66 found them). Expired sessions and step-up tokens were two of them (lines 242 and 243 before this change).
+
+**The decision** (F21.R2; the pattern is mine, and the other twelve sweeps follow it):
+- **Each owner exports a prune.** The prune holds its own statement and runs it through `inBatches`, which keeps the batching and the
+  audit entry per batch. `maintenance.ts` decides when to prune and with which cut-off; the owner decides how its own rows are removed.
+  Here: `pruneExpiredSessions` in `auth/sessions.ts` and `pruneExpiredStepUpTokens` in `auth/stepup.ts`.
+- **Input check:** a cut-off is refused unless it is a real time that has already passed (`checkRetentionCutoff`, shared). A mistaken
+  call can never remove what is still live.
+- **Safe to repeat:** a prune only removes rows older than its cut-off, so running it again removes nothing more. A batch that removes
+  nothing writes no audit entry.
+- **Behaviour unchanged:** the same statements, cut-offs, batches and audit entries.
+- **Import cycle:** the auth modules import the batching helper from `maintenance.ts`, which imports their prunes back. Each uses the
+  other only when called, never while loading. `server-roles.test.ts` starts the real built server and passes.
+- Two entries come off the debt list, which leaves 113. Twelve of those are the remaining sweeps.
+
+**Proven by:**
+- `auth-retention.test.ts`, a new file, run for each table:
+  - only what expired before the cut-off goes, audited as one batch, and a repeat removes nothing and logs nothing;
+  - a cut-off in the future, an invalid date, a string, a number, `null` and `undefined` are refused with nothing removed.
+- The existing retention, account and sign-in tests pass, with `server-roles`: 62 of 62.
+
+**Red checks:**
+- Without the cut-off check, the two refusal tests fail.
+- With the old sweeps back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes sessions (owned by
+  auth/sessions.ts)" and the same for `step_up_tokens`.
+
+---
+
 ## D70. sign_ins and user_devices: each auth module stops writing the other's table (2026-11-09)
 
 **What the code did:** the two sign-in tables are owned by two modules (D56), and each wrote the other's:

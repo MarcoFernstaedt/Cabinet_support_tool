@@ -5,6 +5,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { Queryable } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { paramsHash } from "./canonical.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../services/maintenance.js";
 
 export const STEP_UP_SECONDS = 120;
 const hash = (token: string): Buffer => createHash("sha256").update(token, "utf8").digest();
@@ -43,4 +44,10 @@ export async function consumeStepUpToken(db: Queryable, token: string, userId: s
                                 AND ((params_hash IS NULL AND $5 IS NULL) OR params_hash = $5)`,
     [hash(token), userId, action, target, required]);
   if (r.rowCount !== 1) throw new Refused("step_up_required", 403, "a valid step-up token for this exact action is required");
+}
+
+/** Removes step-up tokens that expired before `cutoff`, in batches, each batch audited (retention, decision-log D71). */
+export async function pruneExpiredStepUpTokens(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM step_up_tokens WHERE expires_at < $2", [cutoff], o, { table: "step_up_tokens", cutoff });
 }
