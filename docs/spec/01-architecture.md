@@ -23,6 +23,16 @@ An internal support tool that lets Mashura support staff diagnose CUBEX and Zimb
 
 The agent also sends data the server never asked for: heartbeats, detected errors, firewall changes and drive health warnings. This is agent-originated reporting, not a command, so it does not conflict with the rule that the server originates nothing.
 
+## Module ownership of tables
+
+Every table has one owning module, named in `server/src/db/table-owners.ts` (F21.R2, decision-log D56). The other source files that write a table today are listed with it as debt. `table-ownership.test.ts` reads the source and fails on:
+- a write by an unlisted file;
+- a listed writer that no longer writes the table, so the list only shrinks;
+- a write whose table name is built at run time, unless its file declares the tables it can write (`RUNTIME_TABLE_WRITES`);
+- a table without an owner.
+
+A new table names its owner before anything writes it.
+
 ## Cabinet roles
 
 - Sync: the cabinet that synchronizes the site

@@ -19,13 +19,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, table ownership written down and enforced as a ratchet (D56); F6, a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
+**In review:** F21.R2, table ownership written down and enforced as a ratchet, run-time table names included (D56); F6, a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 92 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
+| Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
 | The agent-facing ingest as its own process and port, with no shared in-process state | F21.R3 | about 2 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets | F21.R4 | about 2 or 3 |
 | A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
@@ -273,7 +273,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~3 | Turning demo mode on takes 17–25 s (measured; every test that turns it on now allows 90 s, D17 and D27; seeding sites side by side was tried and is slower, D27), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e` (the cabinet's own list did not appear within 30 s after a retried site load; once in a full run, 3 of 3 alone; cause not yet known; the test now prints what the page showed if it happens again) |
+| Open fixes | ~3 | Turning demo mode on takes 17–25 s (measured; every test that turns it on now allows 90 s, D17 and D27; seeding sites side by side was tried and is slower, D27), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e`. The cabinet's own list did not appear within 30 s after a retried site load. It has happened in a few full runs, never alone, and not in 8 runs at four at a time; the page was left in "Loading…". The cause is not yet known. The test now also prints how the last approved-programs requests ended (sent, answered with a status, or failed in the browser), which tells the server, the network and the page apart. |
 
 ## Fixes from the hardware test (2026-10-30)
 
@@ -406,7 +406,7 @@ changes it with the behaviour.
 | 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | F19.R7 firmware differing from its model's expectation is an alert (D48). Open: F19.R1-R6 (agent: driver store, rollout, rollback), F5 (a publisher entry needs a real cabinet's signer) |
 | 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
 | 13 | Sharpening the two no-expectation detectors | F17 | Done: a rising unrecognised error opens a fleet pattern (D50); the trends say where they were cut (D51); a new kind of blue screen on two cabinets is its own fleet pattern (D52); a healthy cabinet at a site with no baseline offers to become it (D53); a change that leaves a cabinet unlike all its peers, where no baseline declares the setting, is an alert (D54) |
-| 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | F21.R1 one writer per background job across instances (D49); F20: Windows in the fleet by edition, build family and architecture (D55); upload isolation, paged lists and the bounded search were already in the code (D55 names where). Open: F20 the update source (needs an agent operation) and a real-cabinet smoke test per build family, F21.R2-R5 |
+| 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | F21.R1 one writer per background job across instances (D49); F20: Windows in the fleet by edition, build family and architecture (D55); upload isolation, paged lists and the bounded search were already in the code (D55 names where); F21.R2 table ownership written down and enforced as a ratchet, 108 cross-module writes listed as debt, run-time table names declared (D56). Open: F20 the update source (needs an agent operation) and a real-cabinet smoke test per build family; F21.R2 paying the debt down, boundary validation and idempotent writers; F21.R3-R5 |
 | 15 | Our own remote access | F22 | **Parked** by the owner, 2026-11-06 |
 | -- | The installer carries an address a cabinet can dial | F23 | **Closed** 2026-11-07 (#171) |
 
