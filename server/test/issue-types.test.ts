@@ -35,6 +35,8 @@ test("an edit is audited with what it was; the same values again write and audit
   await inTx(c => editIssueType(c, user, id, t));
   await inTx(c => editIssueType(c, user, id, t));
   assert.deepEqual(await audits(id), ["issue_type.create", "issue_type.update"], "the repeat changed nothing and said nothing");
+  const kept = (await db.app.query<{ details: { before: { name: string; severity: string; description: string } } }>("SELECT details FROM audit_log WHERE target_id = $1 AND action = 'issue_type.update'", [id.toLowerCase()])).rows[0]!;
+  assert.deepEqual(kept.details.before, { name: a, severity: "minor", description: "d" }, "the audit kept what the issue type was");
   await assert.rejects(inTx(c => editIssueType(c, user, id, { ...t, name: b })), (e: { code?: string }) => e.code === "name_taken");
   await assert.rejects(inTx(c => editIssueType(c, user, randomUUID(), t)), (e: { code?: string }) => e.code === "not_found");
 });
