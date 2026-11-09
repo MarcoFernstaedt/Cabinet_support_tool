@@ -1,6 +1,7 @@
-// Starts the agent API, the console API when configured, and the background jobs. With AGENT_API_WORKERS > 1 the agent API runs in
-// that many worker processes sharing its port (node:cluster), and this primary process runs the console and the background jobs only,
-// so a 10,000-cabinet fleet is not limited to one event loop. Each process has its own pools, notification feed and presence flush.
+// Starts the agent API, the console API when configured, and the background jobs, or only the ones SERVER_ROLES names (F21.R3, D60), so
+// the cabinets' ingest and the people's console can run, scale and restart apart. With AGENT_API_WORKERS > 1 the agent API runs in that
+// many worker processes sharing its port (node:cluster), and this primary process runs the console and the background jobs only, so a
+// 10,000-cabinet fleet is not limited to one event loop. Each process has its own pools, notification feed and presence flush.
 import { scheduleDailyJobs } from "./services/maintenance.js";
 import { OpsReporter } from "./services/ops-meter.js";
 import { scheduleOpsChecks } from "./services/ops-health.js";
@@ -8,6 +9,7 @@ import { clusterNewCrashKinds } from "./services/crash-clusters.js";
 import { scheduleTroubleshootingJobs } from "./services/error-trends.js";
 import { expireRules, flushRuleHits } from "./services/rules.js";
 import { loadConfig } from "./config.js";
+import { processPlan } from "./roles.js";
 import { createPool, errorInfo } from "./db/db.js";
 import { NotificationFeed } from "./db/notifications.js";
 import { CommandNotifier } from "./agent-api/notifier.js";
@@ -39,16 +41,17 @@ import cluster from "node:cluster";
 import { createHmac, randomBytes } from "node:crypto";
 const config = loadConfig();
 const workers = config.agentApi.workers;
-const servesAgents = workers === 1 || cluster.isWorker;
-const runsServices = workers === 1 || cluster.isPrimary;
+// What this process runs (SERVER_ROLES; F21.R3, decision-log D60): the agent API, the console, the background jobs, or any of them.
+const plan = processPlan(config.roles, workers, cluster.isPrimary);
+const { servesAgents, runsConsole, runsJobs } = plan;
 
 // Pools: the agent API's (and the notification feed that wakes its long polls), the console's, and the background jobs' (whose
 // statements may run longer), so neither console work nor a job can take the connections the agents need.
 const agentPool = servesAgents ? await createPool(config.databaseUrl, { max: config.database.agentPoolMax }) : null;
-const consolePool = runsServices ? await createPool(config.databaseUrl, { max: config.database.consolePoolMax }) : null;
-const jobsPool = runsServices ? await createPool(config.databaseUrl, { max: config.database.jobsPoolMax, min: 1, requestTimeoutMs: 120_000 }) : null;
+const consolePool = runsConsole ? await createPool(config.databaseUrl, { max: config.database.consolePoolMax }) : null;
+const jobsPool = runsJobs ? await createPool(config.databaseUrl, { max: config.database.jobsPoolMax, min: 1, requestTimeoutMs: 120_000 }) : null;
 // One poller of the notifications table per process; the command long poll and the consoles' live stream listen to it.
-const feed = new NotificationFeed((agentPool ?? consolePool)!);
+const feed = new NotificationFeed((agentPool ?? consolePool ?? jobsPool)!);
 await feed.start();
 const key = await issuingKey(config);
 mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
@@ -84,13 +87,13 @@ if (servesAgents) {
 
 // ---- Operations counters: written from memory once a minute, with the pools' connection waits and the event loop's delay ----------------
 // Every process (each worker, or the only process) reports its own; counts add up in the database.
-const opsReporter = new OpsReporter({ pool: (jobsPool ?? agentPool)!, log: message => logError(message),
+const opsReporter = new OpsReporter({ pool: (jobsPool ?? agentPool ?? consolePool)!, log: message => logError(message),
   sampled: { ...(agentPool ? { agent: agentPool } : {}), ...(consolePool ? { console: consolePool } : {}) } });
 opsReporter.start();
 
 // ---- The agent API workers (primary of a multi-process server) ------------------------------------------------------------------
 let stopping = false;
-if (workers > 1 && cluster.isPrimary) {
+if (plan.forksAgentWorkers) {
   const env = { AGENT_TICKET_SECRET: randomBytes(32).toString("hex") };
   const fork = (): void => { cluster.fork(env); };
   for (let i = 0; i < workers; i++) fork();
@@ -102,18 +105,20 @@ if (workers > 1 && cluster.isPrimary) {
   });
 }
 
-// ---- The console and the background jobs (in the primary, or in the only process) -----------------------------------------------
+// ---- The console (in the primary, or in the only process, when this process has the console role) ---------------------------------
 let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
 let stream: ResultStream | null = null;
+if (runsConsole && config.console) {
+  stream = new ResultStream(feed, consolePool!);
+  await stream.start();
+  consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
+    stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
+  await consoleApp.listen({ host: config.console.host, port: config.console.port });
+}
+
+// ---- The background jobs (in the primary, or in the only process, when this process has the jobs role) ---------------------------
 let stopServices = (): void => undefined;
-if (runsServices) {
-  if (config.console) {
-    stream = new ResultStream(feed, consolePool!);
-    await stream.start();
-    consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
-      stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
-    await consoleApp.listen({ host: config.console.host, port: config.console.port });
-  }
+if (runsJobs) {
   const jobs = jobsPool!;
   const failed = (what: string) => (e: unknown): void => logError(`${what} failed: ${JSON.stringify(errorInfo(e))}`);
 
@@ -169,7 +174,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
   process.once(signal, () => { void (async () => {
     stopping = true;
     stopServices();
-    if (workers > 1 && cluster.isPrimary) {
+    if (plan.forksAgentWorkers) {
       const alive = Object.values(cluster.workers ?? {}).filter((w): w is NonNullable<typeof w> => !!w);
       await Promise.all(alive.map(w => new Promise<void>(resolve => { w.once("exit", () => resolve()); w.process.kill(signal); })));
     }

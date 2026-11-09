@@ -2,8 +2,11 @@
 // Secrets (database passwords) live in the environment or a secret store, never in the repository.
 import { fileURLToPath } from "node:url";
 import { parseDailyTime } from "./services/maintenance.js";
+import { parseRoles, type ServerRole } from "./roles.js";
 
 export interface Config {
+  /** What this process runs (SERVER_ROLES; F21.R3, decision-log D60): the agent API, the console API, the background jobs. Default: all three. */
+  roles: ReadonlySet<ServerRole>;
   /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
   databaseUrl: string;
   /** longPollSeconds: how long a poll is held; unset, it follows the platform's pacing setting (default 25). */
@@ -63,6 +66,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const publicHost = (env.AGENT_PUBLIC_HOST ?? "").trim() || agentHostnames[0]!;
   const publicPort = (env.AGENT_PUBLIC_PORT ?? "").trim();
   const config: Config = {
+    roles: parseRoles(env.SERVER_ROLES),
     databaseUrl: databaseUrl(env, "DATABASE_URL"),
     agentApi: { host: env.AGENT_API_HOST ?? "0.0.0.0", port, hostnames: agentHostnames,
       ...(longPollSeconds !== undefined ? { longPollSeconds } : {}),
@@ -115,6 +119,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       trustProxy: trustProxy(env.CONSOLE_TRUST_PROXY),
     };
   }
+  // Asked by name for the console, a process without its settings would serve nothing and say nothing; it stops instead. Unset, the
+  // roles default to all three and the console runs only when it is configured, as before.
+  if (env.SERVER_ROLES?.trim() && config.roles.has("console") && !config.console)
+    throw new Error("SERVER_ROLES includes console, but CONSOLE_ORIGIN is not set: set the console's settings, or leave console out of SERVER_ROLES.");
   return config;
 }
 
