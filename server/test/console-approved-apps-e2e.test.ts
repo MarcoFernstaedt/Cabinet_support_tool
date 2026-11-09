@@ -57,6 +57,13 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     const page = await (await browser.newContext()).newPage();
     page.on("pageerror", e => problems.push(`page error: ${e.message}`));
     page.on("console", m => { if (m.type() === "error" && !/status of (401|403|409|429|500)/.test(m.text())) problems.push(m.text()); });
+    // Every request for an approved-programs list, with how it ended: if the cabinet's list never appears, this says whether its request
+    // was sent, answered (and how), or failed in the browser, which tells the server, the network and the page apart.
+    const listRequests: string[] = [];
+    const tag = (r: { url: () => string; method: () => string }) => `${r.method()} ${new URL(r.url()).pathname}`;
+    page.on("request", r => { if (r.url().includes("/approved-apps")) listRequests.push(`${new Date().toISOString().slice(11, 23)} sent ${tag(r)}`); });
+    page.on("requestfinished", r => { if (r.url().includes("/approved-apps")) void r.response().then(x => listRequests.push(`${new Date().toISOString().slice(11, 23)} answered ${x?.status() ?? "?"} ${tag(r)}`)); });
+    page.on("requestfailed", r => { if (r.url().includes("/approved-apps")) listRequests.push(`${new Date().toISOString().slice(11, 23)} failed ${r.failure()?.errorText ?? "?"} ${tag(r)}`); });
     await page.goto(origin);
     await page.getByLabel("Username").fill("ada.admin");
     await page.getByLabel("Password").fill(password);
@@ -134,10 +141,11 @@ test("an Admin sets a client's approved programs from the console, confirmed wit
     await retry.click();
     await page.getByLabel("Cabinet", { exact: true }).selectOption({ label: "FRONT DESK" });
     await page.unroute(`**/api/fleet/sites/${siteId}`);
-    // This wait timed out once in a full run (cause not yet known): if it does again, the failure says what the page showed instead.
+    // This wait has timed out in a few full runs and never alone or under load (cause not yet known). If it does again, the failure says
+    // what the page showed and how the last approved-programs requests ended.
     await page.getByRole("heading", { name: /This cabinet's own list/ }).waitFor().catch(async (e: Error) => {
       const shown = { alerts: await page.getByRole("alert").allInnerTexts(), cabinet: await page.getByLabel("Cabinet", { exact: true }).inputValue().catch(() => null),
-        headings: await page.getByRole("heading").allInnerTexts() };
+        headings: await page.getByRole("heading").allInnerTexts(), loading: await page.getByText("Loading…").count(), listRequests: listRequests.slice(-6) };
       throw new Error(`${e.message.split("\n")[0]} The page showed: ${JSON.stringify(shown)}`);
     });
     await page.getByRole("alert").getByText(/stored list is damaged and approves nothing/).waitFor();
