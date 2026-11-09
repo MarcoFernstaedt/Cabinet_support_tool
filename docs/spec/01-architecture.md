@@ -33,6 +33,10 @@ Every table has one owning module, named in `server/src/db/table-owners.ts` (F21
 
 A new table names its owner before anything writes it.
 
+Paying the debt down moves a listed write behind a function of the owning module (F21.R2). That function checks what it is given before
+it writes, and can be called again safely: a repeat finds the work done and writes nothing. The first is `fleet_patterns` (decision-log
+D65).
+
 ## Per-client databases: the path
 
 Today every client's data is in one database. If a client's data has to move to a database of its own (for size, or because the client

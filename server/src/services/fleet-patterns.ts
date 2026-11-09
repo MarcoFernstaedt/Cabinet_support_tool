@@ -82,13 +82,8 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
   let opened = 0, updated = 0;
   for (const p of found) {
     const title = `Fleet pattern: ${p.title}`.slice(0, 300);
-    const args = [p.key, p.issueTypeId, title, p.severity, p.clients, p.sites, p.cabinets, p.occurrences, p.firstSeen, p.lastSeen];
     // Counts only grow while the pattern is open: a cabinet that recovers does not shrink what the pattern reached.
-    const up = await pool.query(`UPDATE fleet_patterns SET clients = CASE WHEN $5 > clients THEN $5 ELSE clients END, sites = CASE WHEN $6 > sites THEN $6 ELSE sites END,
-        cabinets = CASE WHEN $7 > cabinets THEN $7 ELSE cabinets END, occurrences = CASE WHEN $8 > occurrences THEN $8 ELSE occurrences END,
-        severity = CASE WHEN $4 = 'major' THEN 'major' ELSE severity END, last_seen = CASE WHEN $10 > last_seen THEN $10 ELSE last_seen END
-      WHERE pattern_key = $1 AND resolved_at IS NULL`, [p.key, null, null, p.severity, p.clients, p.sites, p.cabinets, p.occurrences, null, p.lastSeen]);
-    if ((up.rowCount ?? 0) > 0) {
+    if (await countUpPattern(pool, p.key, p, p.severity)) {
       updated++;
       // A minor pattern that has spread to the alarm level rings now (D25); it was listed quietly until here.
       const rang = await ring(pool, p.key, s.fleetMinorAlarmSites);
@@ -99,20 +94,7 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
     // resolved (still inside the look-back window) opened it again on the next sweep: a new alarm, audit trail and notification every
     // minute after the fleet had recovered.
     if (p.unresolved === 0) continue;
-    try {
-      const r = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
-        OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`, args);
-      const id = r.rows[0]!.id.toLowerCase();
-      await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
-        outcome: "succeeded", details: { key: p.key, sites: p.sites, cabinets: p.cabinets, clients: p.clients, severity: p.severity } });
-      // A major one rings at once; a minor one only from the alarm level (D25). Either way every console's list hears it within seconds,
-      // and a ringing one is a red banner, a sound and a desktop notification (D23).
-      await ring(pool, p.key, s.fleetMinorAlarmSites);
-      await notify(pool, FLEET_CHANNEL, `${id} opened`);
-      opened++;
-    } catch (e) {
-      if (!isUniqueViolation(e)) throw e; // another sweep opened it a moment ago; the next look counts it up
-    }
+    if (await openPattern(pool, { ...p, title }, { key: p.key, sites: p.sites, cabinets: p.cabinets, clients: p.clients, severity: p.severity }, s.fleetMinorAlarmSites)) opened++;
   }
   // Resolved: no cabinet still has the problem unresolved. A new kind of blue screen (crash:<signature>, D52) is not a key on any alert,
   // so its own hourly pass resolves it.
@@ -126,6 +108,73 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
     await notify(pool, FLEET_CHANNEL, `${g.id.toLowerCase()} resolved`);
   }
   return { opened, updated, resolved: gone.length };
+}
+
+// ---- The writes to fleet_patterns (F21.R2, decision-log D65) -----------------------------------------------------------------------
+// Every pass that opens, counts up or resolves a pattern does it here: the minute sweep above, the rising errors, and the hourly pass
+// over new kinds of blue screen (crash-clusters.ts). Each checks what it is given before it writes, and each can be repeated safely.
+
+/** What opening or counting a pattern takes. */
+export interface PatternOpening { key: string; issueTypeId: string | null; title: string; severity: "major" | "minor" | string; clients: number; sites: number;
+  cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date }
+
+const count = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 1;
+const instant = (d: unknown) => d instanceof Date && !Number.isNaN(d.getTime());
+function checkCounts(c: Pick<PatternOpening, "clients" | "sites" | "cabinets" | "occurrences" | "lastSeen">): void {
+  if (![c.clients, c.sites, c.cabinets, c.occurrences].every(count) || !instant(c.lastSeen)) throw new Error("a fleet pattern's counts must be whole numbers from 1, with a time");
+}
+function checkOpening(p: PatternOpening): void {
+  if (typeof p.key !== "string" || p.key.length < 1 || p.key.length > 450) throw new Error("a fleet pattern needs a key of 1 to 450 characters");
+  if (typeof p.title !== "string" || p.title.length < 1 || p.title.length > 300) throw new Error("a fleet pattern needs a title of 1 to 300 characters");
+  if (p.severity !== "major" && p.severity !== "minor") throw new Error("a fleet pattern is major or minor");
+  if (!instant(p.firstSeen)) throw new Error("a fleet pattern needs the time it was first seen");
+  checkCounts(p);
+}
+
+/**
+ * Opens a pattern, audits it, rings it if it deserves to (D25) and tells every console. Returns its id, or null when an open pattern
+ * with this key already exists (another pass opened it a moment ago; the next look counts it up), so it can be called again safely.
+ */
+export async function openPattern(pool: Pool, p: PatternOpening, details: Record<string, unknown>, minorSites: number): Promise<string | null> {
+  checkOpening(p);
+  let id: string;
+  try {
+    id = (await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
+      OUTPUT inserted.id VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [p.key, p.issueTypeId, p.title, p.severity, p.clients, p.sites, p.cabinets, p.occurrences, p.firstSeen, p.lastSeen])).rows[0]!.id.toLowerCase();
+  } catch (e) {
+    if (isUniqueViolation(e)) return null;
+    throw e;
+  }
+  await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id, outcome: "succeeded", details });
+  // A major one rings at once; a minor one only from the alarm level (D25). Either way every console's list hears it within seconds,
+  // and a ringing one is a red banner, a sound and a desktop notification (D23).
+  await ring(pool, p.key, minorSites);
+  await notify(pool, FLEET_CHANNEL, `${id} opened`);
+  return id;
+}
+
+/**
+ * Counts the open pattern with this key up: its counts only grow while it is open, so a cabinet that recovers does not shrink what it
+ * reached, and a major reading makes it major. Returns whether an open pattern had the key.
+ */
+export async function countUpPattern(pool: Pool, key: string, c: Pick<PatternOpening, "clients" | "sites" | "cabinets" | "occurrences" | "lastSeen">,
+  severity: string | null = null): Promise<boolean> {
+  checkCounts(c);
+  const up = await pool.query(`UPDATE fleet_patterns SET clients = CASE WHEN $2 > clients THEN $2 ELSE clients END, sites = CASE WHEN $3 > sites THEN $3 ELSE sites END,
+      cabinets = CASE WHEN $4 > cabinets THEN $4 ELSE cabinets END, occurrences = CASE WHEN $5 > occurrences THEN $5 ELSE occurrences END,
+      severity = CASE WHEN $7 = 'major' THEN 'major' ELSE severity END, last_seen = CASE WHEN $6 > last_seen THEN $6 ELSE last_seen END
+    WHERE pattern_key = $1 AND resolved_at IS NULL`, [key, c.clients, c.sites, c.cabinets, c.occurrences, c.lastSeen, severity]);
+  return (up.rowCount ?? 0) > 0;
+}
+
+/** Resolves one open pattern by id, audits it and tells every console. False when it was already resolved, so a repeat does nothing. */
+export async function resolvePattern(pool: Pool, id: string): Promise<boolean> {
+  const done = await pool.query("UPDATE fleet_patterns SET resolved_at = SYSUTCDATETIME() WHERE id = $1 AND resolved_at IS NULL", [id]);
+  if ((done.rowCount ?? 0) === 0) return false;
+  await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.resolve", targetKind: "fleet_pattern", targetId: id.toLowerCase(), outcome: "succeeded", details: {} });
+  await notify(pool, FLEET_CHANNEL, `${id.toLowerCase()} resolved`);
+  return true;
 }
 
 /**
@@ -274,19 +323,10 @@ export async function openRisingPatterns(pool: Pool, rising: readonly RisingErro
       const title = (program
         ? `Fleet pattern: Rising: ${program} (${r.source} event ${r.eventId}, ${r.log}), the group ${counts}`
         : `Fleet pattern: Rising: ${r.source} event ${r.eventId} (${r.log}), ${counts}`).slice(0, 300);
-      try {
-        const row = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
-          OUTPUT inserted.id VALUES ($1, NULL, $2, 'minor', $3, $4, $5, $6, $7, $8)`,
-          [key, title, Number(c.clients), Number(c.sites), Number(c.cabinets), Number(c.occurrences), c.first_seen, c.last_seen]);
-        const id = row.rows[0]!.id.toLowerCase();
-        await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
-          outcome: "succeeded", details: { key, program, rising: { last7: r.last7, prev7: r.prev7 }, sites: Number(c.sites), cabinets: Number(c.cabinets), severity: "minor" } });
-        await ring(pool, key, (await platformSettings(pool)).fleetMinorAlarmSites);
-        await notify(pool, FLEET_CHANNEL, `${id} opened`);
-        opened++;
-      } catch (e) {
-        if (!isUniqueViolation(e)) throw e;
-      }
+      const opening = { key, issueTypeId: null, title, severity: "minor" as const, clients: Number(c.clients), sites: Number(c.sites), cabinets: Number(c.cabinets),
+        occurrences: Number(c.occurrences), firstSeen: c.first_seen, lastSeen: c.last_seen };
+      if (await openPattern(pool, opening, { key, program, rising: { last7: r.last7, prev7: r.prev7 }, sites: opening.sites, cabinets: opening.cabinets, severity: "minor" },
+        (await platformSettings(pool)).fleetMinorAlarmSites)) opened++;
     }
   }
   return opened;
