@@ -3,7 +3,7 @@
 // substring. There are no regular expressions anywhere in matching, so no rule can freeze the server.
 import type { Event, SymptomMatch } from "../contracts.js";
 import { commonDefs } from "../contracts.js";
-import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
+import { audit, isUniqueViolation, lock, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { foldAlert } from "./alerts.js";
@@ -279,12 +279,7 @@ export async function proposeRule(pool: Pool, u: Actor, issue: string | NewIssue
       if (!type) throw new Refused("not_found", 404, "no such issue type");
       issueTypeId = issue;
     } else {
-      const created = await c.query<{ id: string }>("INSERT INTO issue_types (name, severity, description, created_by) OUTPUT inserted.id VALUES ($1, $2, $3, $4)",
-        [issue.name, issue.severity, issue.description, u.userId])
-        .catch((e: unknown) => { throw isUniqueViolation(e) ? new Refused("name_taken", 409, "an issue type with that name exists") : e; });
-      issueTypeId = created.rows[0]!.id;
-      await audit(c, { actorKind: "user", actorId: u.userId, action: "issue_type.create", targetKind: "issue_type", targetId: issueTypeId, outcome: "succeeded",
-        details: { ...issue, from: "map_to_issue" } });
+      issueTypeId = await addIssueType(c, u.userId, issue, "map_to_issue");
     }
     const live = u.role === "admin";
     const r = (await c.query<{ id: string }>(
@@ -418,4 +413,56 @@ export async function expireRules(pool: Pool): Promise<number> {
 export async function listSuppressions(db: Queryable) {
   const rows = (await db.query<RuleRow>(`${RULE_SELECT} WHERE r.kind = 'suppress' AND r.state = 'live' ORDER BY CASE WHEN r.expires_at IS NULL THEN 1 ELSE 0 END, r.expires_at OFFSET 0 ROWS FETCH NEXT 500 ROWS ONLY`)).rows;
   return rows.map(ruleView);
+}
+
+// ---- The writes to issue_types (F21.R2, decision-log D69) --------------------------------------------------------------------------
+// Admin's create and edit (admin.ts) and a rule that maps to a new issue type both come through here, so every new name is checked
+// under one lock. The table's own unique key still stands behind it.
+
+export interface IssueTypeInput { name: string; severity: "major" | "minor"; description: string }
+
+/** Issue type names are unique (compared exactly). The check runs under a lock so two creators of one name cannot both pass. */
+const ISSUE_NAMES_LOCK = "issue_types.name";
+const nameTaken = () => new Refused("name_taken", 409, "an issue type with that name exists");
+
+function checkIssueType(t: IssueTypeInput): void {
+  if (typeof t?.name !== "string" || t.name.trim() === "" || t.name.length > 128) throw new Error("an issue type needs a name of 1 to 128 characters");
+  if (t.severity !== "major" && t.severity !== "minor") throw new Error("an issue type is major or minor");
+  if (typeof t.description !== "string" || t.description.length > 1024) throw new Error("an issue type's description is text of up to 1,024 characters");
+}
+
+async function issueNameFree(c: Queryable, name: string, exceptId: string | null): Promise<void> {
+  await lock(c, ISSUE_NAMES_LOCK);
+  const clash = (await c.query("SELECT TOP (1) 1 AS taken FROM issue_types WHERE name COLLATE Latin1_General_100_BIN2 = $1 AND ($2 IS NULL OR id <> $2)", [name, exceptId])).rows[0];
+  if (clash) throw nameTaken();
+}
+
+/**
+ * Creates an issue type and audits it (`from` says where, when not the Admin's own list). A name already taken is refused, so a
+ * repeated create never makes a second type. Runs inside the caller's transaction, which holds the name lock until it ends.
+ */
+export async function addIssueType(c: Queryable, userId: string, t: IssueTypeInput, from?: string): Promise<string> {
+  checkIssueType(t);
+  await issueNameFree(c, t.name, null);
+  const id = (await c.query<{ id: string }>("INSERT INTO issue_types (name, severity, description, created_by) OUTPUT inserted.id VALUES ($1, $2, $3, $4)",
+    [t.name, t.severity, t.description, userId]).catch((e: unknown) => { throw isUniqueViolation(e) ? nameTaken() : e; })).rows[0]!.id;
+  await audit(c, { actorKind: "user", actorId: userId, action: "issue_type.create", targetKind: "issue_type", targetId: id, outcome: "succeeded",
+    details: { name: t.name, severity: t.severity, description: t.description, ...(from ? { from } : {}) } });
+  return id;
+}
+
+/**
+ * Renames, re-describes or changes the severity of an issue type, built-in ones included (the engine finds those by their fixed key),
+ * and audits it with what it was. The same values again write and audit nothing.
+ */
+export async function editIssueType(c: Queryable, userId: string, id: string, t: IssueTypeInput): Promise<void> {
+  checkIssueType(t);
+  const before = (await c.query<IssueTypeInput>("SELECT name, severity, description FROM issue_types WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [id])).rows[0];
+  if (!before) throw new Refused("not_found", 404, "no such issue type");
+  if (before.name === t.name && before.severity === t.severity && before.description === t.description) return;
+  await issueNameFree(c, t.name, id);
+  await c.query("UPDATE issue_types SET name = $2, severity = $3, description = $4 WHERE id = $1", [id, t.name, t.severity, t.description])
+    .catch((e: unknown) => { throw isUniqueViolation(e) ? nameTaken() : e; });
+  await audit(c, { actorKind: "user", actorId: userId, action: "issue_type.update", targetKind: "issue_type", targetId: id, outcome: "succeeded",
+    details: { before, after: { name: t.name, severity: t.severity, description: t.description } } });
 }

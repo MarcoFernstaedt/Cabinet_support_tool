@@ -86,7 +86,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   incident_steps: { owner: "services/incidents.ts", also: [] },
   incidents: { owner: "services/incidents.ts", also: ["services/maintenance.ts"] },
   issue_daily: { owner: "services/error-trends.ts", also: ["demo/demo.ts"] },
-  issue_types: { owner: "services/rules.ts", also: ["services/admin.ts"] },
+  issue_types: { owner: "services/rules.ts", also: [] },
   job_leases: { owner: "services/job-lease.ts", also: [] },
   known_fixes: { owner: "services/known-fixes.ts", also: ["demo/demo.ts"] },
   notifications: { owner: "db/db.ts", also: ["services/maintenance.ts"] },
