@@ -6,6 +6,38 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D76. Old notifications are removed by db.ts, their owner (2026-11-09)
+
+**What the code did:** `pruneNotifications` in `services/maintenance.ts` deleted notifications older than an hour, hourly and in the
+nightly run, through `inBatches`. The table is owned by `db/db.ts`.
+
+**The decision** (F21.R2):
+- **`db.ts` exports `pruneOldNotifications(db, o)`,** which holds the statement and its own batch loop. The batching helper in
+  `db/batches.ts` imports `db.ts`, so `db.ts` importing it back would be the cycle D73 removed. It imports only the type of the batch
+  options, which the compiler erases.
+- **`maintenance.ts` keeps `pruneNotifications`** as a wrapper with no SQL, so the hourly timer and the tests that call it are
+  unchanged.
+- **Not audited batch by batch,** as before. A notification only wakes other server processes, and the nightly run records the count.
+  The audit sweep's listed exception moves with the statement, from `services/maintenance.ts` to `db/db.ts`, with the same reason.
+- **Input check:** the batch size, pause and timeout must be whole numbers (a batch of at least 1, a timeout of at least 1 ms), so a
+  bad option can never spin the loop. A repeat removes nothing more.
+- The entry comes off the debt list, which leaves 101. Two of those are what `maintenance.ts` still writes: drive samples and load
+  samples, both inside the sample roll-up.
+
+**Proven by:** `notify.test.ts` adds two tests:
+- five old notifications go in batches of two while the new one stays, and a repeat removes nothing;
+- seven bad option sets are refused with nothing removed.
+
+The existing retention, scale and service tests that call `pruneNotifications` pass unchanged, with the audit sweep and
+`import-cycles`: 76 of 76.
+
+**Red checks:**
+- Without the option check, the refusal test fails.
+- With the old statement back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes notifications
+  (owned by db/db.ts)".
+
+---
+
 ## D74. Five more retention sweeps run by their tables' owners (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` deleted old rows from five more tables that other modules own, each with

@@ -26,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, retention: five more sweeps (boots, configuration changes, diagnoses, health transitions, closed incidents) run by their owners (D74). 104 cross-module writes are left on the debt list.
+**In review:** F21.R2, retention: events and alerts by their owners (#233, D75); notifications older than an hour removed by db.ts, their owner (D76). 101 cross-module writes are left on the debt list.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 104 listed cross-module writes behind their owners (D65 to D73 done; five retention sweeps in review, D74; 3 of them are the remaining retention sweeps in maintenance.ts: alerts, drive samples, notifications), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 101 listed cross-module writes behind their owners (D65 to D74 done; D75 and D76 in review; 2 of them are left in maintenance.ts: drive samples and load samples inside the roll-up), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |

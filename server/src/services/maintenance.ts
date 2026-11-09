@@ -11,6 +11,7 @@ import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
 import { pruneFinishedJobs } from "./fleet-jobs.js";
+import { pruneOldNotifications } from "../db/db.js";
 import { pruneOldBoots } from "./crashes.js";
 import { pruneOldConfigChanges } from "./config-ingest.js";
 import { pruneOldDiagnoses } from "../diagnose/cabinet.js";
@@ -88,9 +89,9 @@ import { inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js"
 
 const sleep = (ms: number) => (ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve());
 
-/** Notifications only wake other server processes (each reads them within a second), so one older than an hour is of no use. */
+/** Notifications older than an hour, removed by their owner, db.ts (D76). */
 export async function pruneNotifications(db: Queryable, o: BatchOptions = RETENTION_BATCH): Promise<number> {
-  return inBatches(db, "DELETE TOP ($1) FROM notifications WHERE [at] < DATEADD(hour, -1, SYSUTCDATETIME())", [], o);
+  return pruneOldNotifications(db, o);
 }
 
 /** Load samples are kept as they came for this long, then as one row per hour (health_hourly). */
