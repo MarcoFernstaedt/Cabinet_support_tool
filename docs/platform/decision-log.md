@@ -23,7 +23,7 @@ minute sweep and the rising-errors pass, each with its own copy of the insert, t
   - a key of 1 to 450 characters;
   - a title of 1 to 300;
   - major or minor;
-  - counts that are whole numbers from 0;
+  - counts that are whole numbers from 1;
   - real times.
 - **Each write can be repeated safely.** A second open of the same key returns null and writes nothing (the unique key on open
   patterns). A second resolve does nothing and audits nothing. Counting up a resolved pattern finds none open.
@@ -31,7 +31,7 @@ minute sweep and the rising-errors pass, each with its own copy of the insert, t
   if it is listed again without a write.
 
 **Proven by:**
-- `fleet-patterns.test.ts`, "the pattern writers": 12 malformed or hostile inputs are refused with nothing written; a repeated open,
+- `fleet-patterns.test.ts`, "the pattern writers": 13 malformed or hostile inputs are refused with nothing written; a repeated open,
   count-up and resolve behave as above, with one audit row each. It fails without the input check, and fails without the
   duplicate-open handling.
 - `table-ownership.test.ts` fails with `crash-clusters.ts` still listed ("no longer writes fleet_patterns").

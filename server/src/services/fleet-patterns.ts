@@ -118,10 +118,10 @@ export async function sweepFleetPatterns(pool: Pool): Promise<{ opened: number; 
 export interface PatternOpening { key: string; issueTypeId: string | null; title: string; severity: "major" | "minor" | string; clients: number; sites: number;
   cabinets: number; occurrences: number; firstSeen: Date; lastSeen: Date }
 
-const count = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 0;
+const count = (n: unknown) => Number.isSafeInteger(n) && (n as number) >= 1;
 const instant = (d: unknown) => d instanceof Date && !Number.isNaN(d.getTime());
 function checkCounts(c: Pick<PatternOpening, "clients" | "sites" | "cabinets" | "occurrences" | "lastSeen">): void {
-  if (![c.clients, c.sites, c.cabinets, c.occurrences].every(count) || !instant(c.lastSeen)) throw new Error("a fleet pattern's counts must be whole numbers from 0, with a time");
+  if (![c.clients, c.sites, c.cabinets, c.occurrences].every(count) || !instant(c.lastSeen)) throw new Error("a fleet pattern's counts must be whole numbers from 1, with a time");
 }
 function checkOpening(p: PatternOpening): void {
   if (typeof p.key !== "string" || p.key.length < 1 || p.key.length > 450) throw new Error("a fleet pattern needs a key of 1 to 450 characters");

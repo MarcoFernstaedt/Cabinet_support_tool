@@ -251,9 +251,9 @@ test("the pattern writers (F21.R2, D65): input is checked before anything is wri
   const rows = async () => (await db.app.query<{ id: string; sites: number; occurrences: number; resolved: number }>(
     "SELECT id, sites, occurrences, CASE WHEN resolved_at IS NULL THEN 0 ELSE 1 END AS resolved FROM fleet_patterns WHERE pattern_key = $1", [key])).rows;
   const audits = async (id: string) => (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [id])).rows.map(r => r.action);
-  // Refused before the database: a missing or overlong key or title, a severity that is neither, counts that are not whole numbers from 0, a time that is not one.
+  // Refused before the database: a missing or overlong key or title, a severity that is neither, counts that are not whole numbers from 1, a time that is not one.
   for (const bad of [{ key: "" }, { key: "k".repeat(451) }, { title: "" }, { title: "t".repeat(301) }, { severity: "critical" }, { severity: "major'; DROP TABLE fleet_patterns; --" },
-    { sites: -1 }, { cabinets: 1.5 }, { occurrences: Number.NaN }, { clients: "2" }, { firstSeen: new Date("not a date") }, { lastSeen: "yesterday" }])
+    { sites: -1 }, { sites: 0 }, { cabinets: 1.5 }, { occurrences: Number.NaN }, { clients: "2" }, { firstSeen: new Date("not a date") }, { lastSeen: "yesterday" }])
     await assert.rejects(openPattern(db.app, { ...base, ...bad } as never, {}, 99), /fleet pattern/, JSON.stringify(bad));
   await assert.rejects(countUpPattern(db.app, key, { clients: 1, sites: -2, cabinets: 1, occurrences: 1, lastSeen: at }), /fleet pattern/);
   assert.deepEqual(await rows(), [], "nothing was written");
