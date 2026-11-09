@@ -4,7 +4,10 @@ import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
 import { checkFleetSoon } from "./fleet-patterns.js";
 import { raiseSecurityAlert } from "./security.js";
 import type { Event, EventBatch } from "../contracts.js";
-import { isUniqueViolation, safeJson, transaction, type Pool } from "../db/db.js";
+import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
+import { upsertSetting } from "./settings.js";
+import { crashArgs, crashPredicate } from "./crashes.js";
 import { processBatch, type Outcome } from "./alerts.js";
 import { Refused } from "./errors.js";
 import { countRuleHits, RULES_STAMP_SQL } from "./rules.js";
@@ -99,3 +102,65 @@ const INSERT_EVENTS = `
              detail nvarchar(max) '$.detail' AS JSON, device nvarchar(max) '$.device' AS JSON) j
      WHERE NOT EXISTS (SELECT 1 FROM events e WITH (UPDLOCK, HOLDLOCK) WHERE e.event_id = j.event_id);
   SELECT o.event_id, v.stamp AS [version] FROM @o o CROSS JOIN (SELECT ${RULES_STAMP_SQL} AS stamp) v;`;
+
+// ---- Retention (F21.R2, decision-log D75) -----------------------------------------------------------------------------------------------
+
+const sleep = (ms: number) => (ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve());
+
+/** Removes events received before `cutoff`, in batches, each batch audited. A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneOldEvents(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cutoff], o, { table: "events", cutoff });
+}
+
+/**
+ * Unlinks events from resolved alerts last seen before `cutoff`, so the alert can go while its events, kept longer, stay. In batches, each
+ * batch audited; a repeat changes nothing more.
+ */
+export async function unlinkEventsOfOldAlerts(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
+                         WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cutoff], o, { table: "events.alert_id", cutoff });
+}
+
+/** After this many days an event that has no alert loses its bulky detail and source JSON (the row, its kind, time, cabinet and device stay). */
+export const EVENT_DETAIL_DAYS = 30;
+/** Where the clearing stopped, as an event sequence number, so each night only looks at events it has not seen. */
+const DETAIL_CURSOR = "maintenance.eventDetailSeq";
+
+/**
+ * Clears `detail` and `source` of events older than EVENT_DETAIL_DAYS that have no alert, so the database keeps every event for the whole
+ * retention period (90 days by default) within SQL Server Express's 10 GB. Events with an alert stay whole, as do security events and the
+ * crash records (BugCheck, Kernel-Power 41, unexpected shutdown) the crash timelines read. Walks the events in sequence order from a stored
+ * cursor in batches (a clustered-key range each, never a scan from the start), so a night's work is only the day that just became old.
+ */
+export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH, days = EVENT_DETAIL_DAYS): Promise<number> {
+  const cut = new Date(now - days * 86_400_000);
+  const stored = (await pool.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [DETAIL_CURSOR])).rows[0]?.value;
+  let last = typeof stored === "number" && Number.isInteger(stored) && stored >= 0 ? stored : 0;
+  let cleared = 0;
+  for (;;) {
+    // The end of the next batch of old events, in sequence order.
+    const hi = (await pool.query<{ hi: string | number | null }>(
+      "SELECT MAX(seq) AS hi FROM (SELECT TOP ($1) seq FROM events WHERE seq > $2 AND received_at < $3 ORDER BY seq) x", [o.batch, last, cut], { timeoutMs: o.timeoutMs })).rows[0]?.hi;
+    if (hi === null || hi === undefined) break;
+    // The clearing and the cursor that accounts for it are one transaction: a run that stops here cannot leave cleared rows that no cursor
+    // ever marked. Every batch that cleared anything leaves its own audit entry, in that same transaction.
+    let batch = 0;
+    await transaction(pool, async c => {
+      batch = (await c.query(
+        `UPDATE events SET detail = NULL, source = NULL
+          WHERE seq > $1 AND seq <= $2 AND received_at < $3 AND alert_id IS NULL AND (detail IS NOT NULL OR source IS NOT NULL) AND kind <> 'security'
+            AND NOT ${crashPredicate("events", 4)}`, [last, Number(hi), cut, ...crashArgs], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+      last = Number(hi);
+      await upsertSetting(c, DETAIL_CURSOR, last, null);
+      if (batch > 0)
+        await audit(c, { actorKind: "system", actorId: "retention", action: "retention.batch", outcome: "succeeded",
+          details: { table: "events.detail", rows: batch, cutoff: cut, to: last } });
+    });
+    cleared += batch;
+    await sleep(o.pauseMs);
+  }
+  return cleared;
+}
+
