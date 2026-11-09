@@ -3,7 +3,7 @@
 // reported yet is unknown, never drift. Nothing here puts anything back: it only reports.
 import { lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { valueText, type Item } from "./config-canonical.js";
-import { currentItems, type Category } from "./config-ingest.js";
+import { currentItems, markBaselineViolations, type Category } from "./config-ingest.js";
 import { resolveForCabinet, type Origin, type ResolvedItem } from "./baselines.js";
 import { upsertAlert } from "./alerts.js";
 import { closeAutomatically, CLOSED_OUTPUT } from "./automatic-close.js";
@@ -66,9 +66,7 @@ export async function evaluateBaselineDrift(pool: Pool, cabinetId: string): Prom
                VALUES ($1, s.category, s.item_key, s.field, s.mode, s.expected, s.actual, s.origin, s.severity, s.[required], SYSUTCDATETIME(), SYSUTCDATETIME());`, [cabinetId, payload]);
     await checkFirmware(c, cabinetId, rows);
     // A change that left an item against its baseline is marked as violating it.
-    await c.query(
-      `UPDATE ch SET violates_baseline = CASE WHEN EXISTS (SELECT 1 FROM cabinet_drift d WHERE d.cabinet_id = ch.cabinet_id AND d.category = ch.category AND d.item_key = ch.item_key) THEN 1 ELSE 0 END
-         FROM config_changes ch WHERE ch.cabinet_id = $1 AND ch.observed_at > DATEADD(day, -30, SYSUTCDATETIME())`, [cabinetId]);
+    await markBaselineViolations(c, cabinetId);
     return rows;
   });
 }

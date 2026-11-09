@@ -19,6 +19,13 @@ function files(dir: string): string[] {
 }
 
 /**
+ * The start of a write, up to where its table is named: the verb, then a row limit if it has one (`UPDATE TOP ($1)`,
+ * `DELETE TOP (500) FROM`), then INTO or FROM if written. The retention sweeps limit each batch with TOP, and a reader that took the
+ * table to follow the verb directly did not see them (review of #224).
+ */
+const WRITE = /\b(INSERT|UPDATE|DELETE|MERGE)(?:\s+TOP\s*\(\s*[^()]*\))?(?:\s+(?:INTO|FROM))?\s+/;
+
+/**
  * The files under `srcDir` with a write whose table is not named in the text but built at run time (an UPDATE whose table is an
  * interpolated variable), with how many such statements each has. The reader cannot see which table those write, so each file has to
  * declare them (table-owners.ts). SQL keywords are matched in upper case only, as this codebase writes them, so prose that starts with
@@ -28,7 +35,7 @@ export function runtimeTableWrites(srcDir: string): Map<string, number> {
   const out = new Map<string, number>();
   for (const p of files(srcDir)) {
     const file = relative(srcDir, p).split("\\").join("/");
-    const n = [...readFileSync(p, "utf8").matchAll(/\b(?:INSERT\s+INTO|UPDATE|DELETE\s+FROM|DELETE|MERGE(?:\s+INTO)?)\s+\[?\$\{/g)].length;
+    const n = [...readFileSync(p, "utf8").matchAll(new RegExp(`${WRITE.source}\\[?\\$\\{`, "g"))].length;
     if (n > 0) out.set(file, n);
   }
   return out;
@@ -41,7 +48,7 @@ export function tableWriters(srcDir: string, tables: ReadonlySet<string>): Map<s
   for (const p of files(srcDir)) {
     const file = relative(srcDir, p).split("\\").join("/");
     const text = readFileSync(p, "utf8");
-    for (const m of text.matchAll(/\b(INSERT\s+INTO|UPDATE|DELETE\s+FROM|DELETE|MERGE(?:\s+INTO)?)\s+\[?([a-z_][a-z0-9_]*)\]?/gi)) {
+    for (const m of text.matchAll(new RegExp(`${WRITE.source}\\[?([a-z_][a-z0-9_]*)\\]?`, "gi"))) {
       const verb = m[1]!.toUpperCase(), name = m[2]!.toLowerCase();
       if (tables.has(name)) { add(name, file); continue; }
       // Through an alias: the alias's table is named after FROM (or JOIN) in the same statement, within a short reach.
