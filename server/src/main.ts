@@ -50,9 +50,12 @@ const { servesAgents, runsConsole, runsJobs } = plan;
 const agentPool = servesAgents ? await createPool(config.databaseUrl, { max: config.database.agentPoolMax }) : null;
 const consolePool = runsConsole ? await createPool(config.databaseUrl, { max: config.database.consolePoolMax }) : null;
 const jobsPool = runsJobs ? await createPool(config.databaseUrl, { max: config.database.jobsPoolMax, min: 1, requestTimeoutMs: 120_000 }) : null;
-// One poller of the notifications table per process; the command long poll and the consoles' live stream listen to it.
-const feed = new NotificationFeed((agentPool ?? consolePool ?? jobsPool)!);
-await feed.start();
+// One poller of the notifications table per process that serves something; the command long poll and the consoles' live stream listen
+// to it. A primary that only forks the agent API workers (SERVER_ROLES=agent, AGENT_API_WORKERS above 1) serves nothing, so it opens no
+// pool, polls nothing and reports no counters: each worker reports its own.
+const dbPool = agentPool ?? consolePool ?? jobsPool;
+const feed = dbPool ? new NotificationFeed(dbPool) : null;
+await feed?.start();
 const key = await issuingKey(config);
 mkdirSync(config.packages.dir, { recursive: true, mode: 0o700 });
 const packages = { dir: config.packages.dir, maxBytes: config.packages.maxBytes, trust: TrustList.fromFolder(config.packages.trustDir) };
@@ -65,7 +68,7 @@ let app: Awaited<ReturnType<typeof buildAgentApi>> | null = null;
 let notifier: CommandNotifier | null = null;
 let presence: Presence | null = null;
 if (servesAgents) {
-  notifier = new CommandNotifier(feed);
+  notifier = new CommandNotifier(feed!);
   // Without this the long polls would fall back to re-checking the database every 5 s.
   await notifier.start();
   // Contact from long polls, written in one batched statement a minute.
@@ -87,9 +90,9 @@ if (servesAgents) {
 
 // ---- Operations counters: written from memory once a minute, with the pools' connection waits and the event loop's delay ----------------
 // Every process (each worker, or the only process) reports its own; counts add up in the database.
-const opsReporter = new OpsReporter({ pool: (jobsPool ?? agentPool ?? consolePool)!, log: message => logError(message),
-  sampled: { ...(agentPool ? { agent: agentPool } : {}), ...(consolePool ? { console: consolePool } : {}) } });
-opsReporter.start();
+const opsReporter = dbPool ? new OpsReporter({ pool: jobsPool ?? dbPool, log: message => logError(message),
+  sampled: { ...(agentPool ? { agent: agentPool } : {}), ...(consolePool ? { console: consolePool } : {}) } }) : null;
+opsReporter?.start();
 
 // ---- The agent API workers (primary of a multi-process server) ------------------------------------------------------------------
 let stopping = false;
@@ -109,7 +112,7 @@ if (plan.forksAgentWorkers) {
 let consoleApp: Awaited<ReturnType<typeof buildConsoleApi>> | null = null;
 let stream: ResultStream | null = null;
 if (runsConsole && config.console) {
-  stream = new ResultStream(feed, consolePool!);
+  stream = new ResultStream(feed!, consolePool!);
   await stream.start();
   consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
     stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
@@ -179,8 +182,8 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
       await Promise.all(alive.map(w => new Promise<void>(resolve => { w.once("exit", () => resolve()); w.process.kill(signal); })));
     }
     await flushRuleHits().catch(() => undefined);
-    await opsReporter.stop().catch(() => undefined);
-    await app?.close(); await presence?.stop(); await consoleApp?.close(); await stream?.stop(); await notifier?.stop(); feed.stop();
+    await opsReporter?.stop().catch(() => undefined);
+    await app?.close(); await presence?.stop(); await consoleApp?.close(); await stream?.stop(); await notifier?.stop(); feed?.stop();
     await Promise.all([agentPool?.end(), consolePool?.end(), jobsPool?.end()]);
     process.exit(0);
   })(); });

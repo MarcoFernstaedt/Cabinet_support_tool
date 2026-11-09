@@ -57,9 +57,9 @@ async function waitFor(what: string, check: () => Promise<boolean>, out: () => s
   assert.fail(`${what} within ${ms / 1000} s. Output:\n${out().slice(-3000)}`);
 }
 
-let db: TestDatabase;
+let db: TestDatabase, workersDb: TestDatabase;
 const running: ChildProcess[] = [];
-test.after(async () => { for (const p of running) p.kill("SIGKILL"); await db?.drop(); });
+test.after(async () => { for (const p of running) p.kill("SIGKILL"); await db?.drop(); await workersDb?.drop(); });
 
 test("the cabinets' ingest and the console run as two processes from one build, and each restarts while the other keeps answering", { timeout: 240_000 }, async () => {
   db = await createTestDatabase();
@@ -98,4 +98,24 @@ test("the cabinets' ingest and the console run as two processes from one build, 
   await waitFor("the ingest process listens again", () => listening(agentPort), agent.out);
   assert.equal(await consoleAnswers(), true);
   await stop(agent.p); await stop(rest.p);
+});
+
+test("the ingest alone, in several workers: the primary only forks them and opens nothing itself, and the workers answer", { timeout: 120_000 }, async () => {
+  workersDb = await createTestDatabase();
+  const agentPort = await freePort();
+  let out = "";
+  const p = spawn(process.execPath, [main], { env: { PATH: process.env.PATH, DATABASE_URL: workersDb.appUrl, DEV_PKI_DIR: tempDir(), AGENT_API_HOST: "127.0.0.1",
+    AGENT_API_PORT: String(agentPort), PACKAGE_DIR: tempDir(), RELEASE_DIR: tempDir(), SERVER_ROLES: "agent", AGENT_API_WORKERS: "2" }, stdio: ["ignore", "pipe", "pipe"] });
+  p.stdout!.on("data", d => { out += String(d); }); p.stderr!.on("data", d => { out += String(d); });
+  running.push(p);
+  let exited: number | null | undefined;
+  p.once("exit", code => { exited = code; });
+  await waitFor("the agent workers listen on the agent port", () => listening(agentPort), () => out);
+  // Still up a moment later: a primary that crashed after forking would take its workers down with it.
+  await new Promise(r => setTimeout(r, 3_000));
+  assert.equal(exited, undefined, `the primary is still running. Output:\n${out.slice(-3000)}`);
+  assert.equal(await listening(agentPort), true);
+  assert.ok(!/TypeError|Cannot read properties/.test(out), out.slice(-3000));
+  await new Promise<void>(r => { if (exited !== undefined) r(); else { p.once("exit", () => r()); p.kill("SIGTERM"); } });
+  await waitFor("the agent port closes with the server", async () => !(await listening(agentPort)), () => out, 30_000);
 });
