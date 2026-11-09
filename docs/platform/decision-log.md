@@ -6,6 +6,53 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D59. A read-only acceptance check on the cabinet itself (2026-11-09)
+
+**What the code did:** a freshly installed agent was checked from the console only ("Test <cabinet>": read-only operations through the
+platform). That proves the agent answers. It cannot show whether the install itself is sound: which accounts the services run as,
+whether a non-administrator can change the programs or the data folder, whether the cabinet reaches the server at all. Those were
+checked by hand during the real-machine tests.
+
+**The decision** (the owner asked for a test ready to run when the agent is on a machine; the shape is mine):
+- **`agent/install/Test-CabinetAgent.ps1`**, shipped in the package and left by the installer beside the uninstaller in
+  `C:\Program Files\Mashura`, so it is on every cabinet and runs from the remote management tool as SYSTEM.
+- **What it checks** is the install's own security promises, read back: the two services and their accounts, the network service
+  outside the Administrators group, signatures, folder owners and who can write, the configuration and CA, the path to the server,
+  and a recent log.
+- **Read only.** It changes nothing, writes only its results file, never opens a token, a key or the certificate store, and prints
+  only the server address from the configuration.
+- **Held to that by an allowlist, not a list of forbidden commands.** A test in `installer-scripts.test.ts` removes the comments, the
+  help block and every string's contents from the script. It then requires each word left to be on a reviewed vocabulary: keywords,
+  its own functions and parameters, and the read-only cmdlets, .NET types, methods and properties it calls. Any new word fails,
+  whatever it does. The forms that could run text are held to their one reading use:
+  - the call operator only as `& $Body`;
+  - `.Invoke` only as `.Invoke('Members')`;
+  - `InvokeMember` only as `'GetProperty'`;
+  - nothing dot-sourced.
+
+  Its writes are held to their single use: `New-Item` for its results folder, `WriteAllText` to its results file. The test also holds
+  the script to ASCII (Windows PowerShell 5.1 reads a BOM-less script as ANSI).
+- **The review of #217** showed the first version of that test was a list of forbidden verbs, which stayed green for a download, a
+  registry delete, a service disabled through a script block built from Base64, .NET file writes, `icacls` and more. Those thirteen
+  forms are now probes the test must catch.
+- **The program folder is checked item by item,** owner and who can write, as the installer checks it. A loosened permission on one
+  program inside a sound folder is caught; the first version read only the folder's own permissions.
+- **Exit 0 or 1,** with a JSON results file, so the remote management tool and support read the same thing.
+- **The uninstaller removes it**, and with `-RemoveData` its results.
+- **Rejected:** a new agent operation that reports the same facts (an agent change, which cannot be built here, and a new write path
+  to the server for what a local read-only script answers); a check of every catalog read on the cabinet itself (that is the
+  console's "Test <cabinet>", through the real path).
+
+**What is not proven here.** The script is Windows PowerShell and this environment has no Windows. The parse test runs where
+PowerShell 7 is installed, and is skipped here. Its first run on a real cabinet is its proof.
+
+The red checks:
+- the review's three lines (a download, a registry delete, a script block from Base64) added to the script fail the read-only test;
+- dropping the script from the package fails the same test;
+- a non-ASCII character fails the ASCII test.
+
+The per-item walk is PowerShell and runs only on Windows, so it has no test here; its first run on a cabinet is its proof.
+
 ## D57. A site installer as a script a remote management tool runs as SYSTEM (2026-11-09)
 
 **What the code did** (F6, "a site set up end to end in one sitting"): the installer for a site was a `.cmd` launcher

@@ -96,7 +96,7 @@ RUN set -eu; \
           --output "$pkg/out/$project"; \
       done; \
       find "$pkg/out" -name '*.pdb' -delete; \
-      cp agent/install/Install-CabinetAgent.ps1 agent/install/Uninstall-CabinetAgent.ps1 "$pkg/install/"; \
+      cp agent/install/Install-CabinetAgent.ps1 agent/install/Uninstall-CabinetAgent.ps1 agent/install/Test-CabinetAgent.ps1 "$pkg/install/"; \
       cp /agent-readme/README.txt "$pkg/README.txt"; \
     done
 RUN mkdir -p /agent-download && set -eu; \

@@ -62,10 +62,15 @@ foreach ($name in 'CabinetAgentNetwork', 'CabinetAgentBroker') {
 Remove-Path (Join-Path $env:ProgramFiles 'Mashura\CabinetAgent')
 # The version an upgrade kept as its backup.
 Remove-Path (Join-Path $env:ProgramFiles 'Mashura\CabinetAgent.previous')
+# The read-only acceptance check the installer left beside the uninstaller.
+$acceptance = Join-Path $env:ProgramFiles 'Mashura\Test-CabinetAgent.ps1'
+if (Test-Path -LiteralPath $acceptance -PathType Leaf) { Remove-Item -LiteralPath $acceptance -Force }
 if ($RemoveData) {
     # The data goes first: the key is the only thing that makes the old certificate useless, so it is deleted only once
     # the data that belongs with it has really gone.
     Remove-Path (Join-Path $env:ProgramData 'Mashura\CabinetAgent')
+    # The acceptance check's result files.
+    Remove-Path (Join-Path $env:ProgramData 'Mashura\CabinetAgent-Acceptance')
     # The cabinet's private key, in the machine key store. Without it the old certificate is useless.
     $provider = [Security.Cryptography.CngProvider]::MicrosoftSoftwareKeyStorageProvider
     if ([Security.Cryptography.CngKey]::Exists('Mashura.CabinetAgent', $provider, [Security.Cryptography.CngKeyOpenOptions]::MachineKey)) {
