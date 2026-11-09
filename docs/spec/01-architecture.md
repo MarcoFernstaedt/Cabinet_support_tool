@@ -33,6 +33,31 @@ Every table has one owning module, named in `server/src/db/table-owners.ts` (F21
 
 A new table names its owner before anything writes it.
 
+## Per-client databases: the path
+
+Today every client's data is in one database. If a client's data has to move to a database of its own (for size, or because the client
+requires it), it moves along a line that is written down and tested now (F21.R5, decision-log D62). `server/src/db/client-data.ts`
+places every table:
+- **Platform:** one database for the whole platform. People and sign-in, the audit trail, issue types and symptom rules, releases
+  and packages, settings and baselines at every scope, enrollment and certificates, and the work that spans clients (fleet jobs,
+  rollouts, fleet patterns, security alerts).
+- **Directory:** `clients`, `sites` and `cabinets`. The platform database holds every row and is where a cabinet's certificate, a site
+  token or a client ID is resolved to its client. Each client database holds a copy of its own client's rows, so the foreign keys
+  inside it still hold.
+- **Client:** what a client's cabinets produce and the work done on them: events, alerts, commands, readings, configuration,
+  diagnoses, incidents, the daily trend counts, and the per-cabinet rows of fleet jobs and rollouts.
+
+`client-data.test.ts` checks the placement against the foreign keys the migrations create. It fails when:
+- a table has no placement;
+- a platform or directory table has a foreign key to a client table, which would make the platform database depend on a client's;
+- a client table has no way back to its client;
+- a foreign key from a client table to a platform table is not listed in `CROSS_REFERENCES`. A foreign key cannot span two databases,
+  so each listed one becomes a reference that the code checks when it writes the row.
+
+The split itself is the next step and not built: the connection resolved per client, migrations run on each client database, and
+fleet-wide views reading each client database in turn. Those views read summary tables (`drive_status`, `error_daily`, the alerts),
+so each would make one query per client database and merge the results.
+
 ## Cabinet roles
 
 - Sync: the cabinet that synchronizes the site
