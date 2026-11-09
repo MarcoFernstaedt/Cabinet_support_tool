@@ -11,16 +11,21 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 **What the code did** (F21.R2, "a module owns its tables and nothing else writes them"): nothing said which module owns a table, and
 nothing stopped any file from writing any table. Read from the source (the new `test/table-writes.ts`), the migrations create 62
 tables:
-- 33 are written from more than one file, 92 cross-module writes in all;
-- `alerts` is written from 16 files, `cabinets` from 11, `settings` from 10;
+- 34 are written from more than one file, 108 cross-module writes in all;
+- `alerts` is written from 17 files, `cabinets` from 14, `clients` and `sites` from 12 each, `settings` from 10;
 - the three audit tables are written only through the `audit_append` procedures.
 
+Sixteen of those writes name their table at run time, in five files. Four settings services update `clients`, `sites` or `cabinets`
+through a per-level lookup (`approved-apps.ts`, `device-settings.ts`, `filefacts-allowlist.ts`, `watched-services.ts`), and the demo's
+seeding and clearing helpers insert and delete by table name (`demo/demo.ts`).
+
 **The decision** (mine, within the brief):
-- **Write the ownership down and enforce it as a ratchet, rather than move 92 writes in one change.** `src/db/table-owners.ts` names
+- **Write the ownership down and enforce it as a ratchet, rather than move 108 writes in one change.** `src/db/table-owners.ts` names
   one owner per table and lists every other writer today under `also`. `table-ownership.test.ts` fails on:
   - a write by a file not listed: a new cross-module write;
   - a listed writer that no longer writes: the debt was paid, so the entry must come off;
-  - a table without an owner.
+  - a table without an owner;
+  - a write whose table is named at run time, in a file that does not declare the tables it can write (`RUNTIME_TABLE_WRITES`).
 
   So the boundary holds from now on, and the debt is visible and can only go down. Moving the writes one table at a time behind their
   owners is later work, each a PR of its own.
@@ -30,20 +35,29 @@ tables:
 - **The demo simulator** seeds its own demo rows across the schema. It is listed like any other writer rather than exempted, so its
   reach stays visible.
 - **How it reads:** statement text (INSERT INTO, UPDATE, DELETE, MERGE), against the tables the migrations create, with an UPDATE or
-  DELETE through an alias followed to its table. It is a test helper, never run at run time.
-  - It errs towards counting: a statement inside a string or comment counts.
-  - What it can miss: a table name built at run time. None writes one today.
+  DELETE through an alias followed to its table. A statement whose table is interpolated at run time is found too. The reader cannot
+  tell which table such a statement writes, so its file declares the tables in `RUNTIME_TABLE_WRITES`. Those count as writes like any
+  other, and a declaration whose file no longer has such a statement must come off. The reader is a test helper, never run at run
+  time. It errs towards counting: a statement inside a string or comment counts. Run-time writes are matched on upper-case keywords
+  only, as this codebase writes SQL, so prose such as "Update KB…" is not taken for a statement.
+- **The review of #213** found that the first version saw only literal table names. Five files writing through a run-time name passed
+  unseen, and a write to `alerts` through a variable left every test green. This entry first said no file wrote a table that way,
+  which was wrong.
 - **Rejected:**
   - moving every write now (a change across dozens of files with no behaviour to show for it, too large to review);
   - a lint rule (no linter in the repository, and the rule CLAUDE.md sets against new dependencies).
 
 The red checks:
-- an added "UPDATE alerts" in `job-lease.ts` fails the second test;
-- a stale `also` entry fails the third;
-- a table removed from the map fails the first;
+- an added "UPDATE alerts" in `job-lease.ts` fails the unlisted-write test;
+- the same write through a variable (the review's case) fails the run-time test;
+- a declared run-time write missing from `also` fails the unlisted-write test;
+- a file with a run-time write left undeclared fails the run-time and shrink tests;
+- a stale `also` entry fails the shrink test;
+- a table removed from the map fails the owner test;
 - the reader's own test covers alias forms and reads that do not write.
 
 Boundary input validation and idempotent writers (the rest of F21.R2) are not part of this change.
+
 ## D55. Which Windows the fleet runs, from what it already reports; what F20 leaves open (2026-11-08)
 
 **What the code did** (F20): the brief's F20 "today" lists four gaps. Three are already closed in the code, so this entry records them,

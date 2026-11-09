@@ -7,19 +7,32 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { TABLE_OWNERS } from "../src/db/table-owners.js";
-import { migrationTables, tableWriters } from "./table-writes.js";
+import { RUNTIME_TABLE_WRITES, TABLE_OWNERS } from "../src/db/table-owners.js";
+import { migrationTables, runtimeTableWrites, tableWriters } from "./table-writes.js";
 
 // dist/test/ -> server/
 const server = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const tables = migrationTables(join(server, "migrations"));
-const writers = tableWriters(join(server, "src"), tables);
+const literal = tableWriters(join(server, "src"), tables);
+const runtime = runtimeTableWrites(join(server, "src"));
+/** Every write: the ones the reader sees by name, and the ones a file declares for its run-time table names. */
+const writers = new Map([...literal].map(([t, f]) => [t, new Set(f)]));
+for (const [file, list] of Object.entries(RUNTIME_TABLE_WRITES))
+  for (const t of list) (writers.get(t) ?? writers.set(t, new Set()).get(t)!).add(file);
 
 test("every table the migrations create names its owning module", () => {
   const missing = [...tables].filter(t => !TABLE_OWNERS[t]).sort();
   assert.deepEqual(missing, [], `name an owner in src/db/table-owners.ts for: ${missing.join(", ")}`);
   const gone = Object.keys(TABLE_OWNERS).filter(t => !tables.has(t)).sort();
   assert.deepEqual(gone, [], `no migration creates: ${gone.join(", ")}`);
+});
+
+test("a write whose table is built at run time is declared, with the tables it can write, and a declaration nothing needs comes off", () => {
+  const undeclared = [...runtime.keys()].filter(f => !RUNTIME_TABLE_WRITES[f]).sort();
+  assert.deepEqual(undeclared, [], `these files write a table named at run time; declare its tables in RUNTIME_TABLE_WRITES: ${undeclared.join(", ")}`);
+  const stale = Object.keys(RUNTIME_TABLE_WRITES).filter(f => !runtime.has(f)).sort();
+  assert.deepEqual(stale, [], `no run-time table write is left in: ${stale.join(", ")}`);
+  for (const [file, list] of Object.entries(RUNTIME_TABLE_WRITES)) for (const t of list) assert.ok(tables.has(t), `${file} declares ${t}, which no migration creates`);
 });
 
 test("no file writes a table it does not own unless the debt list names it", () => {
@@ -50,8 +63,11 @@ test("the reader finds writes however they are spelled, through an alias too, an
     "db.query(`DELETE d FROM cabinet_drift d WHERE d.cabinet_id = $1`);",
     "db.query(`MERGE [job_leases] WITH (HOLDLOCK) AS t USING (SELECT 1 AS x) s ON 1 = 0 WHEN NOT MATCHED THEN INSERT (name) VALUES ('x');`);",
     "db.query(`SELECT * FROM users u JOIN sessions s ON s.user_id = u.id`);",
+    "db.query(`UPDATE ${TABLE[level]} SET name = $2 WHERE id = $1`);",
+    "db.query(`DELETE FROM ${table} WHERE cabinet_id = $1`);",
   ].join("\n"));
   const found = tableWriters(join(root, "src"), new Set(["alerts", "fleet_patterns", "cabinet_drift", "job_leases", "users", "sessions"]));
   assert.deepEqual([...found.keys()].sort(), ["alerts", "cabinet_drift", "fleet_patterns", "job_leases"]);
   assert.deepEqual([...found.get("alerts")!], ["services/a.ts"]);
+  assert.deepEqual([...runtimeTableWrites(join(root, "src"))], [["services/a.ts", 2]], "the two writes through a table named at run time are seen");
 });
