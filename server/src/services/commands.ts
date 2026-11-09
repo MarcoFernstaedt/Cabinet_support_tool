@@ -6,7 +6,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "./maintenance.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ingestAndEvaluate } from "./config-service.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";

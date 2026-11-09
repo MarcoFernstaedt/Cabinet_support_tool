@@ -12,6 +12,7 @@ import { catalog, operations } from "../contracts.js";
 import { audit, auditMany, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
@@ -441,4 +442,19 @@ export async function recentJobs(db: Queryable) {
        FROM fleet_jobs j JOIN users u ON u.id = j.created_by ORDER BY j.created_at DESC`)).rows
     .map(r => ({ id: r.id, operation: r.operation, state: r.state, startedAt: r.created_at.toISOString(), total: r.total, startedBy: r.name,
       verified: Number(r.verified), problems: Number(r.failed) }));
+}
+
+// ---- Retention (F21.R2, decision-log D73) -----------------------------------------------------------------------------------------------
+
+/**
+ * Removes fleet jobs that finished and were created before `cutoff`, with their per-cabinet results first; a running job is never
+ * removed. The commands they sent and the audit log stay. In batches, each batch audited; a repeat removes nothing more. Returns how
+ * many jobs went.
+ */
+export async function pruneFinishedJobs(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  await inBatches(db, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
+                         (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cutoff], o, { table: "fleet_job_targets", cutoff });
+  return inBatches(db, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
+                          AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cutoff], o, { table: "fleet_jobs", cutoff });
 }

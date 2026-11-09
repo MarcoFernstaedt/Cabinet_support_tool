@@ -10,6 +10,7 @@ import { crashArgs, crashPredicate } from "./crashes.js";
 import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
+import { pruneFinishedJobs } from "./fleet-jobs.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -75,58 +76,12 @@ async function checkChain(pool: Pool, by: { userId: string } | "daily" | "weekly
   return shown;
 }
 
-export interface BatchOptions {
-  /** Rows per statement. */
-  batch: number;
-  /** Pause between two statements, so the agents' writes get their turn. */
-  pauseMs: number;
-  /** Each statement is stopped after this long (it has then changed nothing; the next run goes on). */
-  timeoutMs: number;
-}
-export const RETENTION_BATCH: BatchOptions = { batch: 4_000, pauseMs: 200, timeoutMs: 30_000 };
+// The batching helpers live in db/batches.ts, which imports nothing but db.ts, so an owner's prune can use them without importing this
+// module (and making an import cycle that runs a module before its constants exist). Re-exported for the callers that import them here.
+export { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchAudit, type BatchOptions } from "../db/batches.js";
+import { inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 const sleep = (ms: number) => (ms > 0 ? new Promise(r => setTimeout(r, ms)) : Promise.resolve());
-
-/** What a destructive batch leaves in the audit log beside the statement it just made (docs/spec/05-server-spec.md "Retention"). */
-export interface BatchAudit {
-  /** The table the statement changes, as the log entry names it. */
-  table: string;
-  /** The cut-off the batch used, so the entry says what it considered old. */
-  cutoff?: unknown;
-  /** The audit action; a retention batch by default. */
-  action?: string;
-}
-
-/**
- * Runs one statement that changes at most `TOP (@batch)` rows (it must say `TOP ($1)`; its own parameters follow from $2) again and again,
- * each in its own autocommit transaction, until a run changes fewer rows than a batch. Returns how many rows it changed in all.
- * With `each`, a batch that changes anything runs in one transaction together with its own audit entry, so a run that stops half way (or is
- * killed) has left the log saying what it had already removed; a batch that changes nothing writes nothing.
- */
-export async function inBatches(db: Queryable, statement: string, params: readonly unknown[], o: BatchOptions = RETENTION_BATCH, each?: BatchAudit): Promise<number> {
-  const one = async (c: Queryable): Promise<number> => {
-    const n = (await c.query(statement, [o.batch, ...params], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
-    if (each && n > 0)
-      await audit(c, { actorKind: "system", actorId: "retention", action: each.action ?? "retention.batch", outcome: "succeeded",
-        details: { table: each.table, rows: n, ...(each.cutoff === undefined ? {} : { cutoff: each.cutoff }) } });
-    return n;
-  };
-  let total = 0;
-  for (;;) {
-    const n = each === undefined ? await one(db) : db instanceof Pool ? await transaction(db, one) : await one(db);
-    total += n;
-    if (n < o.batch) return total;
-    await sleep(o.pauseMs);
-  }
-}
-
-/**
- * A retention cut-off as each owner's prune takes it (F21.R2, decision-log D71): a real time, not in the future. A prune only ever removes
- * rows older than it, so running one again removes nothing more.
- */
-export function checkRetentionCutoff(cutoff: unknown): asserts cutoff is Date {
-  if (!(cutoff instanceof Date) || Number.isNaN(cutoff.getTime()) || cutoff.getTime() > Date.now()) throw new Error("a retention cut-off is a time that has already passed");
-}
 
 /** Notifications only wake other server processes (each reads them within a second), so one older than an hour is of no use. */
 export async function pruneNotifications(db: Queryable, o: BatchOptions = RETENTION_BATCH): Promise<number> {
@@ -260,11 +215,8 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // The record of configuration changes and health transitions is kept as long as events are (the stored versions are bounded by count instead).
   const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o, { table: "config_changes", cutoff: cut(r.eventsDays) });
   const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o, { table: "health_transitions", cutoff: cut(r.eventsDays) });
-  // A finished job and its per-cabinet results; the commands it sent and the audit log stay.
-  await inBatches(pool, `DELETE TOP ($1) FROM fleet_job_targets WHERE job_id IN
-                           (SELECT id FROM fleet_jobs WHERE state <> 'running' AND created_at < $2)`, [cut(r.jobsDays)], o, { table: "fleet_job_targets", cutoff: cut(r.jobsDays) });
-  const jobs = await inBatches(pool, `DELETE TOP ($1) FROM fleet_jobs WHERE state <> 'running' AND created_at < $2
-                                        AND NOT EXISTS (SELECT 1 FROM fleet_job_targets t WHERE t.job_id = fleet_jobs.id)`, [cut(r.jobsDays)], o, { table: "fleet_jobs", cutoff: cut(r.jobsDays) });
+  // A finished job and its per-cabinet results, removed by their owner, fleet-jobs.ts (D73); the commands it sent and the audit log stay.
+  const jobs = await pruneFinishedJobs(pool, cut(r.jobsDays), o);
   // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed.
   const incidents = await inBatches(pool, "DELETE TOP ($1) FROM incidents WHERE closed_at IS NOT NULL AND closed_at < $2", [cut(r.alertsDays)], o, { table: "incidents", cutoff: cut(r.alertsDays) });
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,

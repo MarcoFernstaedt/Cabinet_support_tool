@@ -6,6 +6,49 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D73. Finished fleet jobs and their results are retained by fleet-jobs.ts (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` deleted a finished job's per-cabinet results, then the job itself, once
+both were older than the job retention setting. Both tables are owned by `services/fleet-jobs.ts`.
+
+**The decision** (F21.R2, the D71 pattern):
+- `fleet-jobs.ts` exports `pruneFinishedJobs`. It runs the two statements in the same order as before (targets first, so no job loses
+  its results while it is still there), each through `inBatches` with the same audit table names, and returns the number of jobs
+  removed.
+- **A running job is never removed,** as before.
+- **The commands a job sent, and the audit log, stay.**
+- **Input check:** a cut-off that is not a time already passed is refused.
+- **Safe to repeat:** a second run removes nothing more.
+- Two entries come off the debt list, which leaves 109. Eight of those are the remaining sweeps.
+
+**What went wrong first, and the fix.** The first version had `fleet-jobs.ts` import the batching helpers from `maintenance.ts`, which
+imports `fleet-jobs.ts` back. The full suite at 8556807 failed six files before any test ran: "Cannot access 'LIVE_LINK' before
+initialization". In that cycle, `fleet.ts` ran before `sync-cabinets.ts` had set the constant it reads while loading. D71 had judged
+such a cycle harmless because each side only calls the other later. That holds only until the cycle drags in a module that reads a
+constant while it loads, so the judgement was wrong.
+- **The fix:** the batching helpers (`inBatches`, `BatchOptions`, `RETENTION_BATCH`, `BatchAudit`, `checkRetentionCutoff`) move to
+  `db/batches.ts`, which imports nothing but `db.ts`. Every owner's prune takes them from there: the two auth modules from #229,
+  `commands.ts` from #230, and `fleet-jobs.ts`. `maintenance.ts` re-exports them for its other callers.
+- **The guard:** `import-cycles.test.ts` reads the import graph of `src/` and fails when `maintenance.ts` is part of any cycle, naming
+  the module that leads back. Loading a few files is not a guard: with `fleet-jobs.ts` pointed back at `maintenance.ts`, the two files
+  that had failed loaded fine, because whether a cycle bites depends on load order. The graph test names `services/fleet-jobs.ts` every
+  time.
+
+**Proven by:** `fleet-jobs-retention.test.ts`, a new file:
+- an old done job and an old cancelled job go with their results;
+- an old running job and a recent job stay, results and all;
+- one audited batch per table, and a repeat removes nothing;
+- 6 bad cut-offs are refused with nothing removed.
+
+**Red checks:**
+- Without the cut-off check, the refusal test fails.
+- With the old statements back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes
+  fleet_job_targets (owned by services/fleet-jobs.ts)" and the same for `fleet_jobs`.
+- With `fleet-jobs.ts` importing `maintenance.ts` again, `import-cycles.test.ts` fails, naming `services/fleet-jobs.ts`.
+- The retention test in `admin.test.ts`, the audit sweep, `replacement-reapply`, `sync-cabinets` and `server-roles` pass.
+
+---
+
 ## D72. Old command results and firewall history are retained by commands.ts (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` cleared old command results (`UPDATE TOP … commands SET result =
