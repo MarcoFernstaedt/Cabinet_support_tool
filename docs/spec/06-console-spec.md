@@ -37,6 +37,14 @@
 - The cabinet's name is always shown clearly at the top, with its client, site and role directly beneath. It stays visible while scrolling.
 - A left menu holds the cabinet's tabs in groups (Windows, Hardware, Network, Record), and under it the other cabinets at the same site, each with offline state and alert count, for one-click switching.
 - The Overview starts with a summary: online state, last contact, agent version, uptime, scanner state, open alerts, last known healthy, and the three most useful next actions. Last known healthy has one definition (F8.R1, decision-log D41): the configuration health's, from `cabinet_health` ("Now" while it is judged healthy, else the last time it was, linking to the Baseline tab). With no time to give it says why: not judged yet, no configuration reported, no approved baseline, or never seen healthy. It is not worked out from alerts or contact.
+- **System** (decision-log D58), under the summary and visible to every role, shows the cabinet at a glance:
+  - Windows: edition, build, architecture and uptime;
+  - processor: model, logical cores and CPU in use;
+  - memory: in use against installed, with a meter, and the number of modules;
+  - the machine: make, model, BIOS version and date, TPM and Secure Boot;
+  - each drive: used percentage with a meter, free space, size and file system.
+
+  Each figure comes from the latest stored read (`system.hardware`, `system.info`, `system.performance`) or the latest heartbeat load sample, with how long ago it was read. "Read now" asks the cabinet again. `GET /api/cabinets/:id/summary`, Tier 1 and up. Meters turn amber at 85% used and red at 95% (92% for a drive).
 - A jump control opens any cabinet at another site or another client without going back up the hierarchy.
 - Sections: overview, alerts, event logs, devices and drivers, fingerprint scanner, Windows updates, drive health, network, firewall, software, files, command history.
 - Write actions appear only for Tier 2 and Admin, and are hidden on read-only cabinets. Each one opens a confirmation that states exactly what will change on which cabinet, then asks for the authenticator code.

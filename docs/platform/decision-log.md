@@ -98,6 +98,41 @@ The red checks:
 
 The per-item walk is PowerShell and runs only on Windows, so it has no test here; its first run on a cabinet is its proof.
 
+## D58. The cabinet at a glance, and a denser console (2026-11-09)
+
+**What the code did:** the cabinet Overview had a summary (contact, agent version, uptime, alerts) and a Details list. The machine's
+memory, storage, processor and Windows were on separate tabs (Windows information, Services and processes), each read on demand. A
+person had to open two tabs, and ask the cabinet twice, to see how much memory and disk it had left.
+
+**The decision** (the owner asked for every user to see a cabinet's memory, storage and other useful facts, in a compact, professional
+layout; the shape is mine):
+- **One System panel at the top of the Overview, for every role.** It shows Windows, the processor, memory, the machine and each
+  drive.
+- **Read from what is already stored.** It uses the latest stored answer of `system.hardware`, `system.info` and
+  `system.performance`, and the latest heartbeat load sample (`GET /api/cabinets/:id/summary`). Opening a cabinet asks it nothing,
+  and an offline cabinet still shows its last known figures.
+  - Every figure carries how long ago it was read.
+  - A part never read says so.
+  - A malformed stored answer is dropped field by field, never shown as a wrong figure.
+  - "Read now" runs the two reads again, as the existing tabs do.
+- **Meters with a number beside them.** The meter colours are status colours (amber at 85% used, red at 95%, 92% for a drive) and
+  always sit next to the figure, so colour is never the only signal.
+- **Denser everywhere, from the tokens.** Table cells, panel padding, the key-value grid and page margins are tightened in the
+  design tokens (`--cell-y`, `--cell-x`, `--panel-pad`), so every page gets more on screen without a page-by-page change. The type
+  scale and control heights are unchanged, so nothing gets harder to read or to hit.
+- **Fixtures come from the contract.** The tests start from the contract's example answers, and check every stored answer against
+  the operation's output contract before storing it. The first version read Secure Boot as a boolean. The contract stores `"on"`,
+  `"off"` or `"unsupported"`, so the tile said "unknown" on every cabinet. Its fixtures used `true`, a value the agent cannot send,
+  so the tests passed (review of #215). The panel now reads the three states, words "unsupported" as "not supported" as the
+  Windows tab does, and treats any other value as unknown.
+- **Rejected:** a new periodic read for these figures. The stored reads and the heartbeat already carry them. A new stream would need
+  its own line in the capacity budget, and the brief allows none without one.
+
+The red checks:
+- taking the oldest stored answer instead of the newest fails the first server test;
+- accepting volumes without a drive and real sizes fails the malformed-answer test.
+
+The browser test checks the panel's text, drive rows and meters for a Tier 1 user.
 ## D57. A site installer as a script a remote management tool runs as SYSTEM (2026-11-09)
 
 **What the code did** (F6, "a site set up end to end in one sitting"): the installer for a site was a `.cmd` launcher
