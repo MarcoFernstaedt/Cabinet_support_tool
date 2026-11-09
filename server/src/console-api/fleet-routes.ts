@@ -14,6 +14,7 @@ import * as fleet from "../services/fleet.js";
 import { setCabinetScanner, setFleetScanner, setSitePorts } from "../services/settings.js";
 import { setClientSyncPorts, setFleetSyncPorts, setScanner } from "../services/device-settings.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
+import { compatibilityReport } from "../services/compatibility.js";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export function id(request: FastifyRequest, name = "id"): string {
@@ -25,6 +26,8 @@ export function id(request: FastifyRequest, name = "id"): string {
 export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & { guards: Guards }): Promise<void> {
   app.get("/api/fleet/first-cabinet", async request => { await o.guards.role(request, "tier1"); return { cabinet: await fleet.firstCabinet(o.pool) }; });
   app.get("/api/fleet/clients", async request => { await o.guards.role(request, "tier1"); return fleet.clients(o.pool); });
+  // Which Windows the fleet runs: edition, build family and architecture (F20, D55).
+  app.get("/api/fleet/compatibility", async request => { await o.guards.role(request, "tier1"); return compatibilityReport(o.pool); });
 
   app.get("/api/fleet/clients/:id", async request => {
     await o.guards.role(request, "tier1");
