@@ -3,7 +3,7 @@
 // A rollback is a new signed release with a higher version, rolled out the same way. The server enforces every rule
 // shown here, and each cabinet checks every release again with its own compiled-in key before it installs anything.
 // A release is one version for one Windows architecture and is only ever offered to cabinets built for it
-// (docs/platform/second-architecture.md): the architecture is chosen here and never guessed from a cabinet's name.
+// (docs/platform/archive/second-architecture.md): the architecture is chosen here and never guessed from a cabinet's name.
 import { useState } from "react";
 import { api, describeError, upload } from "../../lib/api";
 import { Link } from "../../lib/router";
@@ -175,7 +175,7 @@ function StartRollout({ releases, candidates, blocked, ask, after }: { releases:
   const version = release?.version ?? "";
   const architecture = release?.architecture ?? null;
   // Only cabinets of the release's own Windows can be offered it, and a cabinet that has never reported one is a
-  // 64-bit agent: 64-bit is the only build that has ever shipped (docs/platform/second-architecture.md).
+  // 64-bit agent: 64-bit is the only build that has ever shipped (docs/platform/archive/second-architecture.md).
   const windowsOf = (c: Candidate) => c.architecture ?? "windows-x64";
   const older = (c: Candidate) => c.agentVersion !== version && windowsOf(c) === architecture;
   const pilots = candidates.filter(c => c.online && older(c));
