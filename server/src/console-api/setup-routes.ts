@@ -14,11 +14,12 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyInstance } from "fastify";
 import { Refused } from "../services/errors.js";
-import { createBootstrapToken } from "../services/enrollment.js";
+import { createBootstrapToken, siteTokenUsable } from "../services/enrollment.js";
 import { consoleBodies } from "../contracts.js";
 import { boundTo, consumeStepUpToken } from "../auth/stepup.js";
-import { transaction } from "../db/db.js";
-import { LAUNCHER_NAME, launcherScript } from "./installer-launcher.js";
+import { audit, transaction } from "../db/db.js";
+import { LAUNCHER_NAME, launcherScript, TOKEN } from "./installer-launcher.js";
+import { FLEET_SCRIPT_NAME, fleetInstallScript } from "./fleet-install-script.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
 /**
@@ -102,20 +103,39 @@ export async function setupRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
   app.post("/api/admin/installer", async request => {
     const u = await o.guards.role(request, "admin");
     const body = consoleBodies.installerRequest.parse(request.body);
+    const fleet = body.format === "fleet-script";
+    // A fleet install script runs on many cabinets, so it is only ever made for a site installer, bounded by count and days.
+    if (fleet && !body.site) throw new Refused("site_required", 400, "a fleet install script is made for a site installer: choose the site");
     const [x64, x86] = await Promise.all(AGENT_ARCHITECTURES.map(a => packageInfo(a)));
     if (!x64 && !x86) throw new Refused("not_found", 404, "this server has no agent package to install");
-    const input = (token: string) => ({
-      packages: { "windows-x64": x64 ? { name: x64.name, sha256: x64.sha256 } : null, "windows-x86": x86 ? { name: x86.name, sha256: x86.sha256 } : null },
-      host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null,
-      caPem: o.issuingKey.certificatePem, caSha256: caSha256(), token, unsigned: unsignedBuild(),
-    });
+    const common = { host: o.agentSetup?.host ?? null, port: o.agentSetup?.port ?? null, caPem: o.issuingKey.certificatePem, caSha256: caSha256(), unsigned: unsignedBuild() };
+    const make = (token: string): { fileName: string; script: string } => fleet
+      ? { fileName: FLEET_SCRIPT_NAME, script: fleetInstallScript({ ...common, token, consoleOrigin: o.origin, packages: { "windows-x64": x64?.sha256 ?? null, "windows-x86": x86?.sha256 ?? null } }) }
+      : { fileName: LAUNCHER_NAME, script: launcherScript({ ...common, token,
+          packages: { "windows-x64": x64 ? { name: x64.name, sha256: x64.sha256 } : null, "windows-x86": x86 ? { name: x86.name, sha256: x86.sha256 } : null } }) };
     // Built once with a stand-in token first: a server whose own settings cannot make an installer says so before the
     // confirmation is used up and a token is made for nothing.
-    try { launcherScript(input("x".repeat(43))); } catch (e) { throw new Refused("setup_incomplete", 409, (e as Error).message); }
+    try { make("x".repeat(43)); } catch (e) { throw new Refused("setup_incomplete", 409, (e as Error).message); }
     await transaction(o.pool, c => consumeStepUpToken(c, boundTo(body.stepUpToken, body), u.userId, "token.create", "fleet"));
     const { token, expiresAt, cabinets } = await createBootstrapToken(o.pool, u.userId, undefined, body.site);
-    const script = launcherScript(input(token));
-    return { fileName: LAUNCHER_NAME, script, expiresAt: expiresAt.toISOString(), ...(body.site ? { cabinets } : {}) };
+    return { ...make(token), expiresAt: expiresAt.toISOString(), ...(body.site ? { cabinets } : {}) };
+  });
+
+  // The agent package for a fleet install script, which runs as SYSTEM on a cabinet with no console session. It is authorised by the
+  // site installer's token in the Authorization header (never the URL), which must still be able to enroll a cabinet; the download
+  // does not count as a use. The script checks the SHA-256 it was made with, so this route serves nothing it does not already pin.
+  app.get("/api/install/package", async (request, reply) => {
+    const q = consoleBodies.installPackageQuery.parse(request.query);
+    const header = request.headers.authorization ?? "";
+    const presented = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+    const usable = TOKEN.test(presented) ? await siteTokenUsable(o.pool, presented) : null;
+    if (!usable) throw new Refused("install_token_refused", 401, "the site installer has expired, been used up or been stopped");
+    const pkg = await packageInfo(q.architecture);
+    if (!pkg) throw new Refused("not_found", 404, `no ${q.architecture === "windows-x86" ? "32-bit" : "64-bit"} agent package is available on this server`);
+    await audit(o.pool, { actorKind: "system", actorId: "install-token", action: "install.package", targetKind: "token", targetId: usable.id,
+      outcome: "succeeded", details: { siteId: usable.siteId, architecture: q.architecture, sha256: pkg.sha256 } });
+    return reply.header("Content-Type", "application/zip").header("Content-Disposition", `attachment; filename="${pkg.name}"`)
+      .header("Content-Length", String(pkg.bytes)).header("Cache-Control", "no-store").send(createReadStream(pkg.path));
   });
 
   app.get("/api/admin/agent-package", async (request, reply) => {

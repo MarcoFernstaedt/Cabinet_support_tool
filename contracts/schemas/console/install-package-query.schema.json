@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/install-package-query.schema.json",
+  "title": "install-package-query",
+  "description": "Which agent package a fleet install script downloads: the one for the cabinet's Windows architecture. The site installer token travels in the Authorization header, never in the URL.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "architecture"
+  ],
+  "properties": {
+    "architecture": {
+      "type": "string",
+      "enum": [
+        "windows-x64",
+        "windows-x86"
+      ]
+    }
+  }
+}
