@@ -40,7 +40,7 @@ export function CabinetSystem({ cabinetId, cabinetName }: { cabinetId: string; c
     <section className="panel" aria-labelledby="system-heading">
       <div className="panel-head">
         <h2 id="system-heading">System</h2>
-        <button className="btn small" disabled={busy} onClick={() => void readNow()} aria-label={`Read system information from ${cabinetName} now`}>{busy ? "Reading…" : "Read now"}</button>
+        <button className="btn small" disabled={busy} onClick={() => void readNow()}>{busy ? "Reading…" : "Read now"}</button>
       </div>
       {problem && <p className="error" role="alert">{problem}</p>}
       {(hardware.problem || perf.problem) && <p className="error small" role="alert">{hardware.problem ?? perf.problem}</p>}
