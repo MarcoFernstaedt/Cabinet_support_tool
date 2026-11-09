@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, main at `a83c2e5`)
+## Where it stands (2026-11-09, after #211)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -13,14 +13,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F18.R1 and R2.
 - F19.R7.
 - F21.R1.
+- F20: which Windows the fleet runs, by edition, build family and architecture (#211, D55).
 - F7: the role level, the Differences view by role, watched services from the role baseline.
 - F14.R3: a service set to restart the computer is alerted.
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:**
-- #211: F20, which Windows the fleet runs (D55).
-- F21.R2: table ownership written down and enforced as a ratchet (D56; its branch is being tested).
+**In review:** F21.R2, table ownership written down and enforced as a ratchet (D56).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 

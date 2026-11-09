@@ -1,4 +1,4 @@
-// Session 1's own tests (docs/platform/control-half-plan.md): what a control request may name, what its entry's kind allows,
+// Session 1's own tests (docs/platform/archive/control-half-plan.md): what a control request may name, what its entry's kind allows,
 // what the confirmation covers, and the one audit row every outcome leaves. The platform's real effects (the audit write, the
 // token, the issue) are stood in for, so every decision in services/app-control.ts is exercised without a database; the route's
 // own 202 over a real database is app-control-e2e.test.ts.

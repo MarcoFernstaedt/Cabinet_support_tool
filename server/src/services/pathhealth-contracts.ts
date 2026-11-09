@@ -1,4 +1,4 @@
-// The sync-path contracts (docs/platform/improvement-plan.md §4 "Workstream B", docs/platform/research/2026-10/audit-network.md §10):
+// The sync-path contracts (docs/platform/archive/improvement-plan.md §4 "Workstream B", docs/platform/research/2026-10/audit-network.md §10):
 // validation and the semantic rules the JSON Schemas cannot express, in front of every other file here.
 //
 // Every value that enters from a cabinet or a console passes contracts/schemas/pathhealth/*.schema.json first (CLAUDE.md: validation

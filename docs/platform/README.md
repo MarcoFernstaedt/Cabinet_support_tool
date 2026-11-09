@@ -45,6 +45,11 @@ archived and where its open items went. Kept as history; nothing in them is the 
 - [archive/leadership-report.md](archive/leadership-report.md): the status report of 2026-11-04.
 - [archive/readiness.md](archive/readiness.md): the readiness report of 2026-10-25.
 
+Three applied migrations (`0007_architecture.sql`, `0008_release_architecture.sql`, `0017_incidents.sql`) still name these
+documents at their old paths in a comment. A migration's text is checksummed when it is applied, so it is never edited, even for a
+comment. Read `docs/platform/<name>.md` there as `docs/platform/archive/<name>.md`. Every other reference in the repository points at
+the archive.
+
 Retired earlier (removed, not archived):
 - `hardening-and-roadmap.md` was replaced by [security-review.md](security-review.md) (the findings) and
   [remaining-phases.md](remaining-phases.md) (the phases).

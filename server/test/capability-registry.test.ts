@@ -1,4 +1,4 @@
-// The capability registry (docs/platform/diagnostic-engine-execution.md, "The foundation in detail", items 3 and 5): the schema refuses a
+// The capability registry (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", items 3 and 5): the schema refuses a
 // malformed or hostile registry, and the server refuses an entry that claims what its module cannot do (above all a repair it cannot
 // verify), a reference that resolves to nothing, a dependency cycle, a module at another version, and a module nobody registered.
 import test from "node:test";

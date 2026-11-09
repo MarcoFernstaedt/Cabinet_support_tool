@@ -195,7 +195,7 @@ export const approvedListFiles = {
   keys: validator<ApprovedListKeys>("approved-list-keys", ref("agent/approved-list-keys.schema.json")),
 } as const;
 
-/** Diagnostic modules (docs/platform/diagnostic-engine-execution.md): server data, checked again by server/src/diagnose/module.ts. */
+/** Diagnostic modules (docs/platform/archive/diagnostic-engine-execution.md): server data, checked again by server/src/diagnose/module.ts. */
 export const diagnosticFiles = {
   module: validator<DiagnosticModule>("diagnostic module", ref("diagnostics/module.schema.json")),
   registry: validator<CapabilityRegistry>("capability registry", ref("diagnostics/registry.schema.json")),

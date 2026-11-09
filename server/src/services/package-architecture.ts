@@ -1,4 +1,4 @@
-// What a release package really is, read from the programs inside it (docs/platform/second-architecture.md, "the package's
+// What a release package really is, read from the programs inside it (docs/platform/archive/second-architecture.md, "the package's
 // own bytes"). The architecture a release is added under is a declaration by the pipeline; this is the check that makes it
 // true, so the store never hands a cabinet a package built for Windows it cannot run, and two releases that share a version
 // cannot be confused for each other.
