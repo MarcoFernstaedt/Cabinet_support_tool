@@ -89,8 +89,10 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
   const [role, setRole] = useState("");
   const [cabinets, setCabinets] = useState(10);
   const [days, setDays] = useState(7);
+  // For a site, the installer can also be a script a remote management tool runs as SYSTEM on each of the site's cabinets.
+  const [fleetScript, setFleetScript] = useState(false);
   const site = forSite && siteId ? { siteId, ...(role ? { role } : {}), cabinets, days } : undefined;
-  const body = site ? { site } : {};
+  const body = site ? { site, ...(fleetScript ? { format: "fleet-script" } : {}) } : {};
   const [problem, setProblem] = useState<string | null>(null);
   useEffect(() => () => { if (made) URL.revokeObjectURL(made.href); }, [made]);
   const packages = INSTALL_ARCHITECTURES.map(a => ({ ...a, pkg: setup.agent.packages.find(p => p.architecture === a.id && p.bytes !== null) ?? null }));
@@ -121,13 +123,17 @@ export function InstallAgent({ setup }: { setup: SetupState }) {
               <label className="field inline"><span>Cabinets</span><input type="number" min={1} max={100} value={cabinets} onChange={e => setCabinets(Math.max(1, Math.min(100, Math.floor(Number(e.target.value) || 1))))} /></label>
               <label className="field inline"><span>Days</span><input type="number" min={1} max={30} value={days} onChange={e => setDays(Math.max(1, Math.min(30, Math.floor(Number(e.target.value) || 1))))} /></label>
             </div>)}
+          {forSite && (
+            <label className="check"><input type="checkbox" checked={fleetScript} onChange={e => setFleetScript(e.target.checked)} /> Make a fleet install script (PowerShell) for a remote management tool to run as SYSTEM on each cabinet</label>)}
           <p className="row gap wrap">
             <button className="btn primary" data-tour="create-token" disabled={!any || (forSite && !siteId)} onClick={() => { setProblem(null); setConfirm(true); }}>Create installer</button>
             {made && <a className="btn" href={made.href} download={made.fileName}>Download {made.fileName}</a>}
           </p>
           {made && <p className="muted small" role="status">Ready. {made.cabinets ? `For up to ${made.cabinets} cabinets of that site` : "Single use"}, valid until {fullTime(made.expiresAt)}. Every cabinet that uses it still waits for your approval.</p>}
           {problem && <p className="error" role="alert">{problem}</p>}</li>
-        <li><strong>On the cabinet,</strong> put the installer in the same folder as the agent files and double-click it. Approve the Windows prompt. The cabinet then appears below for approval.</li>
+        {site && fleetScript
+          ? <li><strong>In your remote management tool,</strong> run the script as SYSTEM on the site's cabinets. Each cabinet downloads the agent from this server, checks it against the SHA-256 in the script, and installs it. The script exits with 0 when the agent is installed (or was already) and 1 when it is not, with the reason on its last two lines. Each cabinet then appears below for approval.</li>
+          : <li><strong>On the cabinet,</strong> put the installer in the same folder as the agent files and double-click it. Approve the Windows prompt. The cabinet then appears below for approval.</li>}
       </ol>
       <details className="muted small">
         <summary>Requirements and troubleshooting</summary>

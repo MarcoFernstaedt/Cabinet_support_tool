@@ -1353,7 +1353,14 @@ export interface IncidentQuery {
 }
 
 /**
- * Makes an installer (or a bootstrap token). Without `site` it is for one cabinet. With `site` it is a site installer (finding F6.R1): for up to `cabinets` cabinets of that site, and of `role` when given, for `days` days, after which it stops; every cabinet that uses it still waits for an Admin's approval.
+ * Which agent package a fleet install script downloads: the one for the cabinet's Windows architecture. The site installer token travels in the Authorization header, never in the URL.
+ */
+export interface InstallPackageQuery {
+  architecture: "windows-x64" | "windows-x86";
+}
+
+/**
+ * Makes an installer (or a bootstrap token). Without `site` it is for one cabinet. With `site` it is a site installer: for up to `cabinets` cabinets of that site, and of `role` when given, for `days` days, after which it stops; every cabinet that uses it still waits for an Admin's approval. `format` chooses what is returned: the launcher a person runs on the cabinet (default), or, for a site installer only, a PowerShell script a remote management tool runs as SYSTEM on each cabinet of the site.
  */
 export interface InstallerRequest {
   /**
@@ -1366,6 +1373,10 @@ export interface InstallerRequest {
     cabinets?: number;
     days?: number;
   };
+  /**
+   * launcher: a .cmd run by a person next to the downloaded package. fleet-script: a PowerShell script for a remote management tool, run as SYSTEM, that downloads the package itself. A fleet script needs `site`.
+   */
+  format?: "launcher" | "fleet-script";
 }
 
 /**

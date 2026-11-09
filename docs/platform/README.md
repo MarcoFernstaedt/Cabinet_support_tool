@@ -7,6 +7,7 @@ what has been proven, how it is run, and what is left.
 
 - [remaining-phases.md](remaining-phases.md): **the exact number of phases left (5) and everything in each one.** The one
   place the count lives.
+- [fleet-install.md](fleet-install.md): installing the agent on a site's cabinets from a remote management tool.
 - [operations.md](operations.md): how to run, deploy and support the live platform.
 - [readiness.md](readiness.md): what is proven and what is not, with the evidence.
 - [first-sign-in.md](first-sign-in.md): what a new account sees on the way in.
