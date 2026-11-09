@@ -369,6 +369,20 @@ Each item was measured with SQL Server's own statistics (`sys.dm_exec_query_stat
 - An agent pauses all its loops when any request gets a 503, so a shed heartbeat also delays commands. Changing that is a protocol decision (spec 03 "Admission control").
 - The other scenarios (restart, regional outage with a 3-day backlog, no-ramp, failover during commands, event storm) passed at 300 cabinets; they have not been run at 8,000 or 10,000.
 
+## Console views at 10,000 cabinets (F21.R4, November 2026)
+
+Each console view that reads across the fleet is measured with its SQL at 10,000 active cabinets, by hand, on the same kind of
+machine: 4 cores, 15 GB, SQL Server 2022 in Docker, nothing else running. Five runs after one warm-up; median, best and worst.
+
+| View | Data | Before | Now |
+|---|---|---|---|
+| Kinds of blue screen (`fleetCrashSignatures`) | 300,050 events, 50 blue screens | 3,861 ms (3,534 to 4,102) | 11 ms (10 to 12) |
+| Drives at risk (`drivesAtRisk`) | | reads `drive_status`, one row per drive, already | not measured |
+
+How to run it: `cd server && npm run build && node dist/test/crash-kinds-at-scale.bench.js`. It seeds a test database, prints the
+timings and drops the database. What made the difference is in decision-log D61: in the same statement, a filter on the JSON source
+or on the cabinets' status turned the index seek into a scan.
+
 ## Still to do before going wide
 
 Repeat the 8,000 and 10,000 runs against the production server and SQL Server Express, with the load generator on a separate machine, once hosting is decided ([open decisions](../spec/09-open-decisions.md)).
