@@ -36,6 +36,10 @@ minute sweep and the rising-errors pass, each with its own copy of the insert, t
   duplicate-open handling.
 - `table-ownership.test.ts` fails with `crash-clusters.ts` still listed ("no longer writes fleet_patterns").
 - The existing fleet-pattern, crash-cluster and rising-error tests pass unchanged, 18 of 18.
+- The full suite run for this change caught a race in `fleet-patterns.test.ts` itself. It swept straight after storing events, while the
+  background check that storing events asks for (`checkFleetSoon`) could run at the same moment. The losing sweep counts nothing
+  until the next one, so it read 50 occurrences against 51. The race is on main too; in service the next minute's sweep counts the
+  difference. Every sweep in that test now waits for the background check first (`fleetCheckSettled`), as one already did.
 
 ---
 
