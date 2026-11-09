@@ -387,7 +387,7 @@ or on the cabinets' status turned the index seek into a scan.
 
 Repeat the 8,000 and 10,000 runs against the production server and SQL Server Express, with the load generator on a separate machine, once hosting is decided ([open decisions](../spec/09-open-decisions.md)).
 
-When one process is no longer enough, set `AGENT_API_WORKERS` (2 on a 4-core server at 10,000 cabinets): command announcements reach every process through the notifications table.
+When one process is no longer enough, set `AGENT_API_WORKERS` (2 on a 4-core server at 10,000 cabinets): command announcements reach every process through the notifications table. To run the cabinets' ingest apart from the console, start one process with `SERVER_ROLES=agent` and another with `SERVER_ROLES=console,jobs` (decision-log D60); each can then be restarted or moved to its own machine without the other.
 
 
 ## Restart behaviour and admission (October 2026)

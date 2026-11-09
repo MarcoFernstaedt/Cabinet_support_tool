@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #217)
+## Where it stands (2026-11-09, after #218)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -13,6 +13,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F18.R1 and R2.
 - F19.R7.
 - F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56).
+- F21.R3: the cabinets' ingest and the console run apart when asked to (SERVER_ROLES, #218, D60).
 - F6: a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
 - The cabinet at a glance (D58) and a read-only acceptance check on the cabinet (D59), both asked for by the owner.
 - F20: which Windows the fleet runs, by edition, build family and architecture (#211, D55).
@@ -21,19 +22,18 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R3, the cabinets' ingest and the console run apart when asked to (#218, D60); F21.R4, the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (D61).
+**In review:** F21.R4, the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (D61).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
 | Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
-| The agent-facing ingest as its own process and port, with no shared in-process state | F21.R3 | about 2 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen are in review; drives at risk already reads its aggregate. | F21.R4 | about 1 or 2 more |
 | A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 
-That is about 17 to 26 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 15 to 24 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
@@ -408,7 +408,7 @@ changes it with the behaviour.
 | 11 | Drivers: store against bound, matching, rollout, verification, version rollback; publishers per vendor | F19, F5 | F19.R7 firmware differing from its model's expectation is an alert (D48). Open: F19.R1-R6 (agent: driver store, rollout, rollback), F5 (a publisher entry needs a real cabinet's signer) |
 | 12 | Windows Update check, install and defer | (to be cut as a finding first) | Open |
 | 13 | Sharpening the two no-expectation detectors | F17 | Done: a rising unrecognised error opens a fleet pattern (D50); the trends say where they were cut (D51); a new kind of blue screen on two cabinets is its own fleet pattern (D52); a healthy cabinet at a site with no baseline offers to become it (D53); a change that leaves a cabinet unlike all its peers, where no baseline declares the setting, is an alert (D54) |
-| 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | F21.R1 one writer per background job across instances (D49); F20: Windows in the fleet by edition, build family and architecture (D55); upload isolation, paged lists and the bounded search were already in the code (D55 names where); F21.R2 table ownership written down and enforced as a ratchet, 108 cross-module writes listed as debt, run-time table names declared (D56). Open: F20 the update source (needs an agent operation) and a real-cabinet smoke test per build family; F21.R2 paying the debt down, boundary validation and idempotent writers; F21.R3-R5 |
+| 14 | Reach, scale and modularity: compatibility report, pagination, bounded search, single-writer jobs, ingest apart from the console API | F20, F21 | F21.R1 one writer per background job across instances (D49); F20: Windows in the fleet by edition, build family and architecture (D55); upload isolation, paged lists and the bounded search were already in the code (D55 names where); F21.R2 table ownership written down and enforced as a ratchet, 108 cross-module writes listed as debt, run-time table names declared (D56). Open: F20 the update source (needs an agent operation) and a real-cabinet smoke test per build family; F21.R2 paying the debt down, boundary validation and idempotent writers; F21.R4-R5. Done since: F21.R3 the ingest and the console run apart (D60) |
 | 15 | Our own remote access | F22 | **Parked** by the owner, 2026-11-06 |
 | -- | The installer carries an address a cabinet can dial | F23 | **Closed** 2026-11-07 (#171) |
 

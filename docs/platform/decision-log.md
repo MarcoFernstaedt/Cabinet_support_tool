@@ -40,6 +40,53 @@ query (an unfiled entry is listed) and without the check in code (an entry from 
 
 ---
 
+## D60. The cabinets' ingest and the console run apart when asked to (2026-11-09)
+
+**What the code did** (F21.R3, "the agent-facing ingest can be deployed separately from the console API: separate port and process,
+same codebase, no shared in-process state"): `main.ts` always started the agent API and, in the same process, the console and the
+background jobs. With `AGENT_API_WORKERS` above 1 the agent API ran in forked workers, but the primary still ran both of the others.
+Restarting the console meant restarting the process that also answered every cabinet.
+
+**What was already true:** the separate port and the "no shared in-process state". The agent API and the console have their own
+listeners. Everything that crosses between them goes through the database:
+- commands and results, woken by the notifications table;
+- alerts;
+- the fleet checks;
+- contact, which the jobs read back from the database.
+
+The jobs take leases (F21.R1). Each process flushes its own rule-hit counts. So the only missing piece was a way to start a process
+with less than everything.
+
+**The decision** (mine, within the brief):
+- **`SERVER_ROLES`**, a comma-separated list of `agent`, `console` and `jobs`. Unset means all three, so every existing deployment is
+  unchanged.
+- **`processPlan` decides what a process runs.** It is a pure function of the roles, the worker count and whether the process is the
+  primary. `main.ts` opens only the pools, listeners and jobs that plan names. Workers serve agents only, and only a process with the
+  `agent` role forks them.
+- **A primary that only forks serves nothing, so it opens nothing.** With `SERVER_ROLES=agent` and `AGENT_API_WORKERS` above 1 the
+  primary has no pool, no notification feed and no operations counters; it forks the workers and replaces any that stop. Each worker
+  reports its own counters, as before. (Found in review of #218: the primary handed a null pool to the feed and died before forking.)
+  The alternative, a pool of its own, would keep a connection and a poll open for a process that reads nothing.
+- **Refuse what cannot work, at start.** An empty or unknown role stops the server. So does `console` named without the console's
+  settings, which would otherwise start a process that serves nothing and says nothing.
+- **Rejected:** a separate entry point per part (two builds to keep in step, and the brief asks for one codebase); splitting the
+  repository (nothing is extracted before F21.R1 and F21.R2, per the brief's ordering rule).
+
+**How it was proven.** `server-roles.test.ts` starts the real built server twice against one test database: `SERVER_ROLES=agent`, and
+`SERVER_ROLES=console,jobs`.
+- It stops the console process: the console port closes, and the agent port keeps accepting.
+- It starts the console again, then stops the ingest: the agent port closes, and the console keeps answering.
+- It starts the ingest again.
+- It starts `SERVER_ROLES=agent` with `AGENT_API_WORKERS=2`: the workers listen, the primary is still running 3 s later, and the port
+  closes when it is stopped. Without the fix, this fails with the review's `TypeError`.
+
+Plus the role parsing with hostile values, the plan for every combination, and the start-up refusals.
+
+The red check: with the plan ignoring the roles, the plan test and the two-process test fail. The second process takes ports and work
+that belong to the first.
+
+---
+
 ## D59. A read-only acceptance check on the cabinet itself (2026-11-09)
 
 **What the code did:** a freshly installed agent was checked from the console only ("Test <cabinet>": read-only operations through the
