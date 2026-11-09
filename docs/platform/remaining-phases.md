@@ -1,19 +1,78 @@
-# Phases left, and what each contains
+# What is left, and what each part contains
 
-**Reviewed against the code on 2026-11-03** (main at `771267d`, after PRs #135 to #140); first full review 2026-11-02. The previous version of this page was written on
-2026-10-25 and listed as "left" about twenty things that have since been built; every line below was checked against the
-contracts, agent, server and console, and says **built**, **partly built** or **not built**, with where to look.
+## Where it stands (2026-11-09, main at `a83c2e5`)
 
-**The count: 5 phases are left — roadmap phases 2, 3, 4, 5 and 6.** None is complete. Phases 2 and 3 are mostly built;
-phases 4 and 5 are partly built; phase 6 is mostly not built. Separately, **6 gates outside the code** block a real clinic
-whatever the phases say (the last section before the fixes list).
+The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
+[at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
 
-This is the one place the count lives. The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each
-module; the [diagnostic engine audit](diagnostic-engine-audit.md) and its
-[execution plan](diagnostic-engine-execution.md) decompose the same work a second way, and that second numbering is **not**
-extra phases — the mapping is at the bottom of this page so nothing is counted twice.
+**Done** (merged, each with a decision-log entry and a test that fails without it):
+- F3, F4.
+- F6.R1 to R5.
+- F8.R1 to R5.
+- F17: all five requirements, D50 to D54.
+- F18.R1 and R2.
+- F19.R7.
+- F21.R1.
+- F7: the role level, the Differences view by role, watched services from the role baseline.
+- F14.R3: a service set to restart the computer is alerted.
+- F12.R3: the server half of the trace's sync address.
+- F23 is closed. F22 is parked by the owner.
 
-## What is already done
+**In review:**
+- #211: F20, which Windows the fleet runs (D55).
+- F21.R2: table ownership written down and enforced as a ratchet (D56; its branch is being tested).
+
+**Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
+
+| Work | Finding | PRs |
+|---|---|---|
+| Move the 92 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
+| The agent-facing ingest as its own process and port, with no shared in-process state | F21.R3 | about 2 |
+| Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets | F21.R4 | about 2 or 3 |
+| A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
+| Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
+
+That is about 18 to 27 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+
+**Blocked, and on what.** None of this can be finished here, whatever the effort:
+
+- **The agent cannot be built in this environment** (NuGet's NU3018 behind the HTTPS-only proxy). This blocks:
+  - F2's agent side;
+  - F9;
+  - F10 to F12's samplers;
+  - F13 and F14.R1 to R2;
+  - F15 and F16;
+  - F18.R3, the watchdog;
+  - F19.R1 to R6, the driver store, rollout and rollback;
+  - F6's unattended installer switch;
+  - F20's update source;
+  - the crash fields decided in D30.
+
+  It is unblocked by building the agent where NuGet is reachable: the owner's Windows machine, or CI once GitHub Actions run again.
+- **Outside the code:**
+  - F1.R1, the release-signing certificate (gate 1);
+  - F5, a real cabinet's driver signer;
+  - F20's smoke test per build family, which needs real cabinets of each family;
+  - gates 2 to 6 below.
+- **The owner:** row 12, Windows Update, has to be cut into a finding before it can be built.
+- **CI:** GitHub Actions are on hold for billing. Every PR states the local full run that stands in for it.
+
+So the server-side work left is the scale-out readiness of F21, plus a little of F7. After that, every remaining item waits on an agent
+build, real cabinets, a purchase or an owner decision. This page lists them so none is quietly dropped.
+
+## Roadmap phases (reviewed against the code on 2026-11-03)
+
+This review was made at `771267d`, after PRs #135 to #140, before the brief's findings, which the table at the bottom tracks. Every line
+was checked against the contracts, agent, server and console, and says **built**, **partly built** or **not built**, with where to
+look. In those terms 5 roadmap phases were left: 2, 3, 4, 5 and 6. Separately, **6 gates outside the code** block a real clinic whatever
+the phases say (the last section before the fixes list).
+
+The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each module. The archived
+[diagnostic engine audit](archive/diagnostic-engine-audit.md) and its [execution plan](archive/diagnostic-engine-execution.md) split the
+same work a second way. That second numbering is **not** extra phases: the mapping is at the bottom of this page, so nothing is counted
+twice.
+
+### What was already done at that review
 
 - **Milestone phases 0 to 12** of the build spec, including the demo (roadmap phase 1), the console, enrollment,
   signed upgrades, the alerting engine, the troubleshooting workflow, baselines, trends and triage.
@@ -172,7 +231,7 @@ These are gates, not phases, and they block a real clinic, not the build. All si
 stand:
 
 1. **Release-signing certificates (KMS)** — releases are still signed with the development key, so the installer needs
-   `-AllowUnsigned` (`docs/platform/readiness.md`).
+   `-AllowUnsigned` (`docs/platform/archive/readiness.md`).
 2. **TPM-held agent keys** — the agent's key is in the software key store (`MicrosoftSoftwareKeyStorageProvider`,
    `agent/src/Cabinet.Agent.Windows/ServerConnection.cs`).
 3. **An independent penetration test.**
@@ -199,9 +258,12 @@ platform-authored write attribution worked. Its findings:
 - [x] **The agent's "log is being flooded" notice was unrecognized (low).** Fixed in #140: migration 0020 maps `agent_status` to
   the built-in "Agent problem" issue type.
 
-## How many PRs are left (estimate)
+## How many PRs were left at the 2026-11-03 review (superseded)
 
-**About 55 to 60 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
+**Superseded by the count at the top of this page.** The brief of 2026-11-07 re-cut this work into findings. Most of the phase lines
+below became findings, and most of those are agent-side and blocked here. The estimate is kept as it was made.
+
+At that review: **about 55 to 60 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
 changes whenever a line is split, merged or dropped. The six gates outside the code are not PRs.
 

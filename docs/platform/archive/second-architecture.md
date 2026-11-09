@@ -1,5 +1,7 @@
 # The second Windows architecture (32-bit), to production
 
+> **Archived 2026-11-09.** Kept as history, not as current state: the 32-bit build it planned is built and proven (both archives, the architecture at enrollment and on check-in, the cross-architecture refusal); the one thing left, a real 32-bit cabinet, is gate 5 in remaining-phases.md.
+
 Companion to [control-half-plan.md](control-half-plan.md), Sessions 8 and 9. Where this stands on 2026-10-24, the decisions
 it needs before any code is written, and the order it is done in.
 

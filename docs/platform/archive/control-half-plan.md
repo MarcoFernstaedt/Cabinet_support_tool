@@ -1,5 +1,7 @@
 # The control half, to production
 
+> **Archived 2026-11-09.** Kept as history, not as current state: its sessions 1, 3, 4 and 8 are built; what it still listed as left (sessions 2, 5, 6, 7, 9) is tracked, by roadmap phase and by finding, in remaining-phases.md.
+
 Where this stands on 2026-10-23, what is left, and the order it is done in. Nine focused working sessions, plus the time
 Marco spends on the two cabinet machines themselves.
 

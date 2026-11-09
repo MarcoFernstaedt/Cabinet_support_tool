@@ -1,5 +1,7 @@
 # Improvement plan — USB and device monitoring, network and sync diagnosis, rollback integrity, and platform reach
 
+> **Archived 2026-11-09.** Kept as history, not as current state: the owner's brief of 2026-11-07 cut its workstreams into findings F1 to F23, which remaining-phases.md tracks one PR at a time.
+
 Written October 2026 for the platform owner. This is a plan, not a spec change: nothing here is built until it is built as a milestone with tests, and anything the spec does not answer is listed in §11 for `docs/spec/09-open-decisions.md` rather than guessed at.
 
 Companion material (this repository, `docs/platform/research/2026-10/`):

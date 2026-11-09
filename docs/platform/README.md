@@ -1,18 +1,17 @@
 # Platform documents
 
 The build specification is in [`../spec/`](../spec/00-README.md). These files are about the platform as it actually is:
-what has been proven, how it is run, and what is left.
+how it is run, what was decided, and what is left.
 
 ## Read these first
 
-- [remaining-phases.md](remaining-phases.md): **the exact number of phases left (5) and everything in each one.** The one
-  place the count lives.
+- [remaining-phases.md](remaining-phases.md): **what is left, counted.** The top of the page has the current count: what is done,
+  what can still be built here, and what is blocked and on what. This is the one place the count lives.
+- [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost. Newest first, for
+  the end-of-project review.
 - [operations.md](operations.md): how to run, deploy and support the live platform.
-- [readiness.md](readiness.md): what is proven and what is not, with the evidence.
 - [first-sign-in.md](first-sign-in.md): what a new account sees on the way in.
 - [demo.md](demo.md): the demo fleet and how to drive it.
-- [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost; for the
-  end-of-project review.
 
 ## Security
 
@@ -22,15 +21,9 @@ what has been proven, how it is run, and what is left.
 
 ## How it is built and run
 
-- [control-half-plan.md](control-half-plan.md): the near-term work to production, with the sessions and their status.
-- [diagnostic-engine-audit.md](diagnostic-engine-audit.md): the audit behind the diagnostic engine, with the decisions.
-- [diagnostic-engine-execution.md](diagnostic-engine-execution.md): the order it is built in, and the first session.
-- [improvement-plan.md](improvement-plan.md): the backlog of workstreams (USB, network and sync, version data, Windows
-  Update, rollback, reach, scale) with sizes and gates.
 - [sqlserver-port.md](sqlserver-port.md): the platform database on SQL Server 2022.
 - [performance.md](performance.md): sizing and the load test.
-- [second-architecture.md](second-architecture.md): the Windows machine as a second architecture, and why.
-- [windows-coverage-review.md](windows-coverage-review.md): every Windows version and PowerShell the agent must run on.
+- [windows-coverage-review.md](windows-coverage-review.md): what the platform reads on Windows, and what is missing.
 - [cost.md](cost.md): what running this costs.
 - [live-test.md](live-test.md): the test to run on a real cabinet, and what the 2026-10-25 real-machine test found.
 
@@ -39,10 +32,21 @@ what has been proven, how it is run, and what is left.
 - [research/2026-10/](research/2026-10/): the audits and designs of October 2026 (agent, network, server, USB, Windows
   dynamics). Kept as the reasoning behind the plans, not as instructions to follow.
 
-## Retired
+## Archive
 
-- `hardening-and-roadmap.md` was replaced by [security-review.md](security-review.md) (the findings),
-  [remaining-phases.md](remaining-phases.md) (the phases) and [improvement-plan.md](improvement-plan.md) (the backlog
-  sizes). Everything it said is in those three.
-- `14-network-troubleshooting.md` is now [`../spec/16-network-troubleshooting.md`](../spec/16-network-troubleshooting.md):
-  two files were numbered 14, and 14 is the emergency-access milestone.
+Plans and reports that were current when written and have since been built or overtaken. Each one says at its top why it was
+archived and where its open items went. Kept as history; nothing in them is the current state.
+
+- [archive/control-half-plan.md](archive/control-half-plan.md): the October sessions to production.
+- [archive/second-architecture.md](archive/second-architecture.md): the 32-bit build, now built.
+- [archive/diagnostic-engine-audit.md](archive/diagnostic-engine-audit.md) and
+  [archive/diagnostic-engine-execution.md](archive/diagnostic-engine-execution.md): the diagnostic engine's audit and build order.
+- [archive/improvement-plan.md](archive/improvement-plan.md): the October backlog, since cut into findings F1 to F23.
+- [archive/leadership-report.md](archive/leadership-report.md): the status report of 2026-11-04.
+- [archive/readiness.md](archive/readiness.md): the readiness report of 2026-10-25.
+
+Retired earlier (removed, not archived):
+- `hardening-and-roadmap.md` was replaced by [security-review.md](security-review.md) (the findings) and
+  [remaining-phases.md](remaining-phases.md) (the phases).
+- `14-network-troubleshooting.md` is now [`../spec/16-network-troubleshooting.md`](../spec/16-network-troubleshooting.md).
+  Two files were numbered 14, and 14 is the emergency-access milestone.
