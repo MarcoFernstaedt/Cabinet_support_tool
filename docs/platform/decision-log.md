@@ -6,6 +6,42 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D62. The line a client's own database would follow, written down and tested (2026-11-09)
+
+**What the code did:** every table is in one database, with nothing saying which data belongs to a client and which to the platform.
+Moving one client's data to its own database (F21.R5) would have started with working that out, table by table, under pressure.
+
+**The decision** (F21.R5; the placement is mine, from the schema's own foreign keys):
+- **Three placements**, in `server/src/db/client-data.ts`:
+  - **platform**: one database for the whole platform;
+  - **directory**: `clients`, `sites` and `cabinets`, held by the platform database for routing and copied into each client database
+    for that client's rows, so its foreign keys still hold;
+  - **client**: what a client's cabinets produce.
+- **Kept with the platform although they name a cabinet:**
+  - **Certificates, enrollment requests and site tokens.** A cabinet is resolved to its client through them before anything else is
+    known.
+  - **Security alerts.** They are about people and sign-ins as much as cabinets.
+  - **Fleet jobs, rollouts and fleet patterns.** They span clients; only their per-cabinet rows go with a client.
+- **Settings and baselines stay with the platform at every scope.** A cabinet's value is resolved from the fleet's, its client's, its
+  site's and its own in one read (D38). Splitting the rows by scope would turn that one read into reads from two databases.
+- **The 11 foreign keys from a client table to a platform table are listed** (`CROSS_REFERENCES`). In a split each becomes a reference
+  the code checks on write, because SQL Server cannot enforce a foreign key across databases.
+
+**Not built here:** the connection resolved per client (the second half of F21.R5), migrations per client database, and fleet views
+that read each client database in turn. Whether and when a client moves is the owner's decision (open decisions, "Per-client
+databases").
+
+**Alternatives:** a `client_id` on every table and row-level security in one database. That isolates reads but not storage, size or
+backups, and changes every query. Who may see which client is a separate question, already decided as one organization
+(`archive/diagnostic-engine-execution.md`, decision 5). Separate databases per module rather than per client: that is F21.R2's direction, and does not help a client that needs
+its data apart.
+
+**Proven by:** `client-data.test.ts`. It reads the foreign keys and columns of a freshly migrated database, as its owner, and fails on
+each rule. Red checks: with `events` placed with the platform, two tests fail (the platform would depend on `alerts`). With
+`commands -> users` taken off the list, they fail with "unlisted cross reference: commands -> users".
+
+---
+
 ## D60. The cabinets' ingest and the console run apart when asked to (2026-11-09)
 
 **What the code did** (F21.R3, "the agent-facing ingest can be deployed separately from the console API: separate port and process,

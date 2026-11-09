@@ -28,7 +28,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 |---|---|---|
 | Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets | F21.R4 | about 2 or 3 |
-| A documented path to per-client databases, with the connection resolved per client | F21.R5 | about 1 or 2 |
+| A documented path to per-client databases, with the connection resolved per client. The path is in review (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 
 That is about 16 to 25 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
