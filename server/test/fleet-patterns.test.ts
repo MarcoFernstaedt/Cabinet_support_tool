@@ -5,7 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
 import { storeEvents } from "../src/services/events.js";
-import { fleetCheckSettled, fleetPatternReport, listFleetPatterns, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
+import { countUpPattern, fleetCheckSettled, fleetPatternReport, listFleetPatterns, openPattern, resolvePattern, sweepFleetPatterns } from "../src/services/fleet-patterns.js";
 import { upsertSetting } from "../src/services/settings.js";
 import { ISSUE } from "../src/services/rules.js";
 import { transaction } from "../src/db/db.js";
@@ -238,4 +238,33 @@ test("alarm level (D25): a major pattern rings when it opens; a minor one is lis
   } finally {
     await transaction(db.app, c => upsertSetting(c, "alerts.fleetMinorAlarmSites", 20, null));
   }
+});
+
+test("the pattern writers (F21.R2, D65): input is checked before anything is written, and each can be repeated safely", async () => {
+  const key = `test:${randomUUID()}`, at = new Date(Date.now() - 60_000);
+  const base = { key, issueTypeId: null, title: "Fleet pattern: a test", severity: "minor", clients: 1, sites: 3, cabinets: 4, occurrences: 9, firstSeen: at, lastSeen: at };
+  const rows = async () => (await db.app.query<{ id: string; sites: number; occurrences: number; resolved: number }>(
+    "SELECT id, sites, occurrences, CASE WHEN resolved_at IS NULL THEN 0 ELSE 1 END AS resolved FROM fleet_patterns WHERE pattern_key = $1", [key])).rows;
+  const audits = async (id: string) => (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [id])).rows.map(r => r.action);
+  // Refused before the database: a missing or overlong key or title, a severity that is neither, counts that are not whole numbers from 0, a time that is not one.
+  for (const bad of [{ key: "" }, { key: "k".repeat(451) }, { title: "" }, { title: "t".repeat(301) }, { severity: "critical" }, { severity: "major'; DROP TABLE fleet_patterns; --" },
+    { sites: -1 }, { cabinets: 1.5 }, { occurrences: Number.NaN }, { clients: "2" }, { firstSeen: new Date("not a date") }, { lastSeen: "yesterday" }])
+    await assert.rejects(openPattern(db.app, { ...base, ...bad } as never, {}, 99), /fleet pattern/, JSON.stringify(bad));
+  await assert.rejects(countUpPattern(db.app, key, { clients: 1, sites: -2, cabinets: 1, occurrences: 1, lastSeen: at }), /fleet pattern/);
+  assert.deepEqual(await rows(), [], "nothing was written");
+  // Opened once: a second open of the same key finds it open and writes nothing more.
+  const id = (await openPattern(db.app, base, { key }, 99))!;
+  assert.ok(id);
+  assert.equal(await openPattern(db.app, base, { key }, 99), null);
+  assert.equal((await rows()).length, 1);
+  assert.deepEqual(await audits(id), ["fleet_pattern.open"]);
+  // Counts only grow while it is open.
+  assert.equal(await countUpPattern(db.app, key, { clients: 1, sites: 2, cabinets: 2, occurrences: 20, lastSeen: new Date() }), true);
+  assert.deepEqual((await rows()).map(r => [Number(r.sites), Number(r.occurrences)]), [[3, 20]]);
+  // Resolved once: a second resolve does nothing and audits nothing; counting up a resolved pattern finds none open.
+  assert.equal(await resolvePattern(db.app, id), true);
+  assert.equal(await resolvePattern(db.app, id), false);
+  assert.deepEqual(await audits(id), ["fleet_pattern.open", "fleet_pattern.resolve"]);
+  assert.equal(await countUpPattern(db.app, key, { clients: 9, sites: 9, cabinets: 9, occurrences: 99, lastSeen: new Date() }), false);
+  assert.deepEqual((await rows()).map(r => [Number(r.sites), Number(r.resolved)]), [[3, 1]]);
 });

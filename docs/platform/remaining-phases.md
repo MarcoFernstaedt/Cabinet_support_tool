@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #221)
+## Where it stands (2026-11-09, after #222)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -13,6 +13,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F18.R1 and R2.
 - F19.R7.
 - F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56).
+- A network diagnosis settles its baseline alert before it says it is done, found in review of #219 (#222, D64).
 - F21.R3: the cabinets' ingest and the console run apart when asked to (SERVER_ROLES, #218, D60).
 - F21.R4, first view: the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (#219, D61).
 - F21.R4, second view: the readings search reads each answer's names, not its stored JSON, 9,256 ms to 943 ms at 10,000 cabinets (#221, D63).
@@ -25,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** a network diagnosis settles its baseline alert before it says it is done, found in review of #219 (D64).
+**In review:** F21.R2, first paydown: every write to `fleet_patterns` goes through its owner, with its input checked and each write safe to repeat (D65). 107 cross-module writes are left on the debt list.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 108 listed cross-module writes behind their owners, one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
+| Move the 107 listed cross-module writes behind their owners (one table done, D65), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 12 to 18 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |

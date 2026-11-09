@@ -5,9 +5,9 @@
 // kept) and has reached 2 or more cabinets: one cabinet's new crash is already that cabinet's alert. The pattern is keyed crash:<signature>,
 // counted up while it spreads, and resolved by this pass once none of its cabinets still has a blue-screen alert open: the minute sweep
 // cannot see a kind on an alert, so it leaves these keys to this pass. Demo cabinets are left out. Nothing here runs anything on a cabinet.
-import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
+import type { Pool, Queryable } from "../db/db.js";
 import { oneCrashEach, SOURCES, type Crash, type CrashSignature } from "./crash-signatures.js";
-import { FLEET_CHANNEL, ring } from "./fleet-patterns.js";
+import { countUpPattern, openPattern, resolvePattern } from "./fleet-patterns.js";
 import { ISSUE } from "./rules.js";
 import { platformSettings } from "./settings.js";
 
@@ -78,39 +78,21 @@ export async function clusterNewCrashKinds(pool: Pool, now = new Date()): Promis
     const key = `${CRASH_KEY_PREFIX}${k.sig.key}`, r = reach(k);
     if (open.has(key)) {
       // Counts only grow while it is open, as for every pattern.
-      await pool.query(`UPDATE fleet_patterns SET clients = CASE WHEN $2 > clients THEN $2 ELSE clients END, sites = CASE WHEN $3 > sites THEN $3 ELSE sites END,
-          cabinets = CASE WHEN $4 > cabinets THEN $4 ELSE cabinets END, occurrences = CASE WHEN $5 > occurrences THEN $5 ELSE occurrences END,
-          last_seen = CASE WHEN $6 > last_seen THEN $6 ELSE last_seen END WHERE pattern_key = $1 AND resolved_at IS NULL`,
-        [key, r.clients, r.sites, r.cabinets, r.occurrences, k.last]);
+      await countUpPattern(pool, key, { ...r, lastSeen: k.last });
       updated++;
       continue;
     }
     if (k.first.getTime() < newSince || k.cabinets.size < CLUSTER_CABINETS || opened >= MAX_OPEN_PER_PASS) continue;
     if (![...k.cabinets].some(id => crashing.has(id))) continue; // every one of them has recovered
-    try {
-      const row = await pool.query<{ id: string }>(`INSERT INTO fleet_patterns (pattern_key, issue_type_id, title, severity, clients, sites, cabinets, occurrences, first_seen, last_seen)
-        OUTPUT inserted.id VALUES ($1, $2, $3, 'major', $4, $5, $6, $7, $8, $9)`,
-        [key, ISSUE.crash, crashTitle(k), r.clients, r.sites, r.cabinets, r.occurrences, k.first, k.last]);
-      const id = row.rows[0]!.id.toLowerCase();
-      await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.open", targetKind: "fleet_pattern", targetId: id,
-        outcome: "succeeded", details: { key, newKind: { signature: k.sig.key, firstSeen: k.first.toISOString() }, sites: r.sites, cabinets: r.cabinets, clients: r.clients, severity: "major" } });
-      await ring(pool, key, minorSites);
-      await notify(pool, FLEET_CHANNEL, `${id} opened`);
-      opened++;
-    } catch (e) {
-      if (!isUniqueViolation(e)) throw e;
-    }
+    if (await openPattern(pool, { key, issueTypeId: ISSUE.crash, title: crashTitle(k), severity: "major", ...r, firstSeen: k.first, lastSeen: k.last },
+      { key, newKind: { signature: k.sig.key, firstSeen: k.first.toISOString() }, sites: r.sites, cabinets: r.cabinets, clients: r.clients, severity: "major" }, minorSites)) opened++;
   }
   // Resolved: none of the kind's cabinets still has a blue-screen alert open (or no crash of the kind is left in the window).
   let resolved = 0;
   for (const [key, id] of open) {
     const k = kinds.get(key.slice(CRASH_KEY_PREFIX.length));
     if (k && [...k.cabinets].some(c => crashing.has(c))) continue;
-    const done = await pool.query("UPDATE fleet_patterns SET resolved_at = SYSUTCDATETIME() WHERE id = $1 AND resolved_at IS NULL", [id]);
-    if ((done.rowCount ?? 0) === 0) continue;
-    await audit(pool, { actorKind: "system", actorId: "fleet-patterns", action: "fleet_pattern.resolve", targetKind: "fleet_pattern", targetId: id, outcome: "succeeded", details: {} });
-    await notify(pool, FLEET_CHANNEL, `${id} resolved`);
-    resolved++;
+    if (await resolvePattern(pool, id)) resolved++;
   }
   return { opened, updated, resolved };
 }
