@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D67. Approval's write to enrollment_baselines goes through its owner (2026-11-09)
+
+**What the code did:** `enrollment_baselines` is owned by `services/baselines.ts` (D56), which reads it and moves a capture from
+waiting to drafted or failed. Approving a cabinet in `services/enrollment.ts` inserted the cabinet's baseline decision itself (line 278
+before this change).
+
+**The decision** (F21.R2): the insert moves into the owner as `recordEnrollmentDecision`, called in the approval transaction as before.
+- **Input check, before anything is written:** the cabinet, the site and the deciding user are ids; the decision is inherited, attach
+  or capture; only an attach names a version. These are the same rules as the table's own CHECKs.
+- **A repeat is safe:** the same decision recorded again writes nothing.
+- **A conflict is refused:** a different decision for a cabinet that already has one is refused, never overwritten. Approval records
+  a decision once, for a new cabinet, inside its own transaction, so in service neither case arises today; the writer holds the rule
+  for whoever calls it next.
+- `enrollment.ts` comes off the debt list, which leaves 119 entries.
+
+**Proven by:** `enrollment-decision.test.ts`, a new file:
+- each decision is recorded as the table has it (a capture as waiting);
+- the same decision again writes nothing, and a different one is refused with the first standing;
+- 12 malformed or hostile decisions are refused with nothing written.
+
+**Red checks:**
+- Without the input check, the hostile test fails.
+- Without the repeat handling, the repeat test fails.
+- With the old `INSERT` back in `enrollment.ts`, `table-ownership.test.ts` fails with "services/enrollment.ts writes enrollment_baselines
+  (owned by services/baselines.ts)".
+- The enrollment and baselines tests pass unchanged.
+
+---
+
 ## D66. The write to config_changes from the drift check goes through its owner (2026-11-09)
 
 **What the code did:** `config_changes` is owned by `services/config-ingest.ts` (D56). After working out a cabinet's drift,

@@ -10,7 +10,7 @@ import { Refused } from "./errors.js";
 import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
 import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
-import { approvedFor, attachChoices, attachToSite, type Scope } from "./baselines.js";
+import { approvedFor, attachChoices, attachToSite, recordEnrollmentDecision, type Scope } from "./baselines.js";
 import { fleetPolicy, writeSitePolicy, type FirewallPolicy } from "./firewall-policy.js";
 import { fleetTimeZone, type TimeZoneId } from "./time.js";
 import { parseJson } from "./settings.js";
@@ -275,8 +275,8 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         const o = await attachToSite(c, userId, site.id, decision.versionId, `Attached when ${approval.cabinetName} was approved`);
         inForce = [{ kind: o.kind, name: o.name, version: o.version }];
       }
-      await c.query("INSERT INTO enrollment_baselines (cabinet_id, site_id, decision, decided_by, attached_version_id, capture_state) VALUES ($1, $2, $3, $4, $5, $6)",
-        [cabinetId, site.id, decision.use, userId, decision.use === "attach" ? decision.versionId.toLowerCase() : null, decision.use === "capture" ? "waiting" : null]);
+      await recordEnrollmentDecision(c, { cabinetId, siteId: site.id, decision: decision.use, decidedBy: userId,
+        attachedVersionId: decision.use === "attach" ? decision.versionId : null });
     }
     const certificate = await issueAgentCertificate(key, request.csr, cabinetId);
     await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [certificate.serialHex, cabinetId, certificate.notAfter]);

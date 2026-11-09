@@ -214,6 +214,34 @@ async function captureIn(c: Queryable, actor: Actor, body: { cabinetId: string; 
 // docs/spec/15-baselines-and-config.md "Baselines at enrollment": every approval names the baseline a cabinet is judged against.
 
 /** The approved baselines in force for these scopes, widest first: what a cabinet in them is judged against. */
+const ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const isId = (v: unknown): v is string => typeof v === "string" && ID.test(v);
+
+/** The baseline decision an Admin made when approving a cabinet (inherited, attach or capture), as approval records it. */
+export interface EnrollmentDecision { cabinetId: string; siteId: string; decision: "inherited" | "attach" | "capture"; decidedBy: string; attachedVersionId: string | null }
+
+/**
+ * Records a cabinet's baseline decision at approval (F21.R2, decision-log D67: the write enrollment.ts made itself, moved to the owner).
+ * A capture starts as waiting for the cabinet's first configuration. What it is given is checked first, as the table's own rules have it:
+ * ids are ids, the decision is one of the three, and only an attach names a version. Recording the same decision again writes nothing;
+ * a different decision for a cabinet that already has one is refused, never overwritten.
+ */
+export async function recordEnrollmentDecision(c: Queryable, d: EnrollmentDecision): Promise<void> {
+  if (!isId(d.cabinetId) || !isId(d.siteId) || !isId(d.decidedBy)) throw new Error("a baseline decision needs the cabinet, site and deciding user as ids");
+  if (d.decision !== "inherited" && d.decision !== "attach" && d.decision !== "capture") throw new Error("a baseline decision is inherited, attach or capture");
+  if ((d.decision === "attach") !== isId(d.attachedVersionId) || (d.decision !== "attach" && d.attachedVersionId !== null))
+    throw new Error("only an attach decision names a baseline version, and it must");
+  const version = d.attachedVersionId?.toLowerCase() ?? null;
+  const had = (await c.query<{ decision: string; attached_version_id: string | null }>(
+    "SELECT decision, attached_version_id FROM enrollment_baselines WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1", [d.cabinetId])).rows[0];
+  if (had) {
+    if (had.decision === d.decision && (had.attached_version_id?.toLowerCase() ?? null) === version) return;
+    throw new Error("this cabinet already has a different baseline decision");
+  }
+  await c.query("INSERT INTO enrollment_baselines (cabinet_id, site_id, decision, decided_by, attached_version_id, capture_state) VALUES ($1, $2, $3, $4, $5, $6)",
+    [d.cabinetId, d.siteId, d.decision, d.decidedBy, version, d.decision === "capture" ? "waiting" : null]);
+}
+
 export async function approvedFor(db: Queryable, scopes: readonly Scope[]): Promise<Origin[]> {
   if (scopes.length === 0) return [];
   const rows = (await db.query<{ scope_kind: ScopeKind; scope_id: string | null; name: string; baseline_id: string; version_id: string; version: number }>(
