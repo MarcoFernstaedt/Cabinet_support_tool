@@ -6,6 +6,22 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D64. A network diagnosis settles its baseline alert before it says it is done (2026-11-09)
+
+**What the code did:** `runDiagnosis` in `server/src/diagnose/network.ts` wrote the diagnosis as done, then raised or closed the
+cabinet's network-baseline alert in a second statement. Anyone who saw the diagnosis done in between, the console or a batch, saw
+the alert it was about to close still open. The review of #219 found it as a failure under load in `network-troubleshooting.test.ts`
+("Uptown Exam 1: the baseline alert closed"), which passed 10 of 10 alone.
+
+**The decision:** settle the alert first, then write the diagnosis as done. Nothing else changes. If settling the alert fails, the
+diagnosis is marked failed, as it already was, since the error handler overwrote "done" with "failed".
+
+**Proven by:** a new test in `network-troubleshooting.test.ts`. A second connection holds the cabinet's open baseline alert until
+the diagnosis says done, for at most 7 s. The test fails if the diagnosis was done while the alert was held. With the old order it fails
+(2 of 2 runs); with the new order it passes (3 of 3), and the alert is closed when the diagnosis finishes.
+
+---
+
 ## D62. The line a client's own database would follow, written down and tested (2026-11-09)
 
 **What the code did:** every table is in one database, with nothing saying which data belongs to a client and which to the platform.

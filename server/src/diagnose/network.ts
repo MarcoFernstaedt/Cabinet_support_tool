@@ -179,8 +179,10 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   // Everything that was read, kept whether or not anything is wrong, so the console can show the full read.
   const readings = { takenAt: new Date().toISOString(), adapters: configOut?.adapters ?? [], routes: configOut?.routes ?? [], neighbors: configOut?.neighbors ?? [],
     tests: evidence.tests, traces: evidence.traces, databases: evidence.databases };
-  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
+  // The baseline alert is settled before the diagnosis says it is done, so whoever sees it done (the console, a batch, a test) sees the
+  // alert as the diagnosis left it, never the moment between the two.
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
+  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
   // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
   const seen = await fixesForFindings(pool, findings.filter(f => f.severity !== "ok").map(f => f.id));
   await markSeen(pool, [...new Set(Object.values(seen).flat().map(f => f.id))]);

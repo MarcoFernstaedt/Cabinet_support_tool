@@ -14,6 +14,8 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
+import { raiseBaselineAlert } from "../src/diagnose/network.js";
+import { createPool } from "../src/db/db.js";
 import { ConsoleHarness, ORIGIN, type Account, type Role } from "./console-harness.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -259,4 +261,40 @@ test("asking again for the same cabinets while a check is running joins it; a di
   assert.equal((await call("POST", "/api/diagnose/network", { siteId: austin }, t1)).status, 429, "a different set waits for the first");
   for (const end = Date.now() + 60_000; Date.now() < end; await new Promise(r => setTimeout(r, 100)))
     if ((await call("GET", `/api/diagnose/network/batches/${first.body.batchId}`, undefined, t1)).body.state === "done") break;
+});
+
+test("a diagnosis is shown as done only once its baseline alert is settled: a reader never sees it done with the alert it closes still open", { timeout: 60_000 }, async () => {
+  const t1 = await account("tier1");
+  const k = await cab("Uptown Exam 3");   // its settings match the site's baseline
+  await raiseBaselineAlert(db.app, k.id, ["left open for this test"]);
+  assert.ok(await openAlert(k.id));
+  // Another connection holds the alert row until the diagnosis says it is done (at most 7 s, inside the pools' 10 s limit). With the
+  // alert settled first, the diagnosis cannot say done while the row is held; with done written first, it does, with the alert open.
+  const holder = await createPool(db.ownerUrl, { max: 1, requestTimeoutMs: 30_000 });
+  try {
+    const since = new Date(Date.now() - 1000);
+    const held = holder.query<{ done_while_held: number }>(`BEGIN TRAN;
+        DECLARE @held uniqueidentifier;
+        SELECT @held = id FROM alerts WITH (UPDLOCK, ROWLOCK) WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved';
+        DECLARE @until datetime2 = DATEADD(second, 7, SYSUTCDATETIME());
+        WHILE SYSUTCDATETIME() < @until AND NOT EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done')
+          WAITFOR DELAY '00:00:00.100';
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done') THEN 1 ELSE 0 END AS done_while_held;
+        COMMIT;`, [k.id, ISSUE.networkBaseline, since]);
+    await new Promise(r => setTimeout(r, 300));
+    const started = await call("POST", `/api/cabinets/${k.id}/diagnose/network`, {}, t1);
+    assert.equal(started.status, 202, JSON.stringify(started.body));
+    const heldRows = (await held).rows;
+    assert.equal(heldRows[0]?.done_while_held, 0, "the diagnosis said done while its alert was still being settled");
+    for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
+      const d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body;
+      if (d.state === "running") continue;
+      assert.equal(d.state, "done", JSON.stringify(d.failure));
+      assert.equal(await openAlert(k.id), false, "done, and the alert it found matching is closed");
+      return;
+    }
+    assert.fail("the diagnosis did not finish");
+  } finally {
+    await holder.end();
+  }
 });
