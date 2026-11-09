@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D74. Five more retention sweeps run by their tables' owners (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` deleted old rows from five more tables that other modules own, each with
+one `DELETE TOP`:
+
+| Table | Owner | Which rows |
+|---|---|---|
+| `cabinet_boots` | `crashes.ts` | boot records |
+| `config_changes` | `config-ingest.ts` | configuration changes |
+| `diagnoses` | `diagnose/cabinet.ts` | diagnoses |
+| `health_transitions` | `cabinet-health.ts` | health transitions |
+| `incidents` | `incidents.ts` | closed incidents only |
+
+**The decision** (F21.R2, the D71 pattern, with the helpers from `db/batches.ts` as D73 requires):
+- **One prune in each owner:** `pruneOldBoots`, `pruneOldConfigChanges`, `pruneOldDiagnoses`, `pruneOldHealthTransitions` and
+  `pruneClosedIncidents`. Each holds the same statement as before and runs it through `inBatches` with the same audit table name.
+- **Same cut-offs:** `maintenance.ts` still passes them from the retention settings.
+- **Input check:** a cut-off that is not a time already passed is refused.
+- **Safe to repeat:** a second run removes nothing more.
+- **An open incident is never removed,** however old, as before.
+- **No new import cycle:** `maintenance.ts` now imports `diagnose/cabinet.ts`, which pulls in `fleet.ts`, the module from D73's load
+  failure. `import-cycles.test.ts` passes, so none of the five imports `maintenance.ts` back.
+- Five entries come off the debt list, which leaves 104. Three of those are the remaining sweeps: alerts, drive samples (inside the
+  sample roll-up) and notifications.
+
+**Proven by:** `owner-retention.test.ts`, a new file:
+- one test per table: five bad cut-offs are refused with nothing removed; only rows older than the cut-off go, in one audited batch;
+  a repeat removes nothing;
+- one more: an open incident 2,000 days old stays.
+
+**Red checks:**
+- Without the cut-off check in `incidents.ts`, that table's test fails.
+- With the old statements back in `maintenance.ts`, `table-ownership.test.ts` names all five, for example "services/maintenance.ts
+  writes incidents (owned by services/incidents.ts)".
+- The retention test in `admin.test.ts`, the audit sweep, `import-cycles`, `replacement-reapply`, `sync-cabinets` and `server-roles`
+  pass.
+
+---
+
 ## D73. Finished fleet jobs and their results are retained by fleet-jobs.ts (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` deleted a finished job's per-cabinet results, then the job itself, once

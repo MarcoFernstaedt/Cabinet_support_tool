@@ -8,6 +8,7 @@ import { platformSettings } from "./settings.js";
 import { resolveForCabinet, type ResolvedHealth } from "./baselines.js";
 import { diffItems, type ItemChange } from "./config-diff.js";
 import { CATEGORIES, currentItems, unpackItems, type Category } from "./config-ingest.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 export type HealthState = "healthy" | "degraded" | "offline" | "unknown";
 export interface Reason { code: "no_contact" | "required_item" | "critical_alert" | "no_configuration" | "no_baseline"; text: string; detail?: unknown }
@@ -185,3 +186,10 @@ export async function sweepHealth(pool: Pool, limit = 300): Promise<number> {
   for (const id of ids) await evaluateHealth(pool, id);
   return ids.length;
 }
+
+/** Removes health transitions from before `cutoff`, in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneOldHealthTransitions(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cutoff], o, { table: "health_transitions", cutoff });
+}
+

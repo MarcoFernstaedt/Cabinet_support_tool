@@ -12,6 +12,7 @@
 import { randomUUID } from "node:crypto";
 import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 export type IncidentState = "open" | "awaiting_approval" | "approved" | "repairing" | "resolved" | "unresolved";
 export type StepKind = "symptom" | "evidence" | "hypothesis" | "proposed_repair" | "approval" | "execution" | "verification" | "note" | "close";
@@ -292,3 +293,10 @@ export async function openIncidents(db: Queryable, o: { clientId?: string; limit
     steps: Number(r.steps), runs: Number(r.runs), lastStep: { kind: r.last_kind, summary: r.last_summary, at: iso(r.last_at)! },
   }));
 }
+
+/** Removes incidents closed before `cutoff`, their steps and links with them; an open incident is never removed, in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneClosedIncidents(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM incidents WHERE closed_at IS NOT NULL AND closed_at < $2", [cutoff], o, { table: "incidents", cutoff });
+}
+

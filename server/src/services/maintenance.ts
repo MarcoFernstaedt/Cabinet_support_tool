@@ -11,6 +11,11 @@ import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
 import { pruneFinishedJobs } from "./fleet-jobs.js";
+import { pruneOldBoots } from "./crashes.js";
+import { pruneOldConfigChanges } from "./config-ingest.js";
+import { pruneOldDiagnoses } from "../diagnose/cabinet.js";
+import { pruneOldHealthTransitions } from "./cabinet-health.js";
+import { pruneClosedIncidents } from "./incidents.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -208,17 +213,17 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // Expired sign-in sessions and step-up tokens, a day after they expired: each owner removes its own (D71).
   const sessions = await pruneExpiredSessions(pool, cut(1), o);
   const stepUpTokens = await pruneExpiredStepUpTokens(pool, cut(1), o);
-  const diagnoses = await inBatches(pool, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cut(r.diagnosesDays)], o, { table: "diagnoses", cutoff: cut(r.diagnosesDays) });
+  const diagnoses = await pruneOldDiagnoses(pool, cut(r.diagnosesDays), o);
   const samples = await rollUpAndTrimSamples(pool, now, o);
   const notifications = await pruneNotifications(pool, o);
-  const boots = await inBatches(pool, "DELETE TOP ($1) FROM cabinet_boots WHERE booted_at < $2", [cut(r.bootsDays)], o, { table: "cabinet_boots", cutoff: cut(r.bootsDays) });
+  const boots = await pruneOldBoots(pool, cut(r.bootsDays), o);
   // The record of configuration changes and health transitions is kept as long as events are (the stored versions are bounded by count instead).
-  const configChanges = await inBatches(pool, "DELETE TOP ($1) FROM config_changes WHERE observed_at < $2", [cut(r.eventsDays)], o, { table: "config_changes", cutoff: cut(r.eventsDays) });
-  const healthTransitions = await inBatches(pool, "DELETE TOP ($1) FROM health_transitions WHERE [at] < $2", [cut(r.eventsDays)], o, { table: "health_transitions", cutoff: cut(r.eventsDays) });
+  const configChanges = await pruneOldConfigChanges(pool, cut(r.eventsDays), o);
+  const healthTransitions = await pruneOldHealthTransitions(pool, cut(r.eventsDays), o);
   // A finished job and its per-cabinet results, removed by their owner, fleet-jobs.ts (D73); the commands it sent and the audit log stay.
   const jobs = await pruneFinishedJobs(pool, cut(r.jobsDays), o);
-  // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed.
-  const incidents = await inBatches(pool, "DELETE TOP ($1) FROM incidents WHERE closed_at IS NOT NULL AND closed_at < $2", [cut(r.alertsDays)], o, { table: "incidents", cutoff: cut(r.alertsDays) });
+  // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed (incidents.ts, D74).
+  const incidents = await pruneClosedIncidents(pool, cut(r.alertsDays), o);
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
     driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions, incidents };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));

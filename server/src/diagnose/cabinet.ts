@@ -5,7 +5,7 @@
 // there is a safe one. The run is stored (30 days, the diagnoses retention) so the next person sees what was found. Nothing here changes a
 // cabinet; fixes are separate commands the person confirms, through the same path as any other change.
 import { randomUUID } from "node:crypto";
-import { audit, safeJson, type Pool } from "../db/db.js";
+import { audit, safeJson, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { issueFromConsole, type Role } from "../services/console-commands.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
@@ -20,6 +20,7 @@ import { beginDiagnosis, NO_ANSWER, RUN_LIMIT_MS, waitFor, type Outcome } from "
 import { cabinetFindings, cabinetModules, clean, type BundleFinding, type CabinetEvidence, type CabinetFindings, type Read } from "./cabinet-findings.js";
 import { cabinetOutcomes, recordCheck } from "../services/diagnosis-incidents.js";
 import type { Finding as NetworkFinding } from "./network-findings.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 const POLL_MS = 300;
 const MAX_RUNNING_PER_USER = 2;
@@ -162,3 +163,10 @@ export async function latestCabinetDiagnosis(db: Pool, cabinetId: string) {
 
 /** The runbook for one finding or issue type, with its steps (the console opens it from a finding or an alert). */
 export { effectiveRunbook };
+
+/** Removes diagnoses started before `cutoff`, in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
+export async function pruneOldDiagnoses(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cutoff], o, { table: "diagnoses", cutoff });
+}
+
