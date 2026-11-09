@@ -77,6 +77,19 @@ export async function siteTokens(db: Queryable): Promise<SiteToken[]> {
  * token gets the same answer, so the endpoint does not reveal whether a
  * token exists, was used or expired.
  */
+/**
+ * Whether a site installer's token may still enroll a cabinet (not used up, not revoked, not expired): what a fleet install script shows
+ * to download the agent package. Read only, never counted as a use: the cabinet's enrollment is what uses it. A one-cabinet token is
+ * not accepted, since a fleet install script is only ever made for a site.
+ */
+export async function siteTokenUsable(db: Queryable, token: string): Promise<{ id: string; siteId: string } | null> {
+  const r = (await db.query<{ id: string; site_id: string }>(
+    `SELECT id, site_id FROM bootstrap_tokens
+      WHERE token_hash = $1 AND site_id IS NOT NULL AND uses < max_uses AND revoked_at IS NULL AND expires_at > SYSUTCDATETIME()`,
+    [hashToken(token)])).rows[0];
+  return r ? { id: r.id.toLowerCase(), siteId: r.site_id.toLowerCase() } : null;
+}
+
 export async function submitEnrollment(pool: Pool, request: EnrollRequest, sourceAddress: string): Promise<string> {
   return transaction(pool, async c => {
     // The token is checked before the certificate request, so nobody without a token makes the server verify signatures.

@@ -9,6 +9,7 @@ how it is run, what was decided, and what is left.
   what can still be built here, and what is blocked and on what. This is the one place the count lives.
 - [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost. Newest first, for
   the end-of-project review.
+- [fleet-install.md](fleet-install.md): installing the agent on a site's cabinets from a remote management tool.
 - [operations.md](operations.md): how to run, deploy and support the live platform.
 - [first-sign-in.md](first-sign-in.md): what a new account sees on the way in.
 - [demo.md](demo.md): the demo fleet and how to drive it.

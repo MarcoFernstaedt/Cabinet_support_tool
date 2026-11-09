@@ -19,7 +19,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, table ownership written down and enforced as a ratchet, run-time table names included (D56); the fleet install script for a remote management tool (D57).
+**In review:** F21.R2, table ownership written down and enforced as a ratchet, run-time table names included (D56); F6, a site installer as a fleet install script a remote management tool runs as SYSTEM (D57).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
@@ -395,7 +395,7 @@ changes it with the behaviour.
 | 0 | Production trust: publisher pinned, approved-list keys, a signing pipeline that cannot emit unsigned binaries, one observed upgrade | F1 | Open. R1, the pinned certificate, needs the release-signing purchase (gate 1). R3 and R4 are code. |
 | 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | F3 done (D31). F4: automatic transitions audited (#174); every other automatic close, the fleet job end, the command expiry off the poll, and the sweep test that no state change skips the audit (#176, D32). F2: the server side was already met; the agent side is blocked, as the agent cannot be built here |
 | 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33); the Differences view by role and by baseline level (R3); watched services from the role baseline (R4, D34). Open: process and task expectations, with expected processes and drivers. F9 is agent work, blocked here |
-| 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). Open: the installer's unattended switch waits for the agent build |
+| 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). A site installer as a fleet install script a remote management tool runs as SYSTEM (D57). Open: running it on a real cabinet, with the agent build |
 | 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled (audit-network item 7, server half). Open: the rest, most of it agent-side samplers |
 | 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42); R4 one route, ranked by closeness to the problem (D44); R5 nothing to compare always says why (D45). Done |
 | 6 | Service dependencies, start order, recovery actions | F14 | R3 a service set to restart the computer is shown and alerted (D43). Open: R1 dependencies and R3 in stored configuration, R2 the blocking dependency named (agent build) |
