@@ -2,11 +2,12 @@
 // roles, issue types, who is online, what each person did, and the searchable audit log.
 // Every change needs a step-up token for that action and target, and is audited with it.
 import { randomUUID } from "node:crypto";
-import { audit, isUniqueViolation, lock, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, isUniqueViolation, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { linkUnassigned, reportedAddress } from "./sync-cabinets.js";
 import { writeStatus } from "./writes.js";
+import { addIssueType, editIssueType, type IssueTypeInput } from "./rules.js";
 
 const ONLINE_MINUTES = 5;
 
@@ -118,25 +119,13 @@ export async function setCabinetRole(pool: Pool, adminId: string, id: string, ro
 
 // ---- Issue types ---------------------------------------------------------------------------
 
-/** Issue type names are unique (compared exactly). The check runs under a lock so two creators of one name cannot both pass, whether or not the table also enforces it. */
-const ISSUE_NAMES_LOCK = "issue_types.name";
-async function issueNameFree(c: Queryable, name: string, exceptId: string | null): Promise<void> {
-  const clash = (await c.query("SELECT TOP (1) 1 AS taken FROM issue_types WHERE name COLLATE Latin1_General_100_BIN2 = $1 AND ($2 IS NULL OR id <> $2)", [name, exceptId])).rows[0];
-  if (clash) throw new Refused("name_taken", 409, "an issue type with that name exists");
-}
-
-export interface IssueTypeInput { name: string; severity: "major" | "minor"; description: string; }
+/** The input of an issue type, as rules.ts (its owner) checks and writes it. */
+export type { IssueTypeInput } from "./rules.js";
 
 export async function createIssueType(pool: Pool, adminId: string, t: IssueTypeInput, stepUpToken: string): Promise<string> {
   return transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "issue_type.create", "fleet");
-    await lock(c, ISSUE_NAMES_LOCK);
-    await issueNameFree(c, t.name, null);
-    const r = await c.query<{ id: string }>("INSERT INTO issue_types (name, severity, description, created_by) OUTPUT inserted.id VALUES ($1, $2, $3, $4)",
-      [t.name, t.severity, t.description, adminId]).catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "an issue type with that name exists") : e; });
-    const id = r.rows[0]!.id;
-    await audit(c, { actorKind: "user", actorId: adminId, action: "issue_type.create", targetKind: "issue_type", targetId: id, outcome: "succeeded", details: { ...t } });
-    return id;
+    return addIssueType(c, adminId, t);
   });
 }
 
@@ -144,13 +133,7 @@ export async function createIssueType(pool: Pool, adminId: string, t: IssueTypeI
 export async function updateIssueType(pool: Pool, adminId: string, id: string, t: IssueTypeInput, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "issue_type.update", id);
-    const before = (await c.query<IssueTypeInput>("SELECT name, severity, description FROM issue_types WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [id])).rows[0];
-    if (!before) throw new Refused("not_found", 404, "no such issue type");
-    await lock(c, ISSUE_NAMES_LOCK);
-    await issueNameFree(c, t.name, id);
-    await c.query("UPDATE issue_types SET name = $2, severity = $3, description = $4 WHERE id = $1", [id, t.name, t.severity, t.description])
-      .catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "an issue type with that name exists") : e; });
-    await audit(c, { actorKind: "user", actorId: adminId, action: "issue_type.update", targetKind: "issue_type", targetId: id, outcome: "succeeded", details: { before, after: t } });
+    await editIssueType(c, adminId, id, t);
   });
 }
 
