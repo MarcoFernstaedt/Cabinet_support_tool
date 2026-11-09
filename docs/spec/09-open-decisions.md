@@ -903,7 +903,7 @@ Noted (the owner's words): when cabinets are off, the client must turn the sync 
 
 ## Diagnostic modules and clients (2026-10-29)
 
-The execution plan (docs/platform/diagnostic-engine-execution.md, item 1) listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and decision 5 there (one organization, no per-client split) points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
+The execution plan (docs/platform/archive/diagnostic-engine-execution.md, item 1) listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and decision 5 there (one organization, no per-client split) points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
 
 Answered by the owner (2026-10-29): no. Every module applies to every client's cabinets, narrowed only by the module's own applicability. Nothing per client is built.
 

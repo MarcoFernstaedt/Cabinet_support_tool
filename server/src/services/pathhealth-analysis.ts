@@ -1,4 +1,4 @@
-// Retention and aggregation for sync-path samples (docs/platform/improvement-plan.md §4: "keep 24 hours, aggregate per target").
+// Retention and aggregation for sync-path samples (docs/platform/archive/improvement-plan.md §4: "keep 24 hours, aggregate per target").
 //
 // Two things this file refuses to do:
 //   * It never turns a silence into a number. A series with no reply keeps null round-trip figures, so a missing reply can never be

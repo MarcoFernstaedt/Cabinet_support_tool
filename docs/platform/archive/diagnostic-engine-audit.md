@@ -1,5 +1,7 @@
 # Windows Diagnostic and Recovery Engine: audit and plan
 
+> **Archived 2026-11-09.** Kept as history, not as current state: its decisions were settled on 2026-10-25 and built; remaining-phases.md maps its numbering onto the roadmap phases.
+
 October 2026. Audit of the repository against the brief, before any architectural change. Nothing in this document is
 built yet.
 

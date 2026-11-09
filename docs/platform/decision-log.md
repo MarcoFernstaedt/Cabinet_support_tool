@@ -1399,7 +1399,7 @@ it" and "both").
 - Finding titles come from cabinet data, so they are made one line and cut to the record's limits, never refused.
 
 **Why.** Every incident then has evidence behind it, nobody has to remember to open one, and "fixed" is shown by a later run rather
-than asserted, which is what the incident record was for (diagnostic-engine-audit.md, section 7).
+than asserted, which is what the incident record was for (archive/diagnostic-engine-audit.md, section 7).
 
 **Costs and limits.**
 - Two diagnoses of the same kind on one cabinet finishing at the same moment could open two incidents. Both diagnosis kinds already
@@ -1493,7 +1493,7 @@ Making the close a no-op, or adding `audit_chain` to the closable kinds, fails t
 ## D13. The SQL connectivity check: how it is built (2026-11-02)
 
 The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed
-(`diagnostic-engine-execution.md`, decision 7). These are the choices made while building it.
+(`archive/diagnostic-engine-execution.md`, decision 7). These are the choices made while building it.
 
 **1. It runs in the network service, not the broker.** The plan says "implemented in the agent's broker". CLAUDE.md says the
 broker never opens a network connection, and that rule does not bend. The check needs no rights, so the unprivileged network

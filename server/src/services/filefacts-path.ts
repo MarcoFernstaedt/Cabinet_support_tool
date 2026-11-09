@@ -1,4 +1,4 @@
-// The named file paths of the file-facts read (docs/platform/improvement-plan.md section 5, design requirements in
+// The named file paths of the file-facts read (docs/platform/archive/improvement-plan.md section 5, design requirements in
 // docs/platform/research/2026-10/audit-server.md "Proposed bounded file-version read"). This file holds every rule that decides
 // whether a path an owner configured may be read at all. It is pure: no filesystem call, no clock, no database.
 //

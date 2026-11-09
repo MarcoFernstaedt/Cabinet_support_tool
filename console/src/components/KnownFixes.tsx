@@ -13,7 +13,7 @@ import { Badge, ConfirmDialog } from "./ui";
 interface Environment {
   client: string; site: string; role: string; agentVersion: string | null; timeZone: string | null;
   /**
-   * Which Windows the installed agent was built for, when the record says (docs/platform/second-architecture.md).
+   * Which Windows the installed agent was built for, when the record says (docs/platform/archive/second-architecture.md).
    * Optional because a fix saved by an agent built before cabinets reported one has no value to show.
    */
   architecture?: string | null;

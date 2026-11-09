@@ -1,4 +1,4 @@
-// The read request the platform builds from a cabinet's allowlist, and the budgets it is held to (docs/platform/improvement-plan.md
+// The read request the platform builds from a cabinet's allowlist, and the budgets it is held to (docs/platform/archive/improvement-plan.md
 // section 5). The cabinet is never asked to find a file: the platform resolves the list into a fixed plan of named paths, caps how
 // many files, how many bytes and how long the read may take, and rate-limits how often one cabinet may be asked at all.
 //

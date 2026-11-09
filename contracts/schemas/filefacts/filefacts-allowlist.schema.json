@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/filefacts/filefacts-allowlist.schema.json",
   "title": "filefacts-allowlist",
-  "description": "The named file paths whose version metadata may be read for one application (docs/platform/improvement-plan.md section 5): an exact directory root plus one fixed file name, or an exact file. A server administrator sets it for the fleet, a client, a site or a cabinet through the device-settings route, with step-up and an audit entry; a Tier 1 or Tier 2 account, and a cabinet agent, never submits a path. entries null removes that level's list so the level above applies.",
+  "description": "The named file paths whose version metadata may be read for one application (docs/platform/archive/improvement-plan.md section 5): an exact directory root plus one fixed file name, or an exact file. A server administrator sets it for the fleet, a client, a site or a cabinet through the device-settings route, with step-up and an audit entry; a Tier 1 or Tier 2 account, and a cabinet agent, never submits a path. entries null removes that level's list so the level above applies.",
   "type": "object",
   "additionalProperties": false,
   "required": [

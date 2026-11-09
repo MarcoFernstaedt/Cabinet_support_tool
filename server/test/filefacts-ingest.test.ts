@@ -1,4 +1,4 @@
-// What comes back from a read (docs/platform/improvement-plan.md section 5): the contract check, the admission rules that keep a
+// What comes back from a read (docs/platform/archive/improvement-plan.md section 5): the contract check, the admission rules that keep a
 // report to metadata about the named paths, the version difference, and the alert the drift machinery raises or clears.
 //
 // The report is hostile telemetry: nearly every case here is something a wrong or compromised cabinet could send.
