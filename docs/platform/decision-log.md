@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D58. The cabinet at a glance, and a denser console (2026-11-09)
+
+**What the code did:** the cabinet Overview had a summary (contact, agent version, uptime, alerts) and a Details list. The machine's
+memory, storage, processor and Windows were on separate tabs (Windows information, Services and processes), each read on demand. A
+person had to open two tabs, and ask the cabinet twice, to see how much memory and disk it had left.
+
+**The decision** (the owner asked for every user to see a cabinet's memory, storage and other useful facts, in a compact, professional
+layout; the shape is mine):
+- **One System panel at the top of the Overview, for every role.** It shows Windows, the processor, memory, the machine and each
+  drive.
+- **Read from what is already stored.** It uses the latest stored answer of `system.hardware`, `system.info` and
+  `system.performance`, and the latest heartbeat load sample (`GET /api/cabinets/:id/summary`). Opening a cabinet asks it nothing,
+  and an offline cabinet still shows its last known figures.
+  - Every figure carries how long ago it was read.
+  - A part never read says so.
+  - A malformed stored answer is dropped field by field, never shown as a wrong figure.
+  - "Read now" runs the two reads again, as the existing tabs do.
+- **Meters with a number beside them.** The meter colours are status colours (amber at 85% used, red at 95%, 92% for a drive) and
+  always sit next to the figure, so colour is never the only signal.
+- **Denser everywhere, from the tokens.** Table cells, panel padding, the key-value grid and page margins are tightened in the
+  design tokens (`--cell-y`, `--cell-x`, `--panel-pad`), so every page gets more on screen without a page-by-page change. The type
+  scale and control heights are unchanged, so nothing gets harder to read or to hit.
+- **Rejected:** a new periodic read for these figures. The stored reads and the heartbeat already carry them. A new stream would need
+  its own line in the capacity budget, and the brief allows none without one.
+
+The red checks:
+- taking the oldest stored answer instead of the newest fails the first server test;
+- accepting volumes without a drive and real sizes fails the malformed-answer test.
+
+The browser test checks the panel's text, drive rows and meters for a Tier 1 user.
+
 ## D55. Which Windows the fleet runs, from what it already reports; what F20 leaves open (2026-11-08)
 
 **What the code did** (F20): the brief's F20 "today" lists four gaps. Three are already closed in the code, so this entry records them,
