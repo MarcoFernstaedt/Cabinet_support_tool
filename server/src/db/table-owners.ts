@@ -48,7 +48,7 @@ export const RUNTIME_TABLE_WRITES: Readonly<Record<string, readonly string[]>> =
 
 export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   agent_releases: { owner: "services/releases.ts", also: [] },
-  alerts: { owner: "services/alerts.ts", also: ["demo/demo.ts", "demo/troubleshooting.ts", "diagnose/network.ts", "services/baseline-drift.ts", "services/client-scanner.ts", "services/crashes.ts", "services/drives.ts", "services/filefacts-ingest.ts", "services/firewall-policy.ts", "services/maintenance.ts", "services/peer-differences.ts", "services/replacement.ts", "services/rules.ts", "services/service-recovery.ts", "services/site-outage.ts", "services/time.ts", "services/usb-sql.ts"] },
+  alerts: { owner: "services/alerts.ts", also: ["demo/demo.ts", "demo/troubleshooting.ts", "diagnose/network.ts", "services/baseline-drift.ts", "services/client-scanner.ts", "services/crashes.ts", "services/drives.ts", "services/filefacts-ingest.ts", "services/firewall-policy.ts", "services/peer-differences.ts", "services/replacement.ts", "services/rules.ts", "services/service-recovery.ts", "services/site-outage.ts", "services/time.ts", "services/usb-sql.ts"] },
   audit_chain_head: { owner: "the audit_append procedures (migrations)", also: [] },
   audit_checkpoint: { owner: "the audit_append procedures (migrations)", also: [] },
   audit_log: { owner: "the audit_append procedures (migrations)", also: [] },
@@ -73,7 +73,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   enrollment_baselines: { owner: "services/baselines.ts", also: [] },
   enrollment_requests: { owner: "services/enrollment.ts", also: [] },
   error_daily: { owner: "services/error-trends.ts", also: ["demo/demo.ts", "demo/troubleshooting.ts"] },
-  events: { owner: "services/events.ts", also: ["demo/demo.ts", "services/alerts.ts", "services/maintenance.ts", "services/rules.ts"] },
+  events: { owner: "services/events.ts", also: ["demo/demo.ts", "services/alerts.ts", "services/rules.ts"] },
   firewall_changes: { owner: "services/commands.ts", also: ["demo/demo.ts", "services/events.ts"] },
   fleet_job_targets: { owner: "services/fleet-jobs.ts", also: ["demo/demo.ts"] },
   fleet_jobs: { owner: "services/fleet-jobs.ts", also: ["demo/demo.ts"] },

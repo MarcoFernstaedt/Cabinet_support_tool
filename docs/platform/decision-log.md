@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D75. Event and alert retention run by events.ts and alerts.ts (2026-11-09)
+
+**What the code did:** `runRetention` in `services/maintenance.ts` wrote two tables it does not own:
+- **`events`** (owner `events.ts`) in three ways: it deleted old events; it cleared the detail and source of events older than 30 days
+  (`clearOldEventDetail`, with its cursor in settings); and it unlinked events from old resolved alerts.
+- **`alerts`** (owner `alerts.ts`): it deleted old resolved alerts that no event pointed at any more.
+
+**The decision** (F21.R2, the D71 pattern, helpers from `db/batches.ts`):
+- **`events.ts`** gets `pruneOldEvents` and `unlinkEventsOfOldAlerts`, and `clearOldEventDetail` moves there whole, together with
+  `EVENT_DETAIL_DAYS` and its cursor. `maintenance.ts` re-exports both for the callers that import them there.
+- **`alerts.ts`** gets `pruneResolvedAlerts`.
+- **Unchanged:** the statements, cut-offs, order, audit table names (`events`, `events.detail`, `events.alert_id`, `alerts`) and the
+  per-batch transaction of the detail clearing.
+- **Order still matters:** an old alert goes only once its events are unlinked, so an event kept longer than its alert never points
+  at nothing. An open alert is never removed.
+- **Input check:** a cut-off that is not a time already passed is refused. `clearOldEventDetail` keeps its own `now` and `days`
+  arguments, as before.
+- **Safe to repeat:** a second run changes nothing more.
+- **No new cycle:** `import-cycles.test.ts` passes. `events.ts` now imports `settings.ts` and `crashes.ts`, and neither leads back to
+  `maintenance.ts`.
+- Two entries come off the debt list, which leaves 102. Three of them are what `maintenance.ts` still writes: drive samples and load
+  samples (both inside the sample roll-up) and notifications.
+
+**Proven by:** `event-alert-retention.test.ts`, a new file:
+- old events go and recent ones stay;
+- a resolved alert with an event pointing at it stays until the event is unlinked, then goes, and the event stays;
+- an open alert and its events keep theirs;
+- every repeat changes nothing;
+- five bad cut-offs are refused by each of the three, with nothing changed.
+
+The existing event-detail, retention, operations and alert tests pass unchanged (`operations`, `admin`, `alerts`, `alerts-sql`), as
+do `server-roles`, `audit-sweep` and `import-cycles`: 94 of 94.
+
+**Red checks:**
+- Without the cut-off check in `alerts.ts`, the refusal test fails.
+- With the old statements back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes alerts (owned
+  by services/alerts.ts)" and the same for `events`.
+
+---
+
 ## D74. Five more retention sweeps run by their tables' owners (2026-11-09)
 
 **What the code did:** `runRetention` in `services/maintenance.ts` deleted old rows from five more tables that other modules own, each with
