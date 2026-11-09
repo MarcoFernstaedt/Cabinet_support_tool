@@ -41,14 +41,14 @@ export const LAUNCHER_NAME = "Install-CabinetAgent.cmd";
 /** Everything after this line is PowerShell; cmd.exe never reads it because the batch part ends with exit first. */
 export const PAYLOAD_MARKER = "#CABINET-SETUP-PAYLOAD#";
 
-const HOST = /^[A-Za-z0-9.-]{1,253}$/;
-const TOKEN = /^[A-Za-z0-9_-]{32,128}$/;
-const SHA256 = /^[0-9a-f]{64}$/i;
+export const HOST = /^[A-Za-z0-9.-]{1,253}$/;
+export const TOKEN = /^[A-Za-z0-9_-]{32,128}$/;
+export const SHA256 = /^[0-9a-f]{64}$/i;
 const PACKAGE_NAME = /^[A-Za-z0-9._-]{1,80}\.zip$/;
-const PEM = /^-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]{100,8000}-----END CERTIFICATE-----\s*$/;
+export const PEM = /^-----BEGIN CERTIFICATE-----\r?\n[A-Za-z0-9+/=\r\n]{100,8000}-----END CERTIFICATE-----\s*$/;
 
 /** Refuses to build a file from a value that could close a quote: every value is checked against its exact shape. */
-function check(value: string | null | undefined, shape: RegExp, what: string): string {
+export function check(value: string | null | undefined, shape: RegExp, what: string): string {
   const v = (value ?? "").trim();
   if (!shape.test(v)) throw new Error(`the installer cannot be made: ${what} is not valid`);
   return v;

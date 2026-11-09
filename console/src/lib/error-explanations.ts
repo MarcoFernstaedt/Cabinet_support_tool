@@ -323,6 +323,16 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "The upload is missing programs the updater installs; an installer bundle installs a cabinet but cannot be used to update one.",
     fix: "Build the release package with agent/install/New-AgentRelease.ps1 and upload that.",
   },
+  site_required: {
+    title: "Choose a site",
+    detail: "A fleet install script runs on many cabinets, so it is made only for a site installer, bounded by a number of cabinets and days.",
+    fix: "Tick \"One installer for several cabinets of one site\", choose the site, then create the script.",
+  },
+  install_token_refused: {
+    title: "Site installer no longer valid",
+    detail: "The site installer this script was made from has expired, been used up or been stopped.",
+    fix: "Create a new fleet install script for the site.",
+  },
   setup_incomplete: {
     title: "Server setup incomplete",
     detail: "This server's settings cannot produce an installer yet (for example, no agent host or port is set).",

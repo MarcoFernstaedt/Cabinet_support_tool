@@ -36,6 +36,45 @@ The red checks:
 - accepting volumes without a drive and real sizes fails the malformed-answer test.
 
 The browser test checks the panel's text, drive rows and meters for a Tier 1 user.
+## D57. A site installer as a script a remote management tool runs as SYSTEM (2026-11-09)
+
+**What the code did** (F6, "a site set up end to end in one sitting"): the installer for a site was a `.cmd` launcher
+(`installer-launcher.ts`) a person runs on each cabinet. It needs the agent package downloaded beside it, an elevation prompt, and a
+folder in the person's profile. The fleet is managed with a remote management tool that runs PowerShell scripts as SYSTEM (the owner's,
+2026-11-09), so installing a site meant visiting every cabinet.
+
+**The decision** (the owner asked for the fewest steps to get the agent on the fleet; the shape is mine):
+- **One script per site installer**, made on Admin → Setup with the same limits and the same authenticator confirmation. The format is
+  part of what the code confirms, so a code confirmed for a launcher cannot make a script. A script is made only for a site installer:
+  a one-cabinet token in a script meant for many cabinets would be used once and then fail everywhere else.
+- **The script downloads the package itself**, from the console over HTTPS (`GET /api/install/package`), with the site installer's
+  token in the `Authorization` header.
+  - Why the console address: it carries the certificate Windows already trusts. The agent API's certificate is issued by the platform's
+    own CA, which Windows PowerShell 5.1 cannot be told to trust for one request without weakening TLS for the whole process.
+  - What the server checks: the token must still be able to enroll a cabinet. A one-cabinet token is refused. A download is never
+    counted as a use, so a failed install followed by a retry costs nothing. Each download is audited (`install.package`).
+- **Integrity does not rest on the transport.** The script refuses any package whose SHA-256 is not the one built into it, then unpacks
+  it in a new folder only SYSTEM and Administrators can change, and runs the same installer as the launcher, which checks the programs'
+  signatures before it creates a service.
+- **Built for a tool, not a person:** no parameters, no questions, plain output. It exits with 0 when installed or already installed
+  (so a re-run is harmless), and with 1 when not, with the reason and the next step on the last two lines.
+- **Rejected:**
+  - pushing the package file with the tool and pointing the script at it (one more manual step for every agent release);
+  - a download from the agent API (the TLS trust above);
+  - a token in the URL (it would land in proxy and server logs).
+
+**What is not proven here.** The script is Windows PowerShell and this environment has no Windows. What the tests prove:
+- the script is made from checked values only;
+- it pins the right SHA-256 and the console address;
+- it keeps the token out of the URL;
+- the download route serves only to a usable site token and never counts a use.
+
+Running the script on a real cabinet is the first item of the on-machine test, with the agent build.
+
+The red checks:
+- accepting a one-cabinet token fails the refusal test;
+- counting the download as a use fails the download test;
+- making a script without a site fails the first test.
 
 ## D55. Which Windows the fleet runs, from what it already reports; what F20 leaves open (2026-11-08)
 
