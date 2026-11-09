@@ -70,7 +70,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   diagnosis_batches: { owner: "diagnose/network.ts", also: ["demo/demo.ts"] },
   drive_samples: { owner: "services/drives.ts", also: ["demo/demo.ts", "services/maintenance.ts"] },
   drive_status: { owner: "services/drives.ts", also: [] },
-  enrollment_baselines: { owner: "services/baselines.ts", also: ["services/enrollment.ts"] },
+  enrollment_baselines: { owner: "services/baselines.ts", also: [] },
   enrollment_requests: { owner: "services/enrollment.ts", also: [] },
   error_daily: { owner: "services/error-trends.ts", also: ["demo/demo.ts", "demo/troubleshooting.ts"] },
   events: { owner: "services/events.ts", also: ["demo/demo.ts", "services/alerts.ts", "services/maintenance.ts", "services/rules.ts"] },
