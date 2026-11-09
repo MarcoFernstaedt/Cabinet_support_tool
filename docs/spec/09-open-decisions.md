@@ -984,3 +984,9 @@ saved action (R3, built: decision-log D37), bulk create and import of clients, s
 from (R5, built: decision-log D38; no question for the owner, since inheritance at read time was already the rule). The installer's unattended switch and its machine-readable result, and re-running it on an enrolled cabinet, are agent-side
 work and wait for the agent build.
 
+## Per-client databases (F21.R5, 2026-11-09, open)
+
+Every client's data is in one database. The line it would split along is written down and tested (docs/spec/01-architecture.md
+"Per-client databases: the path", decision-log D62). Not decided: whether any client's data moves to a database of its own, and what
+would trigger it (a client's requirement, or one client's share of the database). Until the owner decides, the second half of F21.R5
+(the connection resolved per client) is built so that every client resolves to the one database, which changes nothing in service.
