@@ -13,8 +13,8 @@ nightly run, through `inBatches`. The table is owned by `db/db.ts`.
 
 **The decision** (F21.R2):
 - **`db.ts` exports `pruneOldNotifications(db, o)`,** which holds the statement and its own batch loop. The batching helper in
-  `db/batches.ts` imports `db.ts`, so `db.ts` importing it back would be the cycle D73 removed. It imports only the type of the batch
-  options, which the compiler erases.
+  `db/batches.ts` imports `db.ts`, so `db.ts` importing it back would be the cycle D73 removed. It writes the shape of the batch
+  options out itself and imports nothing from the helper.
 - **`maintenance.ts` keeps `pruneNotifications`** as a wrapper with no SQL, so the hourly timer and the tests that call it are
   unchanged.
 - **Not audited batch by batch,** as before. A notification only wakes other server processes, and the nightly run records the count.
