@@ -26,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, load samples: the unused second writer in readings.ts removed, so only cabinets.ts stores them (D78). 98 cross-module writes are left on the debt list.
+**In review:** the browser tests' sign-in helper waits for the code step, which fixes the intermittent cabinet System panel timeout (D79). 98 cross-module writes are left on the debt list.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 98 listed cross-module writes behind their owners (D65 to D77 done, and none is left in maintenance.ts; the load-sample writer in readings.ts, D78, in review), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 98 listed cross-module writes behind their owners (D65 to D78 done, and none is left in maintenance.ts), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
@@ -279,7 +279,7 @@ changes whenever a line is split, merged or dropped. The six gates outside the c
 | Phase 4 | ~10 | Symptom playbooks and support call mode, the case report, before and after snapshots, site readiness, preventive-maintenance reports, the controlled-remediation engine half |
 | Phase 5 | ~10 | Restoring chosen settings, registry and environment variables, software lifecycle, dependency mapping, agent health in the console, self-recovery, maintenance windows, the extended engine half |
 | Phase 6 | ~10 | Bottleneck findings and network counters, DISM and SFC repair, packet capture, AMT detection, ETW, the intelligence engine half |
-| Open fixes | ~3 | Turning demo mode on takes 17–25 s (measured; every test that turns it on now allows 90 s, D17 and D27; seeding sites side by side was tried and is slower, D27), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e`. The cabinet's own list did not appear within 30 s after a retried site load. It has happened in a few full runs, never alone, and not in 8 runs at four at a time; the page was left in "Loading…". The cause is not yet known. The test now also prints how the last approved-programs requests ended (sent, answered with a status, or failed in the browser), which tells the server, the network and the page apart. |
+| Open fixes | ~3 | Turning demo mode on takes 17–25 s (measured; every test that turns it on now allows 90 s, D17 and D27; seeding sites side by side was tried and is slower, D27), the installer hash check on CI (D2), and an intermittent timeout in `console-approved-apps-e2e`. The cabinet's own list did not appear within 30 s after a retried site load. It has happened in a few full runs, never alone, and not in 8 runs at four at a time; the page was left in "Loading…". The cause is not yet known. The test now also prints how the last approved-programs requests ended (sent, answered with a status, or failed in the browser), which tells the server, the network and the page apart. The intermittent timeout in `console-cabinet-system-e2e` (the System panel never shown) is found and fixed in review (D79): the test helper's sign-in returned before the code step was answered. |
 
 ## Fixes from the hardware test (2026-10-30)
 
