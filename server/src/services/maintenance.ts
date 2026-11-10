@@ -17,6 +17,8 @@ import { pruneOldConfigChanges } from "./config-ingest.js";
 import { pruneOldDiagnoses } from "../diagnose/cabinet.js";
 import { pruneOldHealthTransitions } from "./cabinet-health.js";
 import { pruneClosedIncidents } from "./incidents.js";
+import { pruneOldDriveSamples } from "./drives.js";
+import { dropRolledUpHealthSamples } from "./cabinets.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
 export const ON_DEMAND_CHAIN_ENTRIES = 50_000;
@@ -118,7 +120,7 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
   const ids = (await pool.query<{ id: string }>("SELECT id FROM cabinets ORDER BY id")).rows.map(r => r.id);
   let rolledUp = 0, driveSamples = 0;
   for (let i = 0; i < ids.length; i += CABINET_CHUNK) {
-    const chunk = JSON.stringify(ids.slice(i, i + CABINET_CHUNK));
+    const part = ids.slice(i, i + CABINET_CHUNK), chunk = JSON.stringify(part);
     rolledUp += await transaction(pool, async c => {
       // Samples already older than the whole history are not worth rolling up; an hour already rolled up (a run stopped half way) is not again.
       await c.query(
@@ -131,13 +133,12 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
                   WHERE h.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND h.[at] < $2 AND h.[at] >= $3) s
           WHERE NOT EXISTS (SELECT 1 FROM health_hourly x WHERE x.cabinet_id = s.cabinet_id AND x.[hour] = s.[hour])
           GROUP BY s.cabinet_id, s.[hour]`, [chunk, cut, healthCut], { timeoutMs: o.timeoutMs });
-      return (await c.query(
-        "DELETE FROM health_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND [at] < $2", [chunk, cut], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+      // The raw samples are cabinets.ts's (D77); removed in this same transaction, once rolled up.
+      return dropRolledUpHealthSamples(c, part, cut, o);
     });
     await inBatches(pool, "DELETE TOP ($1) FROM health_hourly WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [hour] < $3", [chunk, healthCut], o,
       { table: "health_hourly", cutoff: healthCut });
-    driveSamples += await inBatches(pool, "DELETE TOP ($1) FROM drive_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [at] < $3", [chunk, driveCut], o,
-      { table: "drive_samples", cutoff: driveCut });
+    driveSamples += await pruneOldDriveSamples(pool, part, driveCut, o);
     await sleep(o.pauseMs);
   }
   return { rolledUp, driveSamples };

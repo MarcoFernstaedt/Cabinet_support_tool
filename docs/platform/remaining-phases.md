@@ -26,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, retention: events, the clearing of their detail, their link to old alerts, and old resolved alerts are retained by events.ts and alerts.ts (D75). 102 cross-module writes are left on the debt list.
+**In review:** F21.R2, retention: old drive samples and rolled-up load samples are removed by drives.ts and cabinets.ts (D77), after old notifications by db.ts (D76). 100 cross-module writes are left on the debt list on this branch; 99 once both merge.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 102 listed cross-module writes behind their owners (D65 to D74 done; events and alerts retention in review, D75; 3 of them are left in maintenance.ts: drive samples and load samples inside the roll-up, and notifications), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 100 listed cross-module writes behind their owners (D65 to D75 done; notifications, D76, and drive and load samples, D77, in review; with those, none is left in maintenance.ts), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
