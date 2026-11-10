@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #231)
+## Where it stands (2026-11-09, after #233)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -12,7 +12,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F17: all five requirements, D50 to D54.
 - F18.R1 and R2.
 - F19.R7.
-- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67), `notifications` (#226, D68), `issue_types` (#227, D69), `sign_ins` and `user_devices` (#228, D70) through their owners, the expired sessions and step-up tokens pruned by theirs (#229, D71), old command results and firewall history by commands.ts (#230, D72), and finished fleet jobs by fleet-jobs.ts (#231, D73), and the ownership reader now sees writes with a row limit (#224).
+- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67), `notifications` (#226, D68), `issue_types` (#227, D69), `sign_ins` and `user_devices` (#228, D70) through their owners, the expired sessions and step-up tokens pruned by theirs (#229, D71), old command results and firewall history by commands.ts (#230, D72), finished fleet jobs by fleet-jobs.ts (#231, D73), five more sweeps by their owners (#232, D74), and events and alerts by theirs (#233, D75), and the ownership reader now sees writes with a row limit (#224).
 - A network diagnosis settles its baseline alert before it says it is done, found in review of #219 (#222, D64).
 - F21.R3: the cabinets' ingest and the console run apart when asked to (SERVER_ROLES, #218, D60).
 - F21.R4, first view: the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (#219, D61).
@@ -26,13 +26,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** F21.R2, retention: events and alerts by their owners (#233, D75); notifications older than an hour removed by db.ts, their owner (D76). 101 cross-module writes are left on the debt list.
+**In review:** F21.R2, retention: notifications older than an hour removed by db.ts, their owner (D76). 101 cross-module writes are left on the debt list.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 101 listed cross-module writes behind their owners (D65 to D74 done; D75 and D76 in review; 2 of them are left in maintenance.ts: drive samples and load samples inside the roll-up), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 101 listed cross-module writes behind their owners (D65 to D75 done; D76 in review; 2 of them are left in maintenance.ts: drive samples and load samples inside the roll-up), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |

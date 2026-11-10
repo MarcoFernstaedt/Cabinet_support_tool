@@ -3,14 +3,15 @@
 // batches (BATCH rows each, with a pause between them and a time limit on each), so the log, the locks and the buffer pool of a 10,000-cabinet
 // database on SQL Server Express stay small and the agents' writes are never held up for long. The jobs run at a fixed quiet time of night.
 import { advanceAuditCheckpoint, audit, auditChainHeadAnchor, auditCheckpoint, Pool, transaction, verifyAuditChain, type ChainCheck, type ChainCheckpoint, type Queryable } from "../db/db.js";
-import { platformSettings, upsertSetting } from "./settings.js";
+import { platformSettings } from "./settings.js";
 import { closeStaleSecurityAlerts, raiseSecurityAlert } from "./security.js";
 import { opsMeter, pruneOpsCounters } from "./ops-meter.js";
-import { crashArgs, crashPredicate } from "./crashes.js";
 import { pruneExpiredSessions } from "../auth/sessions.js";
 import { pruneExpiredStepUpTokens } from "../auth/stepup.js";
 import { clearOldCommandResults, pruneFirewallChanges } from "./commands.js";
 import { pruneFinishedJobs } from "./fleet-jobs.js";
+import { clearOldEventDetail, EVENT_DETAIL_DAYS, pruneOldEvents, unlinkEventsOfOldAlerts } from "./events.js";
+import { pruneResolvedAlerts } from "./alerts.js";
 import { pruneOldNotifications } from "../db/db.js";
 import { pruneOldBoots } from "./crashes.js";
 import { pruneOldConfigChanges } from "./config-ingest.js";
@@ -143,46 +144,8 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
   return { rolledUp, driveSamples };
 }
 
-/** After this many days an event that has no alert loses its bulky detail and source JSON (the row, its kind, time, cabinet and device stay). */
-export const EVENT_DETAIL_DAYS = 30;
-/** Where the clearing stopped, as an event sequence number, so each night only looks at events it has not seen. */
-const DETAIL_CURSOR = "maintenance.eventDetailSeq";
-
-/**
- * Clears `detail` and `source` of events older than EVENT_DETAIL_DAYS that have no alert, so the database keeps every event for the whole
- * retention period (90 days by default) within SQL Server Express's 10 GB. Events with an alert stay whole, as do security events and the
- * crash records (BugCheck, Kernel-Power 41, unexpected shutdown) the crash timelines read. Walks the events in sequence order from a stored
- * cursor in batches (a clustered-key range each, never a scan from the start), so a night's work is only the day that just became old.
- */
-export async function clearOldEventDetail(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH, days = EVENT_DETAIL_DAYS): Promise<number> {
-  const cut = daysAgo(days, now);
-  const stored = (await pool.query<{ value: unknown }>("SELECT [value] FROM settings WHERE [key] = $1", [DETAIL_CURSOR])).rows[0]?.value;
-  let last = typeof stored === "number" && Number.isInteger(stored) && stored >= 0 ? stored : 0;
-  let cleared = 0;
-  for (;;) {
-    // The end of the next batch of old events, in sequence order.
-    const hi = (await pool.query<{ hi: string | number | null }>(
-      "SELECT MAX(seq) AS hi FROM (SELECT TOP ($1) seq FROM events WHERE seq > $2 AND received_at < $3 ORDER BY seq) x", [o.batch, last, cut], { timeoutMs: o.timeoutMs })).rows[0]?.hi;
-    if (hi === null || hi === undefined) break;
-    // The clearing and the cursor that accounts for it are one transaction: a run that stops here cannot leave cleared rows that no cursor
-    // ever marked. Every batch that cleared anything leaves its own audit entry, in that same transaction.
-    let batch = 0;
-    await transaction(pool, async c => {
-      batch = (await c.query(
-        `UPDATE events SET detail = NULL, source = NULL
-          WHERE seq > $1 AND seq <= $2 AND received_at < $3 AND alert_id IS NULL AND (detail IS NOT NULL OR source IS NOT NULL) AND kind <> 'security'
-            AND NOT ${crashPredicate("events", 4)}`, [last, Number(hi), cut, ...crashArgs], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
-      last = Number(hi);
-      await upsertSetting(c, DETAIL_CURSOR, last, null);
-      if (batch > 0)
-        await audit(c, { actorKind: "system", actorId: "retention", action: "retention.batch", outcome: "succeeded",
-          details: { table: "events.detail", rows: batch, cutoff: cut, to: last } });
-    });
-    cleared += batch;
-    await sleep(o.pauseMs);
-  }
-  return cleared;
-}
+// Event retention, the clearing of old events' detail included, is events.ts's own (D75); re-exported for the callers that import it here.
+export { clearOldEventDetail, EVENT_DETAIL_DAYS } from "./events.js";
 
 export interface RetentionRun { events: number; eventsCleared: number; opsCounters: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
   diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number; configChanges: number; healthTransitions: number; incidents: number }
@@ -198,18 +161,17 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   const cut = (days: number) => daysAgo(days, now);
   // Every destructive step names the table it trims and the cut-off it used, so each batch it removes leaves an audit entry of its own
   // (the run's own entry below says how much was removed in all).
-  const events = await inBatches(pool, "DELETE TOP ($1) FROM events WHERE received_at < $2", [cut(r.eventsDays)], o, { table: "events", cutoff: cut(r.eventsDays) });
+  // Events, their detail, their link to an old alert, and old resolved alerts: each table's owner removes its own (events.ts, alerts.ts, D75).
+  const events = await pruneOldEvents(pool, cut(r.eventsDays), o);
   const eventsCleared = r.eventsDays > EVENT_DETAIL_DAYS ? await clearOldEventDetail(pool, now, o) : 0;
   // The cleared rows only free space inside their pages; compacting the index gives it back (incremental: a stopped run is not lost).
   if (eventsCleared > 0) await pool.query("EXEC reorganize_events", [], { timeoutMs: 20 * 60_000 });
   const opsCounters = await pruneOpsCounters(pool, now);
   // Old command results and firewall history: their owner, commands.ts, clears and removes them (D72).
   const commandResults = await clearOldCommandResults(pool, cut(r.commandsDays), o);
-  // Events kept longer than their alert would point at nothing; they keep the event and lose the link.
-  await inBatches(pool, `UPDATE TOP ($1) e SET alert_id = NULL FROM events e JOIN alerts a ON a.id = e.alert_id
-                          WHERE e.alert_id IS NOT NULL AND a.state = 'resolved' AND a.last_seen < $2`, [cut(r.alertsDays)], o, { table: "events.alert_id", cutoff: cut(r.alertsDays) });
-  const alerts = await inBatches(pool, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
-                                          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cut(r.alertsDays)], o, { table: "alerts", cutoff: cut(r.alertsDays) });
+  // Events kept longer than their alert would point at nothing; they keep the event and lose the link, then the alert goes.
+  await unlinkEventsOfOldAlerts(pool, cut(r.alertsDays), o);
+  const alerts = await pruneResolvedAlerts(pool, cut(r.alertsDays), o);
   const firewallChanges = await pruneFirewallChanges(pool, cut(r.firewallDays), o);
   // Expired sign-in sessions and step-up tokens, a day after they expired: each owner removes its own (D71).
   const sessions = await pruneExpiredSessions(pool, cut(1), o);

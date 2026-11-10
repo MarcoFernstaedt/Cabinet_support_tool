@@ -9,6 +9,7 @@ import type { AlertFilter, Event } from "../contracts.js";
 import { audit, isUniqueViolation, lock, LOCK_TIMEOUT_MS, Pool, transaction, type Queryable, type Tx } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { countRuleHits, decide, ISSUE, liveNow, ruleConfig, type RuleConfig } from "./rules.js";
 import { isBootRecord, recordBoot } from "./crashes.js";
 import { insertNote } from "./case-notes.js";
@@ -722,3 +723,14 @@ export async function offline(db: Queryable, f: { clientId?: string; siteId?: st
       GROUP BY ${group} HAVING SUM(CASE WHEN ${offlineWhere} THEN 1 ELSE 0 END) > 0 ORDER BY offline DESC, name`, params)).rows;
   return { level: f.clientId ? "sites" : "clients", thresholdDays: days, items: rows.map(r => ({ id: r.id, name: r.name, offline: Number(r.offline), cabinets: Number(r.total) })) };
 }
+
+/**
+ * Removes resolved alerts last seen before `cutoff` that no event still points at (retention, decision-log D75); an open or claimed alert
+ * is never removed. In batches, each batch audited. A cut-off that is not a past time is refused; a repeat removes nothing more.
+ */
+export async function pruneResolvedAlerts(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  checkRetentionCutoff(cutoff);
+  return inBatches(db, `DELETE TOP ($1) FROM alerts WHERE state = 'resolved' AND last_seen < $2
+                         AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cutoff], o, { table: "alerts", cutoff });
+}
+
