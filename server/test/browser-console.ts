@@ -20,7 +20,7 @@ export interface Console {
   signIn(page: Page): Promise<void>;
   /** Another person, with the same password and authenticator as the Admin, who has not seen the welcome tour. */
   addUser(username: string, role: "tier1" | "tier2" | "admin", canApproveFixes?: boolean): Promise<string>;
-  /** Signs in and stops at what the person sees first: the welcome tour, if they have not had it. */
+  /** Signs in and stops at what the person sees first: the welcome tour, if they have not had it. Returns once the sign-in is complete. */
   signInAs(page: Page, username: string): Promise<void>;
   /** From the signed-in Fleet page: sets the guided demo up (the simulated fleet) and closes its panel. */
   startDemo(page: Page): Promise<void>;
@@ -59,7 +59,13 @@ export async function startConsole(staticDir: string): Promise<Console> {
     await page.getByLabel("Password").fill(password);
     await page.getByRole("button", { name: "Sign in" }).click();
     await page.getByLabel(/6-digit code/).fill(await code());
+    // Wait for the code step to be answered and its form to close: a test that navigates straight after would otherwise cancel the
+    // request and be left half signed in, on the code form (D79).
+    const answered = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/auth/totp");
     await page.getByRole("button", { name: "Continue" }).click();
+    const r = await answered;
+    if (!r.ok()) throw new Error(`signing in as ${username}: the code step answered ${r.status()}`);
+    await page.getByLabel(/6-digit code/).waitFor({ state: "detached" });
   };
   const confirmWithCode = async (page: Page) => {
     await page.getByRole("dialog").getByLabel("Authenticator code").fill(await code());

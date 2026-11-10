@@ -6,6 +6,38 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D79. The browser tests' sign-in helper returns only once the sign-in is complete (2026-11-10)
+
+**What the code did:** `signInAs` in `server/test/browser-console.ts` filled in the code step, clicked Continue and returned. It did not
+wait for the answer. `console-cabinet-system-e2e.test.ts` calls `page.goto` straight after, and that navigation can cancel the code
+request still in flight. The page then reloads half signed in, on the code form, and the System panel never appears. It is a test
+fault, not a product one: a person does not navigate away in the moment between Continue and the answer.
+
+**How it was found** (**measured**, 2026-11-10):
+- The full suite at `f648960` failed the System panel test once: it timed out after 30 s waiting for the System region.
+- Run alone, it failed 1 of 3 times. With a probe on the wait it passed 8 of 8 alone, and failed 3 of 9 with three copies at once.
+- All three failures were on the cabinet's address with the page showing "Enter your code".
+
+**The decision:**
+- **`signInAs` waits for the answer:** it waits for the answer to `POST /api/auth/totp`, then for the code form to close.
+- **A refused code is reported:** if the code step is refused, it fails with "signing in as <user>: the code step answered <status>",
+  rather than returning on the code form.
+- **No product change.**
+
+**Proof:**
+- **New file `test/console-sign-in-helper-e2e.test.ts`,** two tests:
+  - The code request is held back 1.5 s and the test navigates straight after. It must arrive signed in, with the only session
+    `complete`.
+  - A refused code must make the helper fail.
+  - With the old helper, both fail: the first times out on the code form, and the second finds no failure.
+- **The fix under load:** with three copies at once, as above, the System panel test passed 9 of 9. `console-welcome-tour-e2e`, the
+  other user of `signInAs`, passes.
+
+**Not covered:** the intermittent `console-approved-apps-e2e` timeout. That test signs in through `signIn`, which already waits for
+the Fleet heading, so this is not its cause.
+
+---
+
 ## D77. Old drive and load samples removed by drives.ts and cabinets.ts (2026-11-10)
 
 **What the code did:** `rollUpAndTrimSamples` in `services/maintenance.ts` wrote two tables it does not own:
