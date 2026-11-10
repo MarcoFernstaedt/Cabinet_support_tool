@@ -241,11 +241,3 @@ export async function healthHistory(db: Queryable, cabinetId: string, hours: num
   return rows.map(r => ({ at: r.at.toISOString(), cpu: r.cpu, memory: r.memory, diskFree: r.disk,
     ...(r.cpu_max === null ? {} : { cpuMax: r.cpu_max, memoryMax: r.memory_max!, diskFreeMin: r.disk_min! }) }));
 }
-
-/** Stores one sample from a heartbeat unless one was stored in the last 15 minutes. The range lock makes two heartbeats at once store one. */
-export async function recordHealth(db: Queryable, cabinetId: string, h: { cpuPercent: number; memoryUsedPercent: number; diskFreePercent: number }): Promise<void> {
-  await db.query(
-    `INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
-     SELECT $1, SYSUTCDATETIME(), $2, $3, $4 WHERE NOT EXISTS (SELECT 1 FROM health_samples WITH (UPDLOCK, HOLDLOCK) WHERE cabinet_id = $1 AND [at] > DATEADD(minute, -15, SYSUTCDATETIME()))`,
-    [cabinetId, h.cpuPercent, h.memoryUsedPercent, h.diskFreePercent]);
-}

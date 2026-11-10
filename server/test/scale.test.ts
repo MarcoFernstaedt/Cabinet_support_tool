@@ -14,7 +14,8 @@ import { chainCheckMode, inBatches, nextRunAt, parseDailyTime, pruneNotification
 import { healthHistory } from "../src/services/readings.js";
 import { flushRuleHits, ISSUE, listRules } from "../src/services/rules.js";
 import { checkSiteOutages } from "../src/services/site-outage.js";
-import type { Event } from "../src/contracts.js";
+import { envelopes, type Event } from "../src/contracts.js";
+import { recordHeartbeat } from "../src/services/cabinets.js";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
@@ -460,13 +461,15 @@ test("a reboot loop is resolved on the heartbeat that crosses 2 hours of uptime,
 // Keep the pool type referenced for readers of this file: every service here takes the application's pool.
 void Pool;
 
-test("two heartbeats for one cabinet at the same moment store one load sample, never a duplicate key", async () => {
-  const { recordHealth } = await import("../src/services/readings.js");
+test("twelve heartbeats for one cabinet at the same moment store one load sample, never a duplicate key", async () => {
+  // The heartbeat itself (cabinets.ts, the table's owner) stores the sample: the race is tested on the path the agents take (D78).
   const id = (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets")).rows[0]?.id;
-  if (!id) return;
+  assert.ok(id, "the scale fixture has cabinets");
+  const beat = envelopes.heartbeat.parse({ agentVersion: "1.4.2", uptimeSeconds: 100, readOnlyMode: false,
+    health: { cpuPercent: 5, memoryUsedPercent: 40, diskFreePercent: 60, drives: [] } });
   for (let round = 0; round < 25; round++) {
     await db.app.query("DELETE FROM health_samples WHERE cabinet_id = $1", [id]);
-    await Promise.all(Array.from({ length: 12 }, () => recordHealth(db.app, id, { cpuPercent: 5, memoryUsedPercent: 40, diskFreePercent: 60 })));
+    await Promise.all(Array.from({ length: 12 }, () => recordHeartbeat(db.app, id, beat)));
     assert.equal(Number((await db.app.query<{ n: number }>("SELECT count(*) AS n FROM health_samples WHERE cabinet_id = $1", [id])).rows[0]!.n), 1, `round ${round}`);
   }
 });

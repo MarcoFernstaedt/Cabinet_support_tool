@@ -6,6 +6,33 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D78. Load samples are stored only by the heartbeat in cabinets.ts (2026-11-10)
+
+**What the code did:** `recordHealth` in `services/readings.ts` inserted a load sample into `health_samples` (owner `cabinets.ts`)
+unless one was stored in the last 15 minutes. No server code called it. Heartbeats store their sample through the same insert inside
+`recordHeartbeat` in `cabinets.ts`. The only caller was the race test in `test/scale.test.ts`, so that test covered code the agents
+never reach, and the path they do take had no race test.
+
+**The decision** (F21.R2):
+- **`recordHealth` is removed.** It is a second copy of the owner's statement with no caller.
+- **The race test calls `recordHeartbeat`:** twelve heartbeats for one cabinet at once, 25 rounds, must store exactly one sample. It
+  now fails if the fixture has no cabinet, where it used to pass without running.
+- **Unchanged:** the heartbeat's insert, its 15-minute guard and its locks.
+- One entry comes off the debt list, which leaves 98.
+
+**What the test showed.** It fails when the 15-minute guard is taken out of the heartbeat's insert. It still passes with both lock
+hints taken out (`UPDLOCK, ROWLOCK` on the cabinet row and `UPDLOCK, HOLDLOCK` on the samples), because the heartbeat updates the cabinet's row
+before the insert, and that update alone makes two heartbeats for one cabinet wait for each other. The hints stay: removing them is a
+separate change with its own proof, not part of this one.
+
+**Alternative.** Moving `recordHealth` into `cabinets.ts` and having the heartbeat call it. Rejected for this PR: the insert runs
+inside the heartbeat's single T-SQL batch, its transaction and its TRY/CATCH, and splitting it out adds a round trip on the hottest path.
+
+**Proof.** With `recordHealth` back in `readings.ts`, `table-ownership.test.ts` fails with "services/readings.ts writes
+health_samples (owned by services/cabinets.ts)".
+
+---
+
 ## D77. Old drive and load samples removed by drives.ts and cabinets.ts (2026-11-10)
 
 **What the code did:** `rollUpAndTrimSamples` in `services/maintenance.ts` wrote two tables it does not own:
