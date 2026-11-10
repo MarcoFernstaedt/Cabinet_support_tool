@@ -282,6 +282,24 @@ export async function notify(db: Queryable, channel: string, payload: string): P
 
 export function transaction<T>(pool: Pool, fn: (tx: Tx) => Promise<T>): Promise<T> { return pool.transaction(fn); }
 
+/**
+ * Removes notifications older than an hour (F21.R2, decision-log D76): they only wake other server processes, each of which reads them
+ * within a second, so an older one is of no use. Not audited batch by batch, as no retention of a wake-up signal is a change anyone
+ * looks for; the nightly retention run records the count. Its own loop, since the batching helper (db/batches.ts) imports this module.
+ * The batch options are checked first; a repeat removes nothing more.
+ */
+export async function pruneOldNotifications(db: Queryable, o: { batch: number; pauseMs: number; timeoutMs: number }): Promise<number> {
+  const whole = (n: unknown, min: number) => Number.isSafeInteger(n) && (n as number) >= min;
+  if (!whole(o?.batch, 1) || !whole(o?.pauseMs, 0) || !whole(o?.timeoutMs, 1)) throw new Error("pruning notifications needs a batch size, a pause and a timeout in whole numbers");
+  let total = 0;
+  for (;;) {
+    const n = (await db.query("DELETE TOP ($1) FROM notifications WHERE [at] < DATEADD(hour, -1, SYSUTCDATETIME())", [o.batch], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+    total += n;
+    if (n < o.batch) return total;
+    if (o.pauseMs > 0) await new Promise(r => setTimeout(r, o.pauseMs));
+  }
+}
+
 /** How long lock() waits for a named lock before giving up. */
 export const LOCK_TIMEOUT_MS = 5_000;
 
