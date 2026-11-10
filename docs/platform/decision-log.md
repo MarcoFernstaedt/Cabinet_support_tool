@@ -24,7 +24,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   also needs a whole-number timeout. Anything else is refused before the database is touched. An empty list does nothing.
 - **Safe to repeat:** a second run removes nothing more.
 - **No new cycle:** `import-cycles.test.ts` passes. `maintenance.ts` now imports `drives.ts` and `cabinets.ts`, and neither leads back.
-- Two entries come off the debt list. With these, `maintenance.ts` writes no table it does not own.
+- Two entries come off the debt list, which leaves 99. With these, `maintenance.ts` writes no table it does not own.
 - **The audit sweep:** the listed exception for the load-sample delete moves to `cabinets.ts`, with the same reason. The one for the
   drive-sample delete is dropped: the sweep counts a change run through `inBatches` with its audit argument as audited (D71).
 
@@ -34,6 +34,38 @@ and the trim are one retention step.
 **Proof.** `test/sample-retention.test.ts`: three tests (the drive batches and their audit rows, the load delete inside a transaction
 that rolls back, and 12 bad id lists, 6 bad times and 6 bad options refused with nothing removed). With the old `maintenance.ts` back,
 `table-ownership.test.ts` and `audit-sweep.test.ts` fail.
+
+---
+
+## D76. Old notifications are removed by db.ts, their owner (2026-11-09)
+
+**What the code did:** `pruneNotifications` in `services/maintenance.ts` deleted notifications older than an hour, hourly and in the
+nightly run, through `inBatches`. The table is owned by `db/db.ts`.
+
+**The decision** (F21.R2):
+- **`db.ts` exports `pruneOldNotifications(db, o)`,** which holds the statement and its own batch loop. The batching helper in
+  `db/batches.ts` imports `db.ts`, so `db.ts` importing it back would be the cycle D73 removed. It writes the shape of the batch
+  options out itself and imports nothing from the helper.
+- **`maintenance.ts` keeps `pruneNotifications`** as a wrapper with no SQL, so the hourly timer and the tests that call it are
+  unchanged.
+- **Not audited batch by batch,** as before. A notification only wakes other server processes, and the nightly run records the count.
+  The audit sweep's listed exception moves with the statement, from `services/maintenance.ts` to `db/db.ts`, with the same reason.
+- **Input check:** the batch size, pause and timeout must be whole numbers (a batch of at least 1, a timeout of at least 1 ms), so a
+  bad option can never spin the loop. A repeat removes nothing more.
+- The entry comes off the debt list, which leaves 101. Two of those are what `maintenance.ts` still writes: drive samples and load
+  samples, both inside the sample roll-up.
+
+**Proven by:** `notify.test.ts` adds two tests:
+- five old notifications go in batches of two while the new one stays, and a repeat removes nothing;
+- seven bad option sets are refused with nothing removed.
+
+The existing retention, scale and service tests that call `pruneNotifications` pass unchanged, with the audit sweep and
+`import-cycles`: 76 of 76.
+
+**Red checks:**
+- Without the option check, the refusal test fails.
+- With the old statement back in `maintenance.ts`, `table-ownership.test.ts` fails with "services/maintenance.ts writes notifications
+  (owned by db/db.ts)".
 
 ---
 
