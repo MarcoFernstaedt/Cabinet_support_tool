@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D77. Old drive and load samples removed by drives.ts and cabinets.ts (2026-11-10)
+
+**What the code did:** `rollUpAndTrimSamples` in `services/maintenance.ts` wrote two tables it does not own:
+- **`drive_samples`** (owner `drives.ts`): it deleted a chunk of cabinets' samples older than the drive history, through `inBatches`.
+- **`health_samples`** (owner `cabinets.ts`): it deleted a chunk of cabinets' raw samples once they were folded into `health_hourly`,
+  in the same transaction as the fold.
+
+**The decision** (F21.R2, the D71 pattern, helpers from `db/batches.ts`):
+- **`drives.ts`** gets `pruneOldDriveSamples(db, cabinetIds, cutoff, o)`, which runs the same statement through `inBatches`. Every
+  batch that removes anything is audited as `retention.batch` for `drive_samples`, as before.
+- **`cabinets.ts`** gets `dropRolledUpHealthSamples(c, cabinetIds, before, o)`, which runs the same delete on the connection it is
+  given. The roll-up passes its transaction, so the fold and the delete still commit or roll back together.
+- **Unchanged:** the statements, the cut-offs (whole hours for the load samples), the chunks of 40 cabinets, the order, and the
+  `health_hourly` insert and trim, which `maintenance.ts` owns.
+- **Input check:** the cabinet ids must be a list of ids, and the time must be one that has already passed. The load-sample delete
+  also needs a whole-number timeout. Anything else is refused before the database is touched. An empty list does nothing.
+- **Safe to repeat:** a second run removes nothing more.
+- **No new cycle:** `import-cycles.test.ts` passes. `maintenance.ts` now imports `drives.ts` and `cabinets.ts`, and neither leads back.
+- Two entries come off the debt list, which leaves 99. With these, `maintenance.ts` writes no table it does not own.
+- **The audit sweep:** the listed exception for the load-sample delete moves to `cabinets.ts`, with the same reason. The one for the
+  drive-sample delete is dropped: the sweep counts a change run through `inBatches` with its audit argument as audited (D71).
+
+**Alternative.** Moving the whole roll-up to `cabinets.ts`. Rejected: `health_hourly` is the retention run's own table, and the fold
+and the trim are one retention step.
+
+**Proof.** `test/sample-retention.test.ts`: three tests (the drive batches and their audit rows, the load delete inside a transaction
+that rolls back, and 12 bad id lists, 6 bad times and 6 bad options refused with nothing removed). With the old `maintenance.ts` back,
+`table-ownership.test.ts` and `audit-sweep.test.ts` fail.
+
+---
+
 ## D76. Old notifications are removed by db.ts, their owner (2026-11-09)
 
 **What the code did:** `pruneNotifications` in `services/maintenance.ts` deleted notifications older than an hour, hourly and in the

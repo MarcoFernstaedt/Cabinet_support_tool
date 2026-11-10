@@ -7,6 +7,7 @@ import { inTransaction, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 import { assessDrive, daysUntilEmpty, higher, riskClass, slopePerDay, type Assessment, type DriveSample, type Level, type RiskClass } from "./trends.js";
 import { driveThresholds } from "./settings.js";
+import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 
 const FORECAST_CLEARED = "The system drive is no longer filling up.";
 
@@ -125,4 +126,18 @@ export async function drivesAtRisk(db: Queryable): Promise<AtRisk[]> {
       WHERE d.[level] <> 'ok' AND k.status = 'active'
       ORDER BY CASE d.[level] WHEN 'urgent' THEN 0 WHEN 'act' THEN 1 ELSE 2 END, c.name, s.name, k.name`)).rows;
   return rows.map(r => ({ cabinetId: r.id, cabinet: r.name, site: r.site, client: r.client, demo: r.demo, model: r.model, level: r.level, riskClass: riskClass(r.level), reasons: r.reasons.map(x => x.text), assessedAt: r.assessed_at.toISOString() }));
+}
+
+const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Removes these cabinets' drive samples older than the cut-off, in batches, each audited (F21.R2, decision-log D77). The nightly retention
+ * run calls it a chunk of cabinets at a time. The ids and the cut-off are checked before the database is touched.
+ */
+export async function pruneOldDriveSamples(db: Queryable, cabinetIds: readonly string[], cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
+  if (!Array.isArray(cabinetIds) || !cabinetIds.every(id => typeof id === "string" && CABINET_ID.test(id))) throw new Error("pruning drive samples needs a list of cabinet ids");
+  checkRetentionCutoff(cutoff);
+  if (cabinetIds.length === 0) return 0;
+  return inBatches(db, "DELETE TOP ($1) FROM drive_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [at] < $3",
+    [JSON.stringify(cabinetIds), cutoff], o, { table: "drive_samples", cutoff });
 }

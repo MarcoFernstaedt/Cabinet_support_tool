@@ -37,9 +37,8 @@ const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "services/error-trends.ts", has: "DELETE FROM error_daily WHERE [day] =", why: "a derived day of counts, replaced by its recomputation in the same statement" },
   { file: "services/error-trends.ts", has: "DELETE FROM issue_daily WHERE [day] =", why: "as above" },
   { file: "db/db.ts", has: "DELETE TOP ($1) FROM notifications", why: "wake-up signals between server processes, of no use after an hour; the nightly run is audited as retention.run with the count" },
-  { file: "services/maintenance.ts", has: "DELETE FROM health_samples", why: "raw samples folded into health_hourly in the same transaction; the run is audited as retention.run with the count" },
+  { file: "services/cabinets.ts", has: "DELETE FROM health_samples", why: "raw samples folded into health_hourly in the same transaction by the retention run, its only caller; the run is audited as retention.run with the count" },
   { file: "services/maintenance.ts", has: "DELETE TOP ($1) FROM health_hourly", why: "retention through inBatches, which audits every batch that removed anything (retention.batch)" },
-  { file: "services/maintenance.ts", has: "DELETE TOP ($1) FROM drive_samples", why: "as above" },
   { file: "services/ops-meter.ts", has: "DELETE FROM ops_counters", why: "operations counters past 90 days; the nightly run is audited as retention.run with the count" },
 ];
 

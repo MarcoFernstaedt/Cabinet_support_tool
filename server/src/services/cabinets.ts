@@ -222,3 +222,19 @@ export async function listCabinets(db: Queryable): Promise<CabinetSummary[]> {
       online: r.status === "active" && r.last_heartbeat_at !== null && Date.now() - r.last_heartbeat_at.getTime() < OFFLINE_AFTER_MS,
       lastHeartbeatAt: r.last_heartbeat_at, agentVersion: r.agent_version, architecture: r.architecture, hostname: r.hostname, readOnly: r.read_only }));
 }
+
+const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Removes these cabinets' raw health samples taken before `before`, once the caller has folded them into health_hourly in the same
+ * transaction (F21.R2, decision-log D77): the nightly retention run is the only caller, and audits the run as retention.run with the count.
+ * The ids and the time are checked before the database is touched.
+ */
+export async function dropRolledUpHealthSamples(c: Queryable, cabinetIds: readonly string[], before: Date, o: { timeoutMs: number }): Promise<number> {
+  if (!Array.isArray(cabinetIds) || !cabinetIds.every(id => typeof id === "string" && CABINET_ID.test(id))) throw new Error("dropping health samples needs a list of cabinet ids");
+  if (!(before instanceof Date) || Number.isNaN(before.getTime()) || before.getTime() > Date.now()) throw new Error("health samples are dropped only before a time that has already passed");
+  if (!Number.isSafeInteger(o?.timeoutMs) || o.timeoutMs < 1) throw new Error("dropping health samples needs a timeout in whole milliseconds");
+  if (cabinetIds.length === 0) return 0;
+  return (await c.query("DELETE FROM health_samples WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND [at] < $2",
+    [JSON.stringify(cabinetIds), before], { timeoutMs: o.timeoutMs })).rowCount ?? 0;
+}
