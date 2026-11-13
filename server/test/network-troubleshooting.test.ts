@@ -13,6 +13,7 @@ import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
+import type { NetworkBaseline } from "../src/diagnose/network-findings.js";
 import { ISSUE } from "../src/services/rules.js";
 import { runJob as runJobToEnd, startJob } from "../src/services/fleet-jobs.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
@@ -303,18 +304,29 @@ test("a diagnosis is shown as done only once its baseline alert is settled: a re
 
 // The permission a fleet job runs under is re-read for every batch, so taking a person's role away stops the rest of the job
 // instead of letting it keep sending (docs/spec/02-security-model.md, roles; the batch check in services/fleet-jobs.ts).
-const dnsFixTargets = async (t1: Account) => {
-  const b = await runBatch(t1, { siteId: await siteOf("Dallas") });
+// Three Dallas cabinets put back into a wrong-DNS state and then diagnosed. A fleet change of this kind must come from a current
+// diagnosis, and earlier tests in this file repair Dallas, so a test here may not depend on the state it inherits: it sets the
+// state it needs. The cabinets' own reported settings are what the diagnosis reads.
+const dnsTargets = async () => {
+  const site = await siteOf("Dallas");
+  const baseline = (await db.app.query<{ network_baseline: NetworkBaseline }>("SELECT s.network_baseline FROM sites s WHERE s.id = $1", [site])).rows[0]!.network_baseline;
+  // The site's own address space: a cabinet put outside it would be diagnosed with a subnet problem instead of the DNS one the job fixes.
+  const subnet = baseline.gateway!.split(".").slice(0, 3).join(".");
+  const rows = (await db.app.query<{ id: string }>("SELECT TOP 3 id FROM cabinets WHERE site_id = $1 AND demo_scenario IS NOT NULL ORDER BY name", [site])).rows;
+  assert.equal(rows.length, 3, "three Dallas cabinets to aim the job at");
+  for (const [i, r] of rows.entries())
+    await db.app.query("UPDATE cabinets SET demo_scenario = 'net_dns_wrong', demo_net = $2 WHERE id = $1", [r.id, JSON.stringify(initialNet("net_dns_wrong", baseline, subnet, i))]);
+  const b = await runBatch(await account("tier2"), { siteId: site });
   const g = b.groups.find((x: { key: string }) => x.key === "baseline-dns|set_dns");
   assert.ok(g, JSON.stringify(b.groups.map((x: { key: string }) => x.key)));
-  const ids = g.targets.map((x: { cabinetId: string }) => x.cabinetId);
-  assert.equal(ids.length, 3, "three Dallas cabinets need the fix");
+  const ids = g.targets.map((x: { cabinetId: string }) => x.cabinetId).slice(0, 3);
+  assert.equal(ids.length, 3, "three cabinets for the job to work through");
   return ids;
 };
 
 test("a job whose starter is demoted before its first batch sends nothing at all", async () => {
-  const t1 = await account("tier1"), t2 = await account("tier2");
-  const ids = await dnsFixTargets(t1);
+  const t2 = await account("tier2");
+  const ids = await dnsTargets();
   const jobId = randomUUID(), batchSize = 1;
   await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
     stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
@@ -328,7 +340,7 @@ test("a job whose starter is demoted before its first batch sends nothing at all
 
 test("a demotion between two batches stops the rest, and the batch already sent still finishes", async () => {
   const t1 = await account("tier1"), t2 = await account("tier2");
-  const ids = await dnsFixTargets(t1);
+  const ids = await dnsTargets();
   const jobId = randomUUID(), batchSize = 1;
   await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
     stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
