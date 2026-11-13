@@ -203,6 +203,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "This request placed the same cabinet in more than one site.",
     fix: "Pick a single site and try again.",
   },
+  preview_changed: {
+    title: "The plan changed since the preview",
+    detail: "Something about the chosen cabinets changed after you previewed the job, so nothing was sent.",
+    fix: "Preview the job again, check the new plan, then confirm it.",
+  },
   name_taken: {
     title: "Name already in use",
     detail: "Another cabinet, site or group has this name.",
