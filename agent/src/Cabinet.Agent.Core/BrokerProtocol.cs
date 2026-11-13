@@ -59,7 +59,7 @@ public sealed class BrokerRequestHandler
     /// <summary>The only operations the broker performs: reads that need administrator rights, and every write. Must match the schema's list.</summary>
     public static readonly IReadOnlyList<string> Operations = new[]
     {
-        Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
+        Catalog.EventlogChannels, Catalog.EventlogQuery, Catalog.BootHistory, Catalog.CrashList, Catalog.StorageHealth, Catalog.EventlogGet, Catalog.UpdatesStatus, Catalog.DiskSmart, Catalog.FilesList,
         Catalog.NetworkSetIp, Catalog.NetworkSetDns, Catalog.FirewallSetProfile, Catalog.FirewallApplyPolicy, Catalog.FirewallSetRule, Catalog.FirewallRestore,
         Catalog.PackageInstall, Catalog.DriverUninstall, Catalog.UpdatesUninstall,
         Catalog.ServicesList, Catalog.ProcessesList, Catalog.SystemPerformance, Catalog.NetworkListeners, Catalog.ServiceControl, Catalog.ServiceSetStartType,
