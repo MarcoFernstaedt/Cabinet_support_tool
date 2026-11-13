@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { CONTROL_ACTIONS, CONTROL_AUDIT_ACTION, CONTROL_CODES, MAX_ATTEMPTED, PROCESS_END_STEP_UP, SERVICE_CONTROL_STEP_UP,
   boundParams, controlApproved, type ControlEffects, type ControlRequest } from "../src/services/app-control.js";
 import { appsHash, normalizeEntries, rawEntry, resolveLevels, type ApprovedApp } from "../src/services/approved-apps.js";
-import { listProblem } from "../src/services/controlled-targets.js";
+import { assertApprovedTarget, listProblem } from "../src/services/controlled-targets.js";
 import { Refused } from "../src/services/errors.js";
 import type { AuditEntry, Queryable } from "../src/db/db.js";
 import type { Command } from "../src/contracts.js";
@@ -241,6 +241,29 @@ test("a process ID is a pointer into the cabinet's own report, never a target", 
     USER, { cabinetId: CABINET, entryKey: "app:spooler", action: "end", processId: 1, stepUpToken: TOKEN }, svcEnd.effects);
   assert.deepEqual([svc.operation, svc.target], ["process.end", { processId: 1, name: "spoolsv" }]);
   assert.equal((svcEnd.calls.row[0]!.details as Record<string, unknown>).kind, "service");
+});
+
+test("a process name is compared the way Windows compares it, whatever case the cabinet reports", async () => {
+  // The command path the console and the CLI use carries a name as well as an ID (assertApprovedTarget), and Windows
+  // compares process names without regard to case: a real desktop reports "Notepad.exe" while a caller may write
+  // "notepad.exe". This was a live defect on a real cabinet - a correct process ID was refused as "no such process ID
+  // with that name" and no command was ever issued - because every fixture here spelled both sides lower case.
+  const reported = [{ processId: 9, name: "Dispenser.exe", executablePath: DISPENSER.path }];
+  const db = fakeDb({ processes: { processes: reported } });
+  await assertApprovedTarget(db, CABINET, "process.end", { processId: 9, name: "dispenser.exe" });
+  await assertApprovedTarget(db, CABINET, "process.end", { processId: 9, name: "DISPENSER.EXE" });
+  // Case is the only thing ignored: another program under that ID, and that name under another ID, are both refused.
+  for (const params of [{ processId: 9, name: "elsewhere.exe" }, { processId: 8, name: "Dispenser.exe" }]) {
+    await assert.rejects(assertApprovedTarget(db, CABINET, "process.end", params), (e: unknown) => {
+      assert.equal((e as Refused).code, CONTROL_CODES.processUnreported);
+      assert.equal((e as Refused).status, 404);
+      return true;
+    });
+  }
+  // The approved entry's path is what decides whether the program may be controlled; the name is only the pointer.
+  const noPath = fakeDb({ processes: { processes: [{ processId: 9, name: "Dispenser.exe", executablePath: null }] } });
+  await assert.rejects(assertApprovedTarget(noPath, CABINET, "process.end", { processId: 9, name: "dispenser.exe" }),
+    (e: unknown) => (e as Refused).code === CONTROL_CODES.processNotApproved);
 });
 
 test("the confirmation is bound to this exact entry, action and cabinet", async () => {

@@ -96,7 +96,11 @@ export async function assertApprovedTarget(db: Queryable, cabinetId: string, ope
   const reported = await reportedProcesses(db, cabinetId);
   if (!reported) throw new Refused("control_process_no_reading", 409, "this cabinet has never reported its processes, so the process cannot be checked against its approved list");
   const row = reported.processes.find(p => p.processId === params.processId);
-  if (!row || row.name !== params.name)
+  // Windows reports a program's name in whatever case that program chose - a desktop reports "Notepad.exe" - and Windows
+  // itself compares process names without regard to case, so this does too (the approved entry's path below is what
+  // decides whether the program may be controlled).
+  const name = typeof params.name === "string" ? params.name.toLowerCase() : "";
+  if (!row || row.name.toLowerCase() !== name)
     throw new Refused("control_process_unreported", 404, "the cabinet's own process list has no such process ID with that name");
   // Windows compares paths without regard to case, and so does the cabinet (ApprovedApps.ForProgram).
   const reportedPath = row.executablePath?.toLowerCase() ?? null;
