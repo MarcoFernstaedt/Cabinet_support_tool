@@ -5,7 +5,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { randomBytes, randomUUID } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { hashPassword } from "../src/auth/passwords.js";
 import { SecretBox } from "../src/auth/secrets.js";
 import * as totp from "../src/auth/totp.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
@@ -18,20 +22,27 @@ let db: TestDatabase;
 test.before(async () => { db = await createTestDatabase(); });
 test.after(async () => { await db.drop(); });
 
-function cli(...args: string[]) {
-  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, DATABASE_URL: db.appUrl, CONSOLE_SECRET_KEY: KEY };
+/**
+ * Each session gets a file of its own, so one test's sign-in can never authorise another test's command; the default path is one
+ * nothing writes, which is "not signed in". Every test that does not sign in therefore exercises the --code path alone.
+ */
+const SESSION_DIR = mkdtempSync(join(tmpdir(), "cabinet-cli-sessions-"));
+function run(session: string, ...args: string[]) {
+  const env: NodeJS.ProcessEnv = { PATH: process.env.PATH, DATABASE_URL: db.appUrl, CONSOLE_SECRET_KEY: KEY,
+    CABINET_CLI_SESSION_FILE: join(SESSION_DIR, session) };
   const r = spawnSync(process.execPath, [CLI, ...args], { encoding: "utf8", env });
   return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
+const cli = (...args: string[]) => run("not-signed-in", ...args);
 
-/** An active user with an authenticator; returns their id and secret. */
-async function person(username: string, role: "tier1" | "tier2" | "admin", authenticator = true) {
-  const id = randomUUID(), secret = totp.newSecret();
+/** An active user with an authenticator, whose password does not have to be changed any more; returns their id and secret. */
+async function person(username: string, role: "tier1" | "tier2" | "admin", authenticator = true, password = "x", mustChange = false) {
+  const id = randomUUID(), secret = totp.newSecret(), hash = await hashPassword(password);
   if (authenticator)
-    await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, totp_enabled, totp_secret_enc) VALUES ($1, $2, $3, $4, 'x', 1, $5)`,
-      [id, username, username, role, box.seal(secret)]);
-  else await db.app.query(`INSERT INTO users (id, username, name, role, password_hash) VALUES ($1, $2, $3, $4, 'x')`, [id, username, username, role]);
-  return { id, secret };
+    await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, totp_enabled, totp_secret_enc, must_change_password) VALUES ($1, $2, $3, $4, $5, 1, $6, $7)`,
+      [id, username, username, role, hash, box.seal(secret), mustChange ? 1 : 0]);
+  else await db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, $6)`, [id, username, username, role, hash, mustChange ? 1 : 0]);
+  return { id, secret, password };
 }
 const codeNow = (secret: Buffer, offset = 0) => totp.code(secret, totp.stepAt(Date.now()) + offset);
 const audits = async (actorId: string, action: string) => (await db.app.query<{ outcome: string; details: Record<string, unknown> }>(
@@ -108,4 +119,67 @@ test("the code is the named person's own: another person's code, a lower role, o
 test("read-only commands need no code", () => {
   const r = cli("pending");
   assert.equal(r.status, 0, r.out);
+});
+
+test("signing in once is what gets a person in: their later commands need no code at all", async () => {
+  const a = await person("cli.session1", "admin", true, "correct-horse-battery");
+  const before = await tokens();
+  const signedIn = run("session1", "sign-in", "--as", "cli.session1", "--password", "correct-horse-battery", "--code", codeNow(a.secret));
+  assert.equal(signedIn.status, 0, signedIn.out);
+  assert.match(signedIn.out, /signed in as cli\.session1/);
+  assert.equal(statSync(join(SESSION_DIR, "session1")).mode & 0o777, 0o600, "only that person can read the file");
+  const r = run("session1", "token", "create", "--as", "cli.session1");
+  assert.equal(r.status, 0, r.out);
+  assert.equal(await tokens(), before + 1);
+  const rows = await audits(a.id, "cli.authenticate");
+  assert.deepEqual(rows.map(x => [x.outcome, x.details.via, x.details.proof]), [["succeeded", "cli", "session"]]);
+  const signs = await audits(a.id, "cli.sign-in");
+  assert.deepEqual(signs.map(x => [x.outcome, x.details.proof]), [["succeeded", "password+authenticator"]]);
+});
+
+test("a session names one person: it cannot authorise a command for somebody else", async () => {
+  const a = await person("cli.session2", "admin", true, "pw-two");
+  void await person("cli.other2", "admin");
+  assert.equal(run("session2", "sign-in", "--as", "cli.session2", "--password", "pw-two", "--code", codeNow(a.secret)).status, 0);
+  const r = run("session2", "token", "create", "--as", "cli.other2");
+  assert.equal(r.status, 2, r.out);
+  assert.match(r.out, /sign in as cli\.other2/);
+});
+
+test("the wrong password or the wrong code signs nobody in, and leaves no session behind", async () => {
+  const a = await person("cli.session3", "admin", true, "pw-three");
+  assert.equal(run("session3", "sign-in", "--as", "cli.session3", "--password", "not-the-password", "--code", codeNow(a.secret)).status, 2);
+  assert.equal(existsSync(join(SESSION_DIR, "session3")), false);
+  assert.equal(run("session3", "sign-in", "--as", "cli.session3", "--password", "pw-three", "--code", "000000").status, 2);
+  assert.equal(existsSync(join(SESSION_DIR, "session3")), false);
+  const refusals = (await audits(a.id, "cli.sign-in")).filter(x => x.outcome === "refused").length;
+  assert.equal(refusals, 2, "both refusals are on the chain");
+  assert.equal(run("session3", "token", "create", "--as", "cli.session3").status, 2, "and a command with no session still needs a code");
+});
+
+test("sign-out ends the session on the server, so a copy of the file is worth nothing", async () => {
+  const a = await person("cli.session4", "admin", true, "pw-four");
+  assert.equal(run("session4", "sign-in", "--as", "cli.session4", "--password", "pw-four", "--code", codeNow(a.secret)).status, 0);
+  const kept = readFileSync(join(SESSION_DIR, "session4"), "utf8").trim();
+  assert.equal(run("session4", "sign-out").status, 0);
+  assert.equal(existsSync(join(SESSION_DIR, "session4")), false);
+  assert.equal(Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM sessions WHERE user_id = $1", [a.id])).rows[0]!.n), 0, "the session row is gone");
+  writeFileSync(join(SESSION_DIR, "session4"), `${kept}\n`, { mode: 0o600 });
+  assert.equal(run("session4", "token", "create", "--as", "cli.session4").status, 2, "and putting the id back does not bring it back");
+});
+
+test("an account that has not set its authenticator up finishes that in the console first", async () => {
+  await person("cli.session5", "admin", false, "pw-five");
+  const r = run("session5", "sign-in", "--as", "cli.session5", "--password", "pw-five");
+  assert.equal(r.status, 2, r.out);
+  assert.match(r.out, /console/);
+  assert.equal(existsSync(join(SESSION_DIR, "session5")), false);
+});
+
+test("an account still holding a temporary password changes it in the console first", async () => {
+  const a = await person("cli.session6", "admin", true, "pw-six", true);
+  const r = run("session6", "sign-in", "--as", "cli.session6", "--password", "pw-six", "--code", codeNow(a.secret));
+  assert.equal(r.status, 2, r.out);
+  assert.match(r.out, /password_change/);
+  assert.equal(existsSync(join(SESSION_DIR, "session6")), false);
 });

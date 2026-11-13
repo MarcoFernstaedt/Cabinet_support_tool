@@ -69,11 +69,19 @@ The agent can change things on client machines, so the whole system is a potenti
 - Since milestone 9, confirmation is matched to risk (12-milestones-8-to-12.md "Confirmation levels"): quick, self-healing single-cabinet fixes need a confirmation click; rare or stranding single-cabinet writes, every rule change and every admin action need a fresh authenticator code; any change to more than one cabinet needs the person's password again.
 - A successful step-up produces a token bound to that one action, its target and the exact parameters, valid for 2 minutes. It cannot be reused.
 - **The operator command line.** Access to the server's shell is not authority. Every `platform-admin` command that changes something takes
-  `--as <username> --code <6 digits>`: the code from that person's own authenticator, checked as a step-up is. A code is used once (its
-  step is claimed atomically, shared with the console), a locked account is refused, a missing or malformed code is refused before any check, and a wrong or reused
-  code counts toward the same lock as the console's step-up failures (five lock the account for 15 minutes and raise a security alert). Every attempt it checks a code for, passed or refused, is audited as `cli.authenticate` with `via: "cli"` and
-  `proof: "authenticator"`; an attempt refused before that (no `--as`, a missing or malformed code, an unknown name, a role below the command's, no
-  authenticator set up, an account still locked) is refused with nothing on the audit chain. Commands that only read take no `--as`.
+  `--as <username>` and is authorised by one of two proofs that name that person. Either the session they signed in with
+  (`platform-admin sign-in --as u --password <their password> [--code <6 digits>]`, kept in a file only that person can read, expanding on
+  activity and expiring on the same idle and absolute windows as a browser session, and ended on the server as well as locally by `sign-out`),
+  or `--code <6 digits>` from that person's own authenticator, checked as a step-up is: a code is used once (its step is claimed atomically,
+  shared with the console), a locked account is refused, a missing or malformed code is refused before any check, and a wrong or reused
+  code counts toward the same lock as the console's step-up failures (five lock the account for 15 minutes and raise a security alert).
+  Signing in takes the person's password and, whenever they have one, their authenticator code; an account with no authenticator set up, or
+  one still holding a temporary password, is not signed in by the command line at all and finishes that in the console, so nobody reaches
+  the command line without having set one up. The code is what gets a person into the platform; it is not asked for again on each write.
+  Every attempt it authorises is audited as `cli.authenticate` with `via: "cli"` and `proof: "session"` or `"authenticator"`, and every
+  sign-in as `cli.sign-in`; an attempt refused before either proof is checked (no `--as`, a missing or malformed code, an unknown name, a
+  role below the command's, no authenticator set up, an account still locked) is refused with nothing on the audit chain. Commands that only
+  read take no `--as`.
   The one exception is the first Admin: `user add` runs without `--as` only while no active Admin exists (the install), and that row is
   audited with `bootstrap: true`; afterwards creating a user needs an Admin's code like any other change.
 
