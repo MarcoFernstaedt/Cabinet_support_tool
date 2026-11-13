@@ -10,7 +10,7 @@ Estimates for 8,000 to 10,000 cabinets, October 2026. Prices are typical list pr
 | Database licence | SQL Server **Express** (free), 10 GB limit; the first year at 10,000 cabinets is about 9.2 GB with 90-day events | No licence cost. At about 70% (8 months) plan the move below |
 | Bandwidth | About 3 MB a cabinet a day in total (1.6 MB up, 1.5 MB down), measured | 10,000 cabinets: about 30 GB a day, about 1 TB a month. Most VPS plans include this |
 | Alerts and email | No email or outbound notifications are sent | None |
-| Storage for backups | A database of about 10 GB compresses to a few GB | A few GB of object storage |
+| Storage for backups | Express writes uncompressed SQL backups; gpg may compress during encryption, but the resulting size must be measured | Budget for 14 retained full backups plus an off-host copy |
 | Agent signing | A code-signing certificate is needed for production agents | The one fixed yearly cost outside hosting |
 | People | Support staff use the console; there are no per-user fees | None |
 

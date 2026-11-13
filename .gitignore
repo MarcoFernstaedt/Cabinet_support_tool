@@ -77,3 +77,8 @@ deploy/compose.override.yaml
 deploy/Caddyfile.local
 # Load harness reports and server logs (server/test/load/run.sh)
 server/load-results/
+
+# Real deployment environment files at any depth; templates contain placeholders only.
+deploy/**/*.env
+deploy/env/*.env
+!deploy/**/*.env.example

@@ -8,7 +8,7 @@ What is encrypted, where, and what to do about the one gap: SQL Server Express c
 | Console to server | HTTPS (Caddy), `__Host-` HttpOnly Secure SameSite=Strict cookie, strict CSP | Built |
 | Server to database | Encrypted connection to SQL Server (`encrypt=true`). In the deployment kit the server certificate is not verified (`trustServerCertificate=true`) because the database is only reachable on the private compose network | Built; verify the certificate if the database is ever on another machine |
 | Passwords and authenticator secrets | Password hashes only; authenticator secrets sealed with a server key; no secret in logs | Built |
-| Database backups | AES-256 (gpg), key in `/root/.cabinet-backup-key`, plain copies deleted, `RESTORE VERIFYONLY` first | Built (`deploy/backup.sh`) |
+| Database backups | AES-256 (gpg), key in `/root/.cabinet-backup-key`, plain copies deleted, `RESTORE VERIFYONLY` first | Implemented (`deploy/backup.sh`); Express omits compression. Install cron with `deploy/install-backup-cron.sh` and verify a successful backup |
 | **Live data files** (database, CA private key, packages, releases) | **Encrypt the volume that holds them**; see below | Do at install |
 | Evidence package exports | Optional passphrase encryption (AES-256-GCM, scrypt key) | See "Encrypted exports" |
 
