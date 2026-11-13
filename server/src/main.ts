@@ -34,7 +34,7 @@ import { checkQuietLoops } from "./services/crashes.js";
 import { sweepCrashIncidents } from "./services/crash-incidents.js";
 import { sweepHealth } from "./services/cabinet-health.js";
 import { leased, takeLease } from "./services/job-lease.js";
-import { resumeJobs } from "./services/fleet-jobs.js";
+import { scheduleFleetRecovery } from "./services/fleet-jobs.js";
 import { startDueReapplies } from "./services/replacement-reapply.js";
 
 import cluster from "node:cluster";
@@ -156,7 +156,7 @@ if (runsJobs) {
   demo.start();
 
   // Fleet jobs that were running when the server stopped carry on where they left off.
-  void leased(jobs, "jobs.resume-fleet-jobs", 600_000, () => resumeJobs(jobs, undefined, message => logError(message)))().catch(failed("resuming fleet jobs"));
+  const stopFleetRecovery = scheduleFleetRecovery(jobs, undefined, message => logError(message));
   // A replacement's settings are put back once its new agent reports; one that was running when the server stopped carries on.
   const reapply = leased(jobs, "jobs.reapply", 45_000, () => startDueReapplies(jobs, undefined, message => logError(message)));
   const reapplyJob = setInterval(() => { void reapply().catch(failed("replacement re-apply")); }, 15_000);
@@ -167,7 +167,7 @@ if (runsJobs) {
   // Database size, free disk, backup age and CA expiry: one open operations alert per kind, shown in the console (no outbound notification).
   const stopOpsChecks = scheduleOpsChecks(jobs, message => logError(message), { caCertificatePem: key.certificatePem }, 600_000, lease("jobs.ops-checks", 1_500_000));
   const stopTrends = scheduleTroubleshootingJobs(jobs, message => logError(message), { at: config.maintenanceAt, runIf: lease("jobs.error-trends", 6 * 3_600_000) });
-  stopServices = () => { clearInterval(offlineJob); clearInterval(reapplyJob); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
+  stopServices = () => { clearInterval(offlineJob); clearInterval(reapplyJob); stopFleetRecovery(); demo.stop(); stopDaily(); stopOpsChecks(); stopTrends(); };
 }
 
 // On shutdown every held poll is answered with a reconnectAfterMs spread over a minute, so the restart does not bring every

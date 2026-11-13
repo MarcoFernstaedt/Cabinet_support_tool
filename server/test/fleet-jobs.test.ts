@@ -15,7 +15,10 @@ import { issueStepUpToken } from "../src/auth/stepup.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
+import * as fleetJobs from "../src/services/fleet-jobs.js";
 import { preview, resumeJobs, runJob, startJob } from "../src/services/fleet-jobs.js";
+import { takeLease } from "../src/services/job-lease.js";
+import type { Pool, Tx } from "../src/db/db.js";
 import { ISSUE } from "../src/services/rules.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -342,3 +345,104 @@ for (const size of [10, 60, 100])
     assert.equal((j.counts.verified ?? 0) + (j.counts.skipped ?? 0) + (j.counts.failed ?? 0), ids.length, JSON.stringify(j.counts));
     console.log(`# scale ${size}: ${ids.length} cabinets, ${JSON.stringify(j.counts)}, ${Date.now() - started} ms`);
   });
+
+test("two instances have one fleet job lifecycle owner", async () => {
+  // A separately loaded module has its own process-local Set, as a second server would.
+  const second = await import(`../src/services/fleet-jobs.js?instance=${randomUUID()}`) as typeof import("../src/services/fleet-jobs.js");
+  const t1 = await account("tier1");
+  const [quiet] = await scenarioIds("incident_loop");
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [quiet]);
+  const cabinetIds = [quiet!], jobId = randomUUID();
+  const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", cabinetIds)).planDigest;
+  const token = await confirm(t1, jobId, { operation: "time.sync", cabinetIds, batchSize: 1 });
+  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds, batchSize: 1, planDigest, stepUpToken: token });
+
+  let entered!: () => void, release!: () => void;
+  const atFollowUp = new Promise<void>(r => { entered = r; });
+  const gate = new Promise<void>(r => { release = r; });
+  let paused = false, expired = false, staleWrites = 0, secondReads = 0;
+  // Pause A after a committed follow-up read, with no database lock held. Instrument both the
+  // pool and its transactions so this observes the original runner and the fenced runner alike.
+  const instancePool = (who: "a" | "b") => {
+    const observe = (text: string) => {
+      if (who === "a" && expired && /UPDATE fleet_job_targets|UPDATE fleet_jobs/.test(text)) staleWrites++;
+      const followUp = text.includes("FROM commands WHERE id IN");
+      if (who === "b" && followUp) secondReads++;
+      return followUp && who === "a" && !paused;
+    };
+    const pause = async () => { paused = true; entered(); await gate; };
+    const query: Pool["query"] = async (text, params, options) => {
+      const block = observe(text);
+      const result = await db.app.query(text, params, options);
+      if (block) await pause();
+      return result;
+    };
+    const transaction: Pool["transaction"] = async fn => {
+      let block = false;
+      const result = await db.app.transaction(c => fn(new Proxy(c, { get(target, key) {
+        if (key === "query") return (text: string, params?: readonly unknown[]) => {
+          block = observe(text) || block;
+          return target.query(text, params);
+        };
+        return Reflect.get(target, key);
+      } }) as Tx));
+      if (block) await pause();
+      return result;
+    };
+    return new Proxy(db.app, { get(target, key) {
+      if (key === "query") return query;
+      if (key === "transaction") return transaction;
+      return Reflect.get(target, key);
+    } });
+  };
+  const logs: string[] = [];
+  const first = runJob(instancePool("a"), jobId, TIMING, m => logs.push(m));
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([atFollowUp, new Promise<never>((_, reject) => { timeout = setTimeout(() => reject(new Error("owner never reached follow-up")), 10_000); })]);
+    clearTimeout(timeout);
+    // Make a competing unfenced runner terminate promptly, rather than waiting for command expiry.
+    await db.app.query("UPDATE commands SET status = 'expired' WHERE bulk_id = $1 AND status = 'queued'", [jobId]);
+    await second.runJob(instancePool("b"), jobId, TIMING);
+    assert.equal(secondReads, 0, "B cannot follow up A's issued target while A owns the lifecycle");
+    await db.app.query("UPDATE job_leases SET until = DATEADD(second, -1, SYSUTCDATETIME()) WHERE name = $1", [`fleet.job.${jobId}`]);
+    expired = true;
+    await second.runJob(instancePool("b"), jobId, TIMING);
+    assert.ok(secondReads > 0, "B takes ownership after A's lease expires");
+    release();
+    await first;
+    assert.equal(staleWrites, 0, "the expired owner cannot mutate targets or finish the job");
+    assert.ok(logs.some(m => /ownership expired or was lost/.test(m)), JSON.stringify(logs));
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'fleet.job.finish' AND target_id = $1", [jobId])).rows[0]!.n, 1);
+  } finally {
+    clearTimeout(timeout);
+    release();
+    await first;
+    await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -20, SYSUTCDATETIME()) WHERE id = $1", [quiet]);
+  }
+});
+
+test("startup retries fleet recovery after another holder lease expires", async () => {
+  const t1 = await account("tier1");
+  const cabinetIds = await siteCabinets(await harborSite(), 1), jobId = randomUUID();
+  const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", cabinetIds)).planDigest;
+  const token = await confirm(t1, jobId, { operation: "time.sync", cabinetIds, batchSize: 1 });
+  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds, batchSize: 1, planDigest, stepUpToken: token });
+  assert.equal(await takeLease(db.app, "jobs.resume-fleet-jobs", 600_000, "previous-startup"), true);
+  // The startup lease expires first; the prior per-job owner can still be alive.
+  assert.equal(await takeLease(db.app, `fleet.job.${jobId}`, 60_000, "previous-runner"), true);
+  // Namespace lookup keeps this test runnable against the pre-fix module for the red/green proof.
+  const schedule = (fleetJobs as unknown as { scheduleFleetRecovery?: (pool: Pool, timing: typeof TIMING, log: (m: string) => void, intervalMs: number) => () => void }).scheduleFleetRecovery;
+  assert.equal(typeof schedule, "function", "startup must install periodic fleet recovery acquisition");
+  const stop = schedule!(db.app, TIMING, () => {}, 40);
+  try {
+    await new Promise(r => setTimeout(r, 150));
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n, 0);
+    await db.app.query("UPDATE job_leases SET until = DATEADD(second, -1, SYSUTCDATETIME()) WHERE name = 'jobs.resume-fleet-jobs'");
+    await new Promise(r => setTimeout(r, 150));
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n, 0, "startup recovery also respects the live per-job owner");
+    await db.app.query("UPDATE job_leases SET until = DATEADD(second, -1, SYSUTCDATETIME()) WHERE name = $1", [`fleet.job.${jobId}`]);
+    const result = await waitDone(t1, jobId);
+    assert.deepEqual(result.counts, { verified: 1 });
+  } finally { stop(); }
+});

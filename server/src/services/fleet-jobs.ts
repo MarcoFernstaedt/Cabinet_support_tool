@@ -6,6 +6,7 @@
 // operation, cabinets, batch size and preview digest; at most 200 cabinets; the whole job counts as one write against the person's limit.
 // Sync cabinets go last, in batches of their own, and only once every satellite in the job checked out: a change that breaks a
 // sync cabinet cuts off every satellite at its site, so it is never made while a satellite's result is in doubt (the owner's decision, 8e).
+import { ownedPool, takeLease } from "./job-lease.js";
 import { parseJson } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { catalog, operations } from "../contracts.js";
@@ -191,11 +192,20 @@ export async function startJob(pool: Pool, user: { userId: string; role: Role },
 const running = new Set<string>();
 const sleep = (ms: number) => new Promise(res => setTimeout(res, ms));
 
-/** Runs (or resumes, after a restart) one job to its end. Safe to call twice: a job runs once per process. */
-export async function runJob(pool: Pool, jobId: string, timing: Timing = DEFAULT_TIMING, log: (m: string) => void = () => {}): Promise<void> {
+const JOB_LEASE_MS = 30_000;
+const jobLeaseName = (id: string) => `fleet.job.${id}`;
+
+/** Runs one job to its end, only while holding its database lease, for route and recovery callers alike. */
+export async function runJob(pool: Pool, jobId: string, timing: Timing = DEFAULT_TIMING, log: (m: string) => void = () => {}, acquired: () => void = () => {}): Promise<void> {
   if (running.has(jobId)) return;
   running.add(jobId);
   try {
+    // A fresh token for every attempt fences even an old invocation in this same process after expiry.
+    const holder = randomUUID();
+    const name = jobLeaseName(jobId);
+    if (!(await takeLease(pool, name, JOB_LEASE_MS, holder))) return;
+    acquired();
+    pool = ownedPool(pool, name, holder, JOB_LEASE_MS);
     const job = (await pool.query<{ operation: JobOperation; created_by: string; batch_size: number; state: string; role: Role }>(
       "SELECT j.operation, j.created_by, j.batch_size, j.state, u.role FROM fleet_jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $1", [jobId])).rows[0];
     if (!job || job.state !== "running") return;
@@ -415,6 +425,37 @@ export async function resumeJobs(pool: Pool, timing: Timing = DEFAULT_TIMING, lo
   const ids = (await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running'")).rows.map(r => r.id);
   for (const id of ids) void runJob(pool, id, timing, log);
   return ids.length;
+}
+
+/** Retry startup acquisition, not failed work. Snapshot running jobs once the legacy startup lease is acquired;
+ * retry each snapshot job only until a runner owns it. Cancelled jobs and failed runners retain existing recovery behaviour. */
+export function scheduleFleetRecovery(pool: Pool, timing: Timing = DEFAULT_TIMING, log: (m: string) => void = () => {}, intervalMs = 10_000): () => void {
+  let pending: Set<string> | undefined;
+  let busy = false;
+  let stopped = false;
+  const inFlight = new Set<string>();
+  const tick = async () => {
+    if (busy || stopped) return;
+    busy = true;
+    try {
+      if (!pending) {
+        if (!(await takeLease(pool, "jobs.resume-fleet-jobs", 600_000))) return;
+        pending = new Set((await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running'")).rows.map(r => r.id));
+      }
+      if (stopped) return;
+      for (const id of pending) {
+        if (inFlight.has(id)) continue;
+        inFlight.add(id);
+        void runJob(pool, id, timing, log, () => { pending!.delete(id); })
+          .finally(() => { inFlight.delete(id); });
+      }
+      if (pending.size === 0) clearInterval(timer);
+    } catch (e) { log(`fleet recovery acquisition stopped: ${(e as Error).message}`); }
+    finally { busy = false; }
+  };
+  const timer = setInterval(() => { void tick(); }, intervalMs);
+  void tick();
+  return () => { stopped = true; clearInterval(timer); };
 }
 
 /** Stops a job before its next batch (a batch already sent finishes). The person who started it, or an Admin. */
