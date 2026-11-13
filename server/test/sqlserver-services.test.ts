@@ -152,7 +152,7 @@ test("accounts: create, duplicate username, last admin, deleted usernames, role 
     users.createUser(db.app, boss, { username: "racer", name: "R", role: "tier1" }, await token(boss, "user.create", "fleet"))));
   assert.equal(racers.filter(r => r.status === "fulfilled").length, 1, "two Admins adding one username: one wins");
   assert.equal((await q("SELECT COUNT(*) AS n FROM users WHERE username = 'racer'")).rows[0].n, 1);
-  await refused(users.createUser(db.app, boss, { username: "bad name'; --", name: "R", role: "tier1" }, await token(boss, "user.create", "fleet")).catch(e => { throw e instanceof Refused ? e : new Refused("db_refused", 400, "check constraint"); }), "db_refused");
+  await refused(users.createUser(db.app, boss, { username: "bad name'; --", name: "R", role: "tier1" }, await token(boss, "user.create", "fleet")), "username_invalid");
   // Only Admin: the last one cannot go.
   await asOwner(db, k => k.query("UPDATE users SET status = 'disabled' WHERE role = 'admin' AND id <> $1", [boss]));
   await refused(users.updateUser(db.app, boss, boss, { status: "disabled" }, await token(boss, "user.update", boss)), "not_yourself");

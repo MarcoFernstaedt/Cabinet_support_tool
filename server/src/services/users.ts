@@ -45,6 +45,9 @@ export async function listUsers(db: Queryable, includeDeleted = false) {
 /** Changes to accounts are serialized by this name (it was a PostgreSQL advisory lock). */
 const ACCOUNTS_LOCK = "cabinet-diagnostics.accounts";
 
+/** The one username rule: the admin console's form pattern, the table's check, and this all say the same thing. */
+const USERNAME_PATTERN = /^[a-z0-9._-]{2,64}$/;
+
 const temporaryPassword = () => randomBytes(12).toString("base64url");
 
 interface Target { id: string; username: string; role: Role; status: string; totp_enabled: boolean; }
@@ -67,6 +70,9 @@ async function keepAnAdmin(c: Queryable, t: Target, stillAdmin: boolean): Promis
 }
 
 export async function createUser(pool: Pool, adminId: string, u: { username: string; name: string; role: Role; writeLimit?: number }, stepUpToken: string) {
+  // The console's form uses the same rule. Refusing here means a mistyped username is an answer the Admin can act on,
+  // rather than the table's check-constraint error reaching them (D57).
+  if (!USERNAME_PATTERN.test(u.username)) throw new Refused("username_invalid", 422, "a username is 2 to 64 characters: lower-case letters, digits, dot, dash or underscore");
   const temporary = temporaryPassword();
   const hash = await hashPassword(temporary);
   const id = randomUUID();
