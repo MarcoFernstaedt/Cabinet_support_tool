@@ -22,7 +22,7 @@ const DISCOVERED_CODES = [
   "name_taken", "not_this_site", "not_this_role", "nothing_to_apply", "nothing_to_import", "duplicate_row", "no_approved_baseline", "site_has_baseline", "site_policies_for_existing_site", "not_replaceable", "replacement_elsewhere", "replacement_role_differs", "control_entry_not_approved", "control_process_not_approved", "control_process_unreported", "control_process_no_reading", "signing_off", "conflict", "architecture_mismatch", "package_architecture_unknown", "package_not_a_release", "setup_incomplete", "site_required", "install_token_refused", "bad_request", "control_entry_invalid", "control_action_unknown", "control_action_not_allowed", "control_action_not_supported", "control_pid_required", "step_up_wrong_scope", "already_removed", "job_finished", "no_configuration", "no_file_paths", "not_a_draft", "not_allowed",
   "not_approved", "not_awaiting_package", "not_deleted", "not_found", "not_live", "not_paused", "not_pending",
   "not_searchable", "not_uploading", "not_yours", "not_yourself", "one_site_only", "own_proposal",
-  "package_not_approved", "pilot_not_eligible", "query_timeout", "query_too_slow", "rate_limited",
+  "package_not_approved", "pilot_not_eligible", "preview_changed", "query_timeout", "query_too_slow", "rate_limited",
   "read_only_cabinet", "real_cabinet_in_demo_client", "release_changed", "release_not_ready",
   "rename_not_allowed", "renew_too_early", "result_not_expected", "result_over_cap", "rollout_active",
   "rule_impossible", "rule_too_broad", "same_person", "search_too_slow", "setup_not_started",
