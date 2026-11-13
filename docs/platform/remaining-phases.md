@@ -83,7 +83,8 @@ twice.
   signed upgrades, the alerting engine, the troubleshooting workflow, baselines, trends and triage.
 - **The catalog: 56 operations, 38 reads and 18 writes** (`contracts/schemas/operations/catalog.json`). Agent version 0.3.1.
 - **Both Windows builds** of the same agent code (`windows-x64`, `windows-x86`), with the cross-architecture refusal
-  proven live.
+  proven live and, since 2026-11-13, the 32-bit agent installable on a 64-bit cabinet on purpose
+  (`-AllowArchitectureMismatch`, for development and demo work - see the 2026-11-13 section of live-test.md).
 - **A live platform** (VPS, SQL Server 2022) serving both archives.
 - **Real hardware.** First test: an earlier agent installed read-only, self-updated to 0.2.5, answered 19 of the then 34
   reads. Second test (2026-10-30): **agent 0.3.1 on a real 64-bit Windows 11 machine, 34 of 34 reads and the reversible
@@ -243,8 +244,9 @@ stand:
 4. **The remaining writes on real hardware** — reads and the reversible writes ran on 2026-10-30; static IP, lease release,
    restart and shutdown, update and driver uninstall, package install, `firewall.restore`, and service and process control
    have not (see the fixes list).
-5. **A real 32-bit cabinet** — the x86 build and its refusal are proven, but the install on a 32-bit machine waits for a
-   machine on the cabinets' own network.
+5. **A real 32-bit cabinet** — the x86 build and its refusal are proven, and since 2026-11-13 the 32-bit agent also
+   *runs* on the 64-bit cabinet on purpose (`-AllowArchitectureMismatch`, for development and demo work); what still
+   waits is a machine running 32-bit Windows, on the cabinets' own network.
 6. **The cabinets' network** — most of phase 3 only matters against real cabinets, so reachability has to be settled to
    prove it.
 
@@ -373,7 +375,8 @@ order they are being fixed.
   before D1), before the gateway and DNS tests; reads still running at the minute showed as "no answer within a minute" before D11 changed it.
   The options weighed and why two minutes was chosen are in D11.
 - [ ] **Still to run on hardware:** static `network.setIp`, lease release, restart and shutdown, update and driver uninstall,
-  package install, `firewall.restore`, service and process control (needs an approved list), and a real 32-bit install.
+  package install, `firewall.restore`, service and process control (needs an approved list), and the 32-bit agent on a
+  machine running 32-bit Windows (it runs on this 64-bit cabinet since 2026-11-13, by policy).
 
 ## The engine's six phases, mapped so nothing is counted twice
 

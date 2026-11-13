@@ -120,10 +120,32 @@ running on the cabinet to end.
 was run), releasing the DHCP lease, uninstalling a Windows update, uninstalling a driver, installing a package (needs a
 second Admin's approval), a reboot (the cancel path was run) and a real firewall restore from a policy snapshot.
 
-**The cross-architecture refusal still holds**: the 32-bit package is refused on this 64-bit cabinet — *a cabinet reports
-one architecture to the platform, and an agent installed as the other one cannot be updated*. Both packages are genuine
-PE32 and PE64 builds. Wanting a 32-bit agent on a 64-bit cabinet is a policy change, not a packaging one: the cabinet
-reports one architecture and the updater delivers for that one.
+**The cross-architecture refusal became a policy on 2026-11-13**, at Marco's instruction, so the 32-bit agent can be
+exercised on the 64-bit machine we have: `-AllowArchitectureMismatch` installs the 32-bit package on 64-bit Windows for
+development and demo work, and warns in the install log what the platform will record and offer. The default is
+unchanged; a 64-bit package on 32-bit Windows is still refused with no switch, because Windows cannot start it.
+
+The refusal's own words were also wrong, and that is worth recording: it said an agent installed as the other
+architecture "cannot be updated". It can. The platform follows the architecture the agent reports
+(`cabinets.architecture`, migration 0007), and `releaseForAgent`, the release lookups and the rollout pilot all filter on
+it, so a deliberately mismatched cabinet is offered its *own* architecture. What is true is narrower: the console's
+generated installer reads this machine's Windows when it picks an archive (a 32-bit PowerShell on 64-bit Windows is the
+trap it guards), so it would put the other architecture back - and that is what the switch's warning says.
+
+**Run on 2026-11-13, and what it returned.** The 32-bit archive the console serves
+(`CabinetAgent-win-x86.zip`, SHA-256 `08d46ba2…53e6c9`) was unpacked on DEVICEB, a 64-bit Windows 11 machine, and
+installed over the live read-write install with `-AllowArchitectureMismatch -AllowUnsigned`:
+
+- installer exit **0**; the warning printed as designed; cabinet ID and every setting not given in that run were kept.
+- **`CabinetAgentBroker` and `CabinetAgentNetwork`: Running / Automatic**, on the 32-bit programs - the installed
+  `Cabinet.Agent.Broker.exe` reads PE machine **0x014C** (i386), SHA-256 `5c1ade84…7c83`.
+- the agent's own log: *the broker answers* then *connected to the platform server*.
+- the platform's own record, read from the database afterwards: **`architecture` = `windows-x86`**, agent 0.3.1,
+  status `active`, heartbeat `2026-11-13T03:55:38Z`.
+
+So the mismatch is coherent, not a hole: a cabinet recorded as `windows-x86` is offered 32-bit releases and nothing
+else, which is the same rule that keeps a real 32-bit cabinet updatable. A *real* 32-bit machine is still what gate 5
+waits for; this run proves the agent's programs run and the platform follows them, on the hardware to hand.
 
 **Still open after this run**: the read-only path through the console (the supported route), the approved-programs list,
 and a re-check of the fifteen reads the 2026-10-25 run found `unavailable` with the 0.3.1 agent.
