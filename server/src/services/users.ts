@@ -13,6 +13,19 @@ import { Refused } from "./errors.js";
 export type Role = "tier1" | "tier2" | "admin";
 const ONLINE_MINUTES = 5;
 
+/**
+ * Settles a sign-in that has already been decided (auth/, from the console or the command line): the authenticator's step is
+ * spent exactly once, so a code that was already used cannot open a second session, and the failure counters are cleared with
+ * the sign-in it succeeded as. `step` is null for an account with no authenticator. Returns false when the step was already
+ * spent. The users table has one owner: this is where a sign-in writes it.
+ */
+export async function settleSignIn(c: Queryable, id: string, step: number | null): Promise<boolean> {
+  const r = step === null
+    ? await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL, last_login_at = SYSUTCDATETIME() WHERE id = $1", [id])
+    : await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = SYSUTCDATETIME() WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [id, step]);
+  return step === null || r.rowCount === 1;
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;
