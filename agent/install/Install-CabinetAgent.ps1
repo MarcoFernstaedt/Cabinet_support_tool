@@ -15,6 +15,12 @@
  - The published programs must be in a folder only SYSTEM and Administrators can change (the console's installer
     unpacks into such a folder); they are copied into a new folder under Program Files, and that copy is what is
     signature-checked and installed.
+ - The package's architecture has to suit this machine's Windows: a 64-bit package cannot start on 32-bit Windows, and
+    a 32-bit package is refused on 64-bit Windows. -AllowArchitectureMismatch lifts that second refusal for development
+    and demo work, so the 32-bit agent can be exercised on a 64-bit cabinet. Everything downstream follows the
+    architecture the agent reports (contracts/schemas/common.schema.json #/$defs/architecture), so updates stay on the
+    architecture that is installed; the console's generated installer is the one part that reads this machine's Windows
+    instead, and it would put the other architecture back.
   Run from an elevated PowerShell, after Publish-CabinetAgent.ps1.
   Every failure stops the install at the point it happened and prints four lines the operator can act on: what happened,
   the log folder on that cabinet, the state folder, and what to do next. The script exits with 1 when it fails.
@@ -59,6 +65,13 @@ param(
     [ValidatePattern('^[0-9A-Fa-f]{64}$')] [string] $PlatformCaSha256,
     # Development and demo builds are not code-signed. Production builds are, and are refused unless every program is.
     [switch] $AllowUnsigned,
+    # Development and demo only: installs a 32-bit agent package on 64-bit Windows, so the 32-bit agent can be exercised
+    # on a machine that has a 64-bit Windows to hand. The refusal it lifts exists for one reason: the console's generated
+    # installer reads this machine's Windows when it picks an archive, so a mismatched agent is replaced by the other
+    # architecture the next time that installer runs. The platform follows the architecture the agent reports
+    # (server/migrations/0007_architecture.sql), so updates, releases and rollouts stay on the installed architecture
+    # either way. Nothing lifts the opposite case: a 64-bit program cannot run on 32-bit Windows at all.
+    [switch] $AllowArchitectureMismatch,
     # Throwaway CI machines only: skips the check that only SYSTEM and administrators can change the source folder.
     [switch] $SkipSourceFolderCheck
 )
@@ -100,6 +113,31 @@ function Get-PeMachine([string] $Path) {
     } catch {
         throw "The agent program '$Path' could not be read: $($_.Exception.Message). The archive is incomplete or damaged - download it again from the console's Setup page and unpack it fresh."
     } finally { $stream.Dispose() }
+}
+
+# Whether the published programs can run on this machine, decided from the PE machine of those programs and from this
+# machine's Windows alone, so it can be exercised without installing anything. Returns $null when the package suits the
+# machine and a sentence to warn the operator with when a mismatch was asked for on purpose (-AllowArchitectureMismatch);
+# throws the line to show the operator when the package cannot be installed here at all.
+function Assert-PackageArchitecture([int] $Machine, [bool] $Is64BitOperatingSystem, [bool] $AllowArchitectureMismatch) {
+    if ($Machine -eq 0x8664) {
+        # A 64-bit program cannot start on 32-bit Windows and no switch can change that: the Windows loader refuses it.
+        if (-not $Is64BitOperatingSystem) {
+            throw "This is the 64-bit agent package and this cabinet is 32-bit Windows, so the agent's programs cannot start here. A 32-bit agent build has to be published for this cabinet: send this line to support and install the 32-bit package when it is available."
+        }
+        return $null
+    }
+    if ($Machine -eq 0x14c) {
+        if (-not $Is64BitOperatingSystem) { return $null }
+        if (-not $AllowArchitectureMismatch) {
+            throw "This is the 32-bit agent package and this cabinet is 64-bit Windows. Install the 64-bit package (CabinetAgent-win-x64.zip) instead, or pass -AllowArchitectureMismatch to run the 32-bit agent on this machine on purpose (development and demo only): the platform follows the architecture the agent reports, but the console's generated installer reads this machine's Windows when it picks an archive, so it would put the 64-bit agent back."
+        }
+        return "Installing the 32-bit agent package on 64-bit Windows, because -AllowArchitectureMismatch was given. The platform will record this cabinet as windows-x86 and offer it 32-bit releases. Never do this on a production cabinet."
+    }
+    if ($Machine -eq 0xAA64) {
+        throw 'This is the ARM64 agent package and ARM64 cabinets are not supported. Use the 64-bit package on a 64-bit Intel or AMD cabinet: this machine reports ARM64, so send this line to support.'
+    }
+    throw "The agent programs are built for an architecture this installer does not know (PE machine 0x$('{0:X4}' -f $Machine)). Unpack the archive again and run again; if it keeps happening, send this line to support."
 }
 
 if ($ReadOnly -and $ReadWrite) { throw 'Give -ReadOnly or -ReadWrite, not both: -ReadOnly turns read-only mode on, -ReadWrite turns it off.' }
@@ -150,19 +188,8 @@ if (-not (Test-Path -LiteralPath $brokerProgram -PathType Leaf)) {
     throw "The agent programs are not in '$SourceDir' (Cabinet.Agent.Broker\Cabinet.Agent.Broker.exe is missing). Unpack the whole archive, not just the install folder, and run again."
 }
 $packageMachine = Get-PeMachine $brokerProgram
-$osIs64Bit = [Environment]::Is64BitOperatingSystem
-if ($packageMachine -eq 0x8664 -and -not $osIs64Bit) {
-    throw "This is the 64-bit agent package and this cabinet is 32-bit Windows, so the agent's programs cannot start here. A 32-bit agent build has to be published for this cabinet: send this line to support and install the 32-bit package when it is available."
-}
-if ($packageMachine -eq 0xAA64) {
-    throw 'This is the ARM64 agent package and ARM64 cabinets are not supported. Use the 64-bit package on a 64-bit Intel or AMD cabinet: this machine reports ARM64, so send this line to support.'
-}
-if ($packageMachine -eq 0x14c -and $osIs64Bit) {
-    throw "This is the 32-bit agent package and this cabinet is 64-bit Windows. Install the 64-bit package (CabinetAgent-win-x64.zip) instead: a cabinet reports one architecture to the platform, and an agent installed as the other one cannot be updated."
-}
-if ($packageMachine -notin @(0x14c, 0x8664)) {
-    throw "The agent programs in '$SourceDir' are built for an architecture this installer does not know (PE machine 0x$('{0:X4}' -f $packageMachine)). Unpack the archive again and run again; if it keeps happening, send this line to support."
-}
+$architectureNote = Assert-PackageArchitecture -Machine $packageMachine -Is64BitOperatingSystem ([Environment]::Is64BitOperatingSystem) -AllowArchitectureMismatch $AllowArchitectureMismatch.IsPresent
+if ($architectureNote) { Write-Warning $architectureNote }
 
 # 0. What is about to be installed as LocalSystem must be what was published.
 # - Nothing in the source folder may be a link (it could point anywhere), and only SYSTEM, Administrators and
