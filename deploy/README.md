@@ -15,6 +15,10 @@ This is a demo setup. It uses the development certificate authority. Do not conn
 
 The agent API on port 8443 is published directly, not through Caddy. Agents sign in with client certificates, and those must reach the server itself. A caller without a certificate still completes the TLS handshake, but it can reach only the health check and the two enrollment routes (enrolling needs a one-time bootstrap token); every other route refuses it.
 
+On this VPS the local override binds Caddy to 127.0.0.1:80/443 because Tailscale holds public 443. The table describes the generic deployment. AGENT_BIND_IP controls the published agent binding.
+
+For the protected root-owned deploy/.env on this host, run cabinet-compose-local in deploy/ in place of docker compose. It reads the protected env for Compose. Include the override explicitly when passing -f. See [env/README.md](env/README.md) for environment selection and [PORTABILITY.md](PORTABILITY.md) for moving hosts.
+
 ## Prerequisites
 
 1. A VPS with Ubuntu 24.04, 2 CPUs, 4 GB memory and 20 GB disk.
@@ -120,11 +124,13 @@ The `migrate` service runs before the server starts and applies only new migrati
 
 ## Back up
 
-`setup.sh` installs a nightly job (`/etc/cron.d/cabinet-backup`, 02:17) that runs `deploy/backup.sh`:
+`setup.sh` calls `install-backup-cron.sh` to install a nightly job (`/etc/cron.d/cabinet-backup`, 02:17) that runs `deploy/backup.sh`:
 
-- `BACKUP DATABASE` inside the SQL Server container (compressed, with checksums), then `RESTORE VERIFYONLY`;
+- `BACKUP DATABASE` inside the SQL Server container (with checksums; compression on Developer, Standard and Enterprise, never Express), then `RESTORE VERIFYONLY`;
 - the backup is encrypted with the key in `/root/.cabinet-backup-key` (AES-256) and every plain copy is deleted;
 - the last 14 are kept in `/var/backups/cabinet`; set `BACKUP_TARGET` (an rsync destination on another machine) in the cron line to copy each one off the server.
+
+Install or repair cron with `sudo bash deploy/install-backup-cron.sh`; non-root runs print the exact line and change nothing. The command sets PATH explicitly. backup.sh reads Compose credentials from deploy/.env, not sourced shell variables. Failures exit non-zero with one sentence naming the failed step and log (default /var/log/cabinet-backup.log). `bash deploy/backup.sh --print-plan` queries the edition without writing a backup. Schedule installation does not prove that a backup succeeded: run and verify one.
 
 Copy `/root/.cabinet-backup-key` somewhere safe off the server once: without it no backup can be read. Run a backup now with `sudo deploy/backup.sh`.
 
@@ -177,7 +183,7 @@ To also change the names or secrets, delete `deploy/.env` before step 2.
 - **Ports.** Only 80, 443 and 8443 are published. Never publish Microsoft SQL Server (1433). It sits on an internal Docker network with no route out.
 - **The console** is meant to sit on an internal network or VPN. Set `CONSOLE_ALLOW_FROM` in `.env` to your office and VPN ranges (CIDR, space-separated) and run `docker compose up -d`: everyone else gets 403. The default allows everyone, for a first demo only. HTTPS is enforced with HSTS on a domain.
 - **Sign-in limits** count each browser's address, which Caddy passes to the server. A proxy in front of Caddy must be listed in `CONSOLE_TRUSTED_PROXIES` (see `deploy/examples/tailnet/`), or everyone behind it shares one address. Past the address limit, a browser that has fully signed in to that account before (password and authenticator code) can still sign in.
-- **Secrets** are only in `deploy/.env` (mode 600). It is ignored by git. Never commit or share it.
+- **Secrets** are in the selected ignored real env file under `deploy/` (mode 600). It is ignored by git. Never commit or share it.
 - **Docker and ufw.** Ports Docker publishes bypass `ufw`. Control access with your provider's firewall.
 - **The agent zip** is an unsigned developer build. Never install it on a production cabinet.
 - **Unsigned development upgrades** (`ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES=true`) are off by default. When on, the agents the image builds trust the release key alone, with no code-signing publisher, so whoever holds that key can push code to every cabinet. Keep the release private key off the server host, and never turn this on in production.

@@ -137,8 +137,7 @@ if [[ ! -s /root/.cabinet-backup-key ]]; then
   (umask 077; openssl rand -base64 48 > /root/.cabinet-backup-key)
 fi
 command -v gpg >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq gnupg >/dev/null; }
-cron_line="17 2 * * * root $DEPLOY_DIR/backup.sh >> /var/log/cabinet-backup.log 2>&1"
-echo "$cron_line" > /etc/cron.d/cabinet-backup && chmod 644 /etc/cron.d/cabinet-backup
+bash "$DEPLOY_DIR/install-backup-cron.sh"
 echo "Nightly encrypted database backup at 02:17 to /var/backups/cabinet (set BACKUP_TARGET in /etc/cron.d/cabinet-backup to copy it off this server)."
 # The spec asks for data at rest to be encrypted. SQL Server Express has no transparent data encryption, so the disk must be.
 docker_dev="$(df --output=source /var/lib/docker 2>/dev/null | tail -1)"
