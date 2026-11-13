@@ -26,6 +26,7 @@ const DISCOVERED_CODES = [
   "read_only_cabinet", "real_cabinet_in_demo_client", "release_changed", "release_not_ready",
   "rename_not_allowed", "renew_too_early", "result_not_expected", "result_over_cap", "rollout_active",
   "rule_impossible", "rule_too_broad", "same_person", "search_too_slow", "setup_not_started",
+  "setup_required",
   "signature_invalid", "signed_out", "sign_in_incomplete", "stale_base", "step_up_required", "too_large",
   "too_many_cabinets", "too_many_items", "too_many_notes", "too_many_proposals", "totp_required",
   "unavailable", "unknown_command", "unknown_keyword", "unknown_operation", "usage", "username_deleted", "username_invalid",

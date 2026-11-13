@@ -58,6 +58,13 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "A step is still missing, such as the second factor.",
     fix: "Sign in again from the start and complete every step.",
   },
+  // Only the operator command line raises it (server/src/auth/cli-session.ts, cli.ts), for an account that has not
+  // finished signing in to the console.
+  setup_required: {
+    title: "Sign-in not finished",
+    detail: "That account has not completed its console sign-in, so it cannot be used for this yet.",
+    fix: "Finish that account's sign-in in the console, then repeat the action.",
+  },
   step_up_required: {
     title: "Confirmation required",
     detail: "This action needs a fresh sign-in or a second factor.",
