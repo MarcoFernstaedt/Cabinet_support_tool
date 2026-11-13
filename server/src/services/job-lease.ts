@@ -4,7 +4,7 @@
 // stopped renewing and the lease has run out. Taking and renewing is one statement under a key-range lock, so two instances asking at the
 // same moment cannot both get it.
 import { randomUUID } from "node:crypto";
-import type { Queryable } from "../db/db.js";
+import type { Pool, Queryable } from "../db/db.js";
 
 /** This process's name as a lease holder. */
 export const INSTANCE_ID = `${process.pid}-${randomUUID()}`;
@@ -37,4 +37,25 @@ export function leased(db: Queryable, name: string, ms: number, job: () => Promi
     await job();
     return true;
   };
+}
+
+/** Fence every statement/transaction, including verification reads and writes, with the owner's lease row lock.
+ * Renewal cannot resurrect an expired owner. Holding the lock until commit prevents takeover during a write.
+ * No transaction or connection is held while waiting for a cabinet. */
+export function ownedPool(pool: Pool, name: string, holder: string, ms: number): Pool {
+  const guarded: Pool["transaction"] = fn => pool.transaction(async c => {
+    const held = await c.query(
+      `UPDATE job_leases WITH (UPDLOCK, HOLDLOCK) SET until = DATEADD(millisecond, $3, SYSUTCDATETIME())
+        OUTPUT inserted.name WHERE name = $1 AND holder = $2 AND until > SYSUTCDATETIME()`,
+      [name, holder, ms]);
+    if (held.rows.length === 0) throw new Error("job ownership expired or was lost");
+    return fn(c);
+  });
+  const query: Pool["query"] = (text, params, options) => guarded(c => c.query(text, params, options));
+  return new Proxy(pool, { get(target, key) {
+    if (key === "query") return query;
+    if (key === "transaction") return guarded;
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
 }
