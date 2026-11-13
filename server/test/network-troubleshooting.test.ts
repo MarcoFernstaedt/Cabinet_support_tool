@@ -13,7 +13,10 @@ import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
+import type { NetworkBaseline } from "../src/diagnose/network-findings.js";
 import { ISSUE } from "../src/services/rules.js";
+import { runJob as runJobToEnd, startJob } from "../src/services/fleet-jobs.js";
+import { issueStepUpToken } from "../src/auth/stepup.js";
 import { raiseBaselineAlert } from "../src/diagnose/network.js";
 import { createPool } from "../src/db/db.js";
 import { ConsoleHarness, ORIGIN, type Account, type Role } from "./console-harness.js";
@@ -297,4 +300,60 @@ test("a diagnosis is shown as done only once its baseline alert is settled: a re
   } finally {
     await holder.end();
   }
+});
+
+// The permission a fleet job runs under is re-read for every batch, so taking a person's role away stops the rest of the job
+// instead of letting it keep sending (docs/spec/02-security-model.md, roles; the batch check in services/fleet-jobs.ts).
+// Three Dallas cabinets put back into a wrong-DNS state and then diagnosed. A fleet change of this kind must come from a current
+// diagnosis, and earlier tests in this file repair Dallas, so a test here may not depend on the state it inherits: it sets the
+// state it needs. The cabinets' own reported settings are what the diagnosis reads.
+const dnsTargets = async () => {
+  const site = await siteOf("Dallas");
+  const baseline = (await db.app.query<{ network_baseline: NetworkBaseline }>("SELECT s.network_baseline FROM sites s WHERE s.id = $1", [site])).rows[0]!.network_baseline;
+  // The site's own address space: a cabinet put outside it would be diagnosed with a subnet problem instead of the DNS one the job fixes.
+  const subnet = baseline.gateway!.split(".").slice(0, 3).join(".");
+  const rows = (await db.app.query<{ id: string }>("SELECT TOP 3 id FROM cabinets WHERE site_id = $1 AND demo_scenario IS NOT NULL ORDER BY name", [site])).rows;
+  assert.equal(rows.length, 3, "three Dallas cabinets to aim the job at");
+  for (const [i, r] of rows.entries())
+    await db.app.query("UPDATE cabinets SET demo_scenario = 'net_dns_wrong', demo_net = $2 WHERE id = $1", [r.id, JSON.stringify(initialNet("net_dns_wrong", baseline, subnet, i))]);
+  const b = await runBatch(await account("tier2"), { siteId: site });
+  const g = b.groups.find((x: { key: string }) => x.key === "baseline-dns|set_dns");
+  assert.ok(g, JSON.stringify(b.groups.map((x: { key: string }) => x.key)));
+  const ids = g.targets.map((x: { cabinetId: string }) => x.cabinetId).slice(0, 3);
+  assert.equal(ids.length, 3, "three cabinets for the job to work through");
+  return ids;
+};
+
+test("a job whose starter is demoted before its first batch sends nothing at all", async () => {
+  const t2 = await account("tier2");
+  const ids = await dnsTargets();
+  const jobId = randomUUID(), batchSize = 1;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  await db.app.query("UPDATE users SET role = 'tier1' WHERE id = $1", [t2.id]);
+  await runJobToEnd(db.app, jobId, TIMING);
+  assert.equal(Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n), 0, "nothing was sent");
+  const targets = (await db.app.query<{ state: string; detail: string }>("SELECT state, detail FROM fleet_job_targets WHERE job_id = $1", [jobId])).rows;
+  assert.equal(targets.length, 3);
+  assert.ok(targets.every(t => t.state === "skipped" && /role this operation needs/.test(t.detail)), JSON.stringify(targets));
+});
+
+test("a demotion between two batches stops the rest, and the batch already sent still finishes", async () => {
+  const t1 = await account("tier1"), t2 = await account("tier2");
+  const ids = await dnsTargets();
+  const jobId = randomUUID(), batchSize = 1;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  // The runner is driven here rather than by the route, so the demotion can land between two batches.
+  const running = runJobToEnd(db.app, jobId, TIMING);
+  const count = async () => Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n);
+  for (const end = Date.now() + 30_000; (await count()) < 1; await new Promise(r => setTimeout(r, 25))) assert.ok(Date.now() < end, "the first batch was never sent");
+  // One statement: the sent command fails and the role goes at the same instant, so no later batch can slip through.
+  await db.app.query("UPDATE commands SET status = 'failed', result_at = SYSUTCDATETIME() WHERE bulk_id = $1 AND status = 'queued'; UPDATE users SET role = 'tier1' WHERE id = $2", [jobId, t2.id]);
+  await running;
+  assert.equal(await count(), 1, "only what was already sent");
+  const targets = (await db.app.query<{ state: string; detail: string }>("SELECT state, detail FROM fleet_job_targets WHERE job_id = $1 ORDER BY [position]", [jobId])).rows;
+  assert.equal(targets.length, 3);
+  assert.ok(targets.slice(1).every(t => t.state === "skipped" && /role this operation needs/.test(t.detail)), JSON.stringify(targets));
+  assert.equal((await call("GET", `/api/fleet-operations/jobs/${jobId}`, undefined, t1)).body.state, "done", "the job ends rather than sitting running");
 });

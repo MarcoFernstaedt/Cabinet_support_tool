@@ -242,9 +242,13 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
       return [];
     };
     if ((await fleetPause(c)).paused) return stop("Writes were paused fleet-wide while the job ran.");
-    const u = (await c.query<{ writes_paused: boolean; status: string }>("SELECT writes_paused, status FROM users WHERE id = $1", [job.created_by])).rows[0];
-    if (!u || u.status !== "active" || u.writes_paused) return stop("The person who started the job can no longer make changes.");
     const entry = catalog.get(job.operation)!;
+    const u = (await c.query<{ writes_paused: boolean; status: string; role: Role }>("SELECT writes_paused, status, role FROM users WHERE id = $1", [job.created_by])).rows[0];
+    if (!u || u.status !== "active" || u.writes_paused) return stop("The person who started the job can no longer make changes.");
+    // The role is read here, in the batch's own transaction, and never cached: a demotion after the job started withdraws the
+    // permission the remaining batches would have used (the same check startJob makes). Already-issued commands still finish.
+    if (ROLE_RANK[u.role] < ROLE_RANK[entry.minimumRole as Role])
+      return stop(`The person who started the job no longer has the role this operation needs (${u.role}), so the rest was not sent.`);
     const issuedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
     const expiresAt = new Date(issuedAt.getTime() + entry.expirySeconds * 1000);
     const issued: { cabinet_id: string; command_id: string; params: Record<string, unknown> }[] = [];
