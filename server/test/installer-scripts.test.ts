@@ -88,21 +88,54 @@ test("the installer checks this machine before it copies anything", () => {
 // pwsh runs on the Linux test machines; when it is there, the parts of the scripts that do not need Windows are run for real.
 // Found on PWSH, then PATH, then the usual install folders (find-pwsh.ts), always as a full path.
 const pwsh = findPwsh();
-
-/** Runs one function from a script, taken out of the script by the PowerShell parser, with the arguments given. */
-function runFunction(script: string, name: string, args: string[]): { status: number | null; out: string } {
+/** Runs one function from a script, taken out of the script by the PowerShell parser, with the arguments given.
+ * The arguments travel as JSON in the environment: PowerShell's -File parser is unreliable with arrays (separate values
+ * are dropped silently and a comma-joined one arrives unsplit), so a [bool] parameter could not be reached otherwise. */
+function runFunction(script: string, name: string, args: (string | boolean)[]): { status: number | null; out: string } {
   const runner = join(mkdtempSync(join(tmpdir(), "ps-runner-")), "run.ps1");
   writeFileSync(runner, [
-    "param([string]$Script, [string]$Name, [string[]]$Rest)",
+    "param([string]$Script, [string]$Name)",
     "$ast = [System.Management.Automation.Language.Parser]::ParseFile($Script, [ref]$null, [ref]$null)",
     "$fn = $ast.Find({ param($n) $n -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $Name }, $true)",
     "if (-not $fn) { throw \"no function $Name\" }",
     ". ([scriptblock]::Create($fn.Extent.Text))",
-    "& $Name @Rest",
+    "$argv = @(ConvertFrom-Json $env:PS_ARGS)",
+    "& $Name @argv",
   ].join("\n"));
-  const r = spawnSync(pwsh!, ["-NoProfile", "-NonInteractive", "-File", runner, "-Script", script, "-Name", name, "-Rest", ...args], { encoding: "utf8" });
+  const r = spawnSync(pwsh!, ["-NoProfile", "-NonInteractive", "-File", runner, "-Script", script, "-Name", name],
+    { encoding: "utf8", env: { ...process.env, PS_ARGS: JSON.stringify(args) } });
   return { status: r.status, out: `${r.stdout}${r.stderr}` };
 }
+
+test("a package is refused unless its architecture suits this machine, and a deliberate mismatch is allowed", { skip: !pwsh && "pwsh is not installed" }, () => {
+  const script = join(installDir, "Install-CabinetAgent.ps1");
+  const run = (machine: string, is64: boolean, allow: boolean) => runFunction(script, "Assert-PackageArchitecture", [machine, is64, allow]);
+  // The package suits the machine: nothing refused, nothing to warn about.
+  const suited: [string, boolean][] = [["0x8664", true], ["0x14c", false]];
+  for (const [machine, is64] of suited) {
+    const ok = run(machine, is64, false);
+    assert.equal(ok.status, 0, `${machine} on ${is64 ? "64" : "32"}-bit Windows: ${ok.out}`);
+    assert.equal(ok.out.trim(), "");
+  }
+  // A 64-bit program cannot start on 32-bit Windows (the loader refuses it) and no switch changes that.
+  const cannotStart = run("0x8664", false, true);
+  assert.notEqual(cannotStart.status, 0);
+  assert.match(cannotStart.out, /cannot start here/);
+  // The 32-bit package on this 64-bit Windows: refused, and the refusal names the package to install instead.
+  const mismatched = run("0x14c", true, false);
+  assert.notEqual(mismatched.status, 0);
+  assert.match(mismatched.out, /CabinetAgent-win-x64\.zip/);
+  assert.match(mismatched.out, /-AllowArchitectureMismatch/);
+  // Given deliberately, it installs - and the operator is told what the platform will do with this cabinet.
+  const deliberate = run("0x14c", true, true);
+  assert.equal(deliberate.status, 0, deliberate.out);
+  assert.match(deliberate.out, /windows-x86/);
+  // An architecture with no package at all, and ARM64, are refused whatever the switch says.
+  for (const machine of ["0xAA64", "0x1234"]) {
+    const other = run(machine, true, true);
+    assert.notEqual(other.status, 0, `${machine} was accepted`);
+  }
+});
 
 test("every install script parses with no errors", { skip: !pwsh && "pwsh is not installed" }, () => {
   for (const name of scripts) {
