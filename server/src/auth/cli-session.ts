@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { audit, transaction, type Pool } from "../db/db.js";
 import { recordAuthFailure } from "../services/auth-failures.js";
+import { settleSignIn } from "../services/users.js";
 import { Refused } from "../services/errors.js";
 import { SettingsCache } from "../services/settings.js";
 import { verifyPassword } from "./passwords.js";
@@ -80,12 +81,9 @@ export async function signIn(pool: Pool, secrets: () => SecretBox, input: { user
     throw new Refused("setup_required", 2, `${input.username} has not finished signing in to the console yet (${stage}); do that first`);
   }
   const id = await transaction(pool, async c => {
-    if (step !== null) {
-      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [person.id, step]);
-      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 2, "that code was already used");
-    } else await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [person.id]);
+    // The sign-in writes the users table through its owner, which is also where the one-use rule for the code lives.
+    if (!(await settleSignIn(c, person.id, step))) throw new Refused("invalid_code", 2, "that code was already used");
     const session = await createSession(c, person.id, "complete", "command line", policy);
-    await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [person.id]);
     await audit(c, { actorKind: "user", actorId: person.id, action: "cli.sign-in", outcome: "succeeded",
       details: { username: input.username, via: "cli", proof: needsCode ? "password+authenticator" : "password" } });
     return session;
