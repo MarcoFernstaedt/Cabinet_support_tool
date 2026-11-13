@@ -73,3 +73,58 @@ enough to answer the reads. Then it was uninstalled (services, program files, da
 - **A self-update works end to end on a live cabinet**: the console showed the network service on 0.2.5 in read-only mode
   afterwards.
 
+## What the real-machine test found (2026-11-13)
+
+The platform was reset to an empty database, a new certificate authority and empty package and release libraries, and the
+agent was installed on a real Windows cabinet (a 64-bit desktop) **in read-write mode**. This run is the write half of the
+sweep: every write the catalogue has that can be undone on a machine somebody is still using.
+
+**The install failed first, and the reason matters.** The package the platform was serving could not start at all: the
+broker refused `boot.history` (`System.ArgumentException: The broker may not run boot.history`), so the Broker service
+stopped as it started and the install halted after the programs were laid down. Three reads the broker is registered to
+serve — `boot.history`, `crash.list` and `storage.health` — had never been added to the broker's own operation list or to
+the broker request contract. That was true of the trunk since 2026-11-03 and of every package built after it, so **no
+cabinet could be installed from the platform as it stood**, and no test said so: the one check that guarded the list
+compared it with the contract enum, which was missing the same three names. Both lists now carry them, and a new test
+reads the registry the broker is actually handed and fails when it names an operation the broker may not run.
+
+**After the fix the install was clean**: both services running, the cabinet enrolled, an Admin approved it (standalone,
+baseline `capture`) and it came online in the console.
+
+Of the 44 checks in the write sweep, **21 passed, and each one looked at the change in the machine's own state and put it
+back**: `time.sync`; `network.flushDns`; `network.renewLease`; a static DNS server and then back to DHCP; a static address
+and then back to DHCP; a firewall rule created, disabled, enabled and deleted; a firewall profile turned off for two
+minutes and back on by itself; `power.set` across its modes; the cancel path of a restart; and the rights refusals — a
+tier1 user's write is refused, and writes pause and resume.
+
+**Eight checks are waiting on one Admin action, not on code.** `service.control`, `service.setStartType` and the
+protected-process refusal all answer `this cabinet has no approved-programs list: none is set for the cabinet, its site,
+its client or the fleet, so nothing can be controlled. An Admin sets one in the console under Admin > Approved programs`.
+That is the intended default — nothing on a cabinet is controllable until somebody says what is — but it means no service
+or process write has run on real hardware yet. One more check (`process.end notepad.exe`) also needs a process of our own
+running on the cabinet to end.
+
+**These three were this lab's technique, not the product**, and each was re-run properly and now passes:
+
+- **package verify and package upload**: the sweep copied the fake installer into the server container, whose rootfs is
+  read-only by design, so the file was never there and the check never ran. Re-run through the package volume, both
+  refused it: `refused verification_failed The file is not an MSI installer.`
+- **read-only mode**: the sweep flips the flag by editing `agent-config.json` by hand, which the agent refuses to run on —
+  the hand-edit drops the read permission the network service's own identity needs, the agent says exactly that and tells
+  the operator to run the installer again, and it started again once the installer was re-run. The supported way to change
+  a cabinet's read-only mode is the console, so the sweep should stop editing the file.
+- **the timed firewall window**: the sweep's call left out `defaultInbound` and `defaultOutbound`, which the schema
+  requires. Called correctly, the public profile went off for two minutes and came back on by itself.
+
+**Deliberately not run**, because a wrong answer costs a site visit or the machine: a static address (the DHCP direction
+was run), releasing the DHCP lease, uninstalling a Windows update, uninstalling a driver, installing a package (needs a
+second Admin's approval), a reboot (the cancel path was run) and a real firewall restore from a policy snapshot.
+
+**The cross-architecture refusal still holds**: the 32-bit package is refused on this 64-bit cabinet — *a cabinet reports
+one architecture to the platform, and an agent installed as the other one cannot be updated*. Both packages are genuine
+PE32 and PE64 builds. Wanting a 32-bit agent on a 64-bit cabinet is a policy change, not a packaging one: the cabinet
+reports one architecture and the updater delivers for that one.
+
+**Still open after this run**: the read-only path through the console (the supported route), the approved-programs list,
+and a re-check of the fifteen reads the 2026-10-25 run found `unavailable` with the 0.3.1 agent.
+

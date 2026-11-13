@@ -30,6 +30,9 @@
       "enum": [
         "eventlog.channels",
         "eventlog.query",
+        "boot.history",
+        "crash.list",
+        "storage.health",
         "eventlog.get",
         "updates.status",
         "disk.smart",
@@ -243,6 +246,69 @@
         "properties": {
           "params": {
             "$ref": "../operations/eventlog.get.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "boot.history"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/boot.history.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "crash.list"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/crash.list.schema.json#/$defs/params"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "type": "object",
+        "properties": {
+          "operation": {
+            "const": "storage.health"
+          }
+        },
+        "required": [
+          "operation"
+        ]
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "params": {
+            "$ref": "../operations/storage.health.schema.json#/$defs/params"
           }
         }
       }
