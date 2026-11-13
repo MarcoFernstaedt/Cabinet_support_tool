@@ -7,6 +7,7 @@ import { SecretBox } from "./auth/secrets.js";
 import * as totp from "./auth/totp.js";
 import { recordAuthFailure } from "./services/auth-failures.js";
 import { endAllSessions } from "./auth/sessions.js";
+import { personNamed, sessionActor, sessionFile, sessionPolicy, signIn, signOut } from "./auth/cli-session.js";
 import { parseArgs } from "node:util";
 import { databaseUrl, loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
@@ -33,9 +34,12 @@ import { createHash } from "node:crypto";
 
 const USAGE = `platform-admin <command> [options]
 
-  Every command that changes something takes --as <username> --code <6 digits>: the code from that person's own authenticator,
-  checked like a console step-up (used once, wrong codes count toward the account lock). Commands with no --as only read.
+  Every command that changes something takes --as <username>, authorised by the session you signed in with (sign-in below) or by
+  --code <6 digits> from that person's own authenticator, checked like a console step-up (used once, wrong codes count toward the
+  account lock). The code is what gets you into the platform, not a toll on each write. Commands with no --as only read.
 
+  sign-in --as u --password <their password> [--code <6 digits>]   sign in as that person; the session is kept in a file only they can read
+  sign-out                                   end that session on the server, and forget it here
   migrate                                   apply migrations (uses DATABASE_OWNER_URL)
   user add --username u --name "N" --role tier1|tier2|admin [--as <admin>]   prints a one-time temporary password; --as is needed once any Admin exists
   user reset-password --username u --as <admin>             new temporary password; ends the user's sessions
@@ -75,22 +79,28 @@ function required(name: string): string {
 }
 
 /**
- * The person a command acts as, proven by their own authenticator code (F3, docs/spec/02-security-model.md "The operator command line"):
- * access to the server's shell is not authority. The code is checked as the console checks a step-up: single use (the step is claimed
- * atomically), the account's lock honoured, and a wrong code counted toward it. Every attempt that reaches the code check is audited as cli.authenticate, with the
- * path ("cli") and the proof ("authenticator"), so the audit chain says how each command line action was authorised; a refusal before the check
- * leaves no row.
+ * The person a command acts as (F3, docs/spec/02-security-model.md "The operator command line"): access to the server's shell is not
+ * authority. One of two proofs names them: their authenticator code, checked as the console checks a step-up (single use, the step
+ * claimed atomically, the account's lock honoured, a wrong code counted toward it); or the session they signed in with
+ * (platform-admin sign-in), which is the console's own session — the code is what gets you into the platform, not a toll on every
+ * write. Every authorised attempt is audited as cli.authenticate with the path ("cli") and the proof ("authenticator" or "session");
+ * a refusal before either proof is checked leaves no row.
  */
 function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
   return async (username: string | undefined, minimumRole: "tier1" | "tier2" | "admin", code: string | undefined): Promise<string> => {
     if (!username) throw new Refused("usage", 2, "--as <username> is required");
-    if (!code || !/^\d{6}$/.test(code)) throw new Refused("usage", 2, "--code <the 6-digit code from that person's authenticator> is required");
-    const row = (await pool.query<{ id: string; role: string; totp_enabled: boolean; totp_secret_enc: Buffer | null; totp_last_step: string | null; locked: boolean }>(
-      `SELECT TOP (1) id, role, totp_enabled, totp_secret_enc, totp_last_step,
-              CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked
-         FROM users WHERE username COLLATE Latin1_General_100_BIN2 = $1 AND status = 'active'`, [username])).rows[0];
+    const row = await personNamed(pool, username);
     if (!row) throw new Refused("usage", 2, `no active user ${username}`);
     if ((ROLE_RANK[row.role] ?? 0) < ROLE_RANK[minimumRole]!) throw new Refused("forbidden", 2, `${username} is ${row.role}; this needs ${minimumRole}`);
+    if (!code) {
+      const actor = await sessionActor(pool, await sessionPolicy(pool));
+      if (!actor) throw new Refused("usage", 2, `--code <the 6-digit code from that person's authenticator> is required, or sign in first: platform-admin sign-in --as ${username}`);
+      if (actor.userId !== row.id) throw new Refused("forbidden", 2, `the stored session belongs to ${actor.username}; sign in as ${username} first (${sessionFile()})`);
+      if (actor.stage !== "complete") throw new Refused("setup_required", 2, `${username} has not finished signing in yet`);
+      await transaction(pool, c => audit(c, { actorKind: "user", actorId: row.id, action: "cli.authenticate", outcome: "succeeded", details: { via: "cli", proof: "session", command } }));
+      return row.id;
+    }
+    if (!/^\d{6}$/.test(code)) throw new Refused("usage", 2, "--code <the 6-digit code from that person's authenticator> is required");
     if (!row.totp_enabled || !row.totp_secret_enc) throw new Refused("totp_required", 2, `${username} has no authenticator set up; sign in to the console once to set it up`);
     if (row.locked) throw new Refused("account_locked", 2, `${username} is locked after repeated failures; try again later`);
     const details = { via: "cli", proof: "authenticator", command };
@@ -112,7 +122,7 @@ function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
 async function main(argv: string[]): Promise<void> {
   const { positionals, values } = parseArgs({
     args: argv, allowPositionals: true, strict: true,
-    options: { as: { type: "string" }, code: { type: "string" }, cabinets: { type: "string" }, days: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
+    options: { as: { type: "string" }, code: { type: "string" }, password: { type: "string" }, cabinets: { type: "string" }, days: { type: "string" }, username: { type: "string" }, name: { type: "string" }, role: { type: "string" },
       client: { type: "string" }, site: { type: "string" }, cabinet: { type: "string" }, write: { type: "boolean" }, type: { type: "string" },
       version: { type: "string" }, vendor: { type: "string" }, "hardware-id": { type: "string", multiple: true }, reason: { type: "string" },
       manifest: { type: "string" }, signature: { type: "string" }, package: { type: "string" }, pilot: { type: "string" }, success: { type: "string" }, failure: { type: "string" },
@@ -179,6 +189,18 @@ async function main(argv: string[]): Promise<void> {
   const authorize = authorizer(pool, () => new SecretBox(config.console?.secretKey ?? required("CONSOLE_SECRET_KEY")), command);
   try {
     switch (["user", "token", "package", "writes", "release", "rollout", "cabinet"].includes(command) ? `${command} ${rest.shift()}` : command) {
+      case "sign-in": {
+        if (!values.as || !values.password) throw new Refused("usage", 2, "sign-in --as <username> --password <their password> [--code <6 digits>]");
+        const signedIn = await signIn(pool, () => new SecretBox(config.console?.secretKey ?? required("CONSOLE_SECRET_KEY")),
+          { username: values.as, password: values.password, ...(values.code ? { code: values.code } : {}) });
+        console.log(`signed in as ${values.as} until ${signedIn.expiresAt.toISOString()}  ${sessionFile()}`);
+        return;
+      }
+      case "sign-out": {
+        const gone = await signOut(pool);
+        console.log(gone ? `signed out ${gone.username}` : "there was no stored session");
+        return;
+      }
       case "release add": {
         const r = await releaseInput();
         const a = architecture();

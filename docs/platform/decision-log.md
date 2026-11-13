@@ -2741,3 +2741,32 @@ the result is still sent, only perhaps out of order.
 an older agent would need migrating.
 
 **Proof.** Frozen-clock and re-queue tests in the agent Core suite.
+
+---
+
+## D10. The code is what gets you into the platform, not a toll on each write (2026-11-13)
+
+**Decision.** The operator command line signs in the way the console does: `platform-admin sign-in --as <username> --password <their password>
+[--code <6 digits>]` establishes one session, kept in a file only that person can read (`~/.cabinet-cli/session`, mode 0600, overridable with
+`CABINET_CLI_SESSION_FILE`), and every later command takes `--as <username>` alone. A per-command `--code` still works and is still checked
+exactly as before. `sign-out` ends the session on the server as well as deleting the file. Removing the console's per-action step-up for writes
+follows the same policy in its own change.
+
+**Why.** The owner's instruction, 2026-11-13: all writes should not need the code; a code is what gets you into the platform. Until now every
+write at the command line demanded a fresh one-use code, so a full sweep of one cabinet (38 reads, ~35 writes, 8 checks that need an Admin's
+approved-programs list) would have needed roughly 70 codes from a person, and the platform's own testing depended on somebody sitting at an
+authenticator.
+
+**What still holds.** A person is named by their own credential, not by shell access. Both proofs are that person's; role checks are unchanged;
+a session is the console's own session row, so it expires on the same idle and absolute windows, a locked account cannot act, an account with no
+authenticator set up or one still holding a temporary password cannot sign in from the command line at all, `sign-out` deletes the session row,
+and every authorisation is audited as `cli.authenticate` with `proof: "session"` or `"authenticator"`.
+
+**Residual risk.** Whoever holds the file can act as that person until the session expires or is ended — the same exposure as a stolen browser
+session. That is why the file is 0600, the session is as short-lived as a browser one, and every command it authorises is on the audit chain
+with its proof named.
+
+**Proof.** `server/test/cli-authority.test.ts`: a signed-in person's later command needs no code and is audited with `proof: "session"`; a
+session cannot authorise a command for somebody else; the wrong password or the wrong code signs nobody in and leaves no file behind;
+`sign-out` ends the session on the server, so a copy of the file is worth nothing; an account with no authenticator set up, and one still
+holding a temporary password, cannot sign in. All six are red with `src/cli.ts` and `src/auth/cli-session.ts` reverted.
