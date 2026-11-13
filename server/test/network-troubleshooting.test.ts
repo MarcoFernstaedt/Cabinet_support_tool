@@ -14,6 +14,8 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
 import { ISSUE } from "../src/services/rules.js";
+import { runJob as runJobToEnd, startJob } from "../src/services/fleet-jobs.js";
+import { issueStepUpToken } from "../src/auth/stepup.js";
 import { raiseBaselineAlert } from "../src/diagnose/network.js";
 import { createPool } from "../src/db/db.js";
 import { ConsoleHarness, ORIGIN, type Account, type Role } from "./console-harness.js";
@@ -297,4 +299,49 @@ test("a diagnosis is shown as done only once its baseline alert is settled: a re
   } finally {
     await holder.end();
   }
+});
+
+// The permission a fleet job runs under is re-read for every batch, so taking a person's role away stops the rest of the job
+// instead of letting it keep sending (docs/spec/02-security-model.md, roles; the batch check in services/fleet-jobs.ts).
+const dnsFixTargets = async (t1: Account) => {
+  const b = await runBatch(t1, { siteId: await siteOf("Dallas") });
+  const g = b.groups.find((x: { key: string }) => x.key === "baseline-dns|set_dns");
+  assert.ok(g, JSON.stringify(b.groups.map((x: { key: string }) => x.key)));
+  const ids = g.targets.map((x: { cabinetId: string }) => x.cabinetId);
+  assert.equal(ids.length, 3, "three Dallas cabinets need the fix");
+  return ids;
+};
+
+test("a job whose starter is demoted before its first batch sends nothing at all", async () => {
+  const t1 = await account("tier1"), t2 = await account("tier2");
+  const ids = await dnsFixTargets(t1);
+  const jobId = randomUUID(), batchSize = 1;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  await db.app.query("UPDATE users SET role = 'tier1' WHERE id = $1", [t2.id]);
+  await runJobToEnd(db.app, jobId, TIMING);
+  assert.equal(Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n), 0, "nothing was sent");
+  const targets = (await db.app.query<{ state: string; detail: string }>("SELECT state, detail FROM fleet_job_targets WHERE job_id = $1", [jobId])).rows;
+  assert.equal(targets.length, 3);
+  assert.ok(targets.every(t => t.state === "skipped" && /role this operation needs/.test(t.detail)), JSON.stringify(targets));
+});
+
+test("a demotion between two batches stops the rest, and the batch already sent still finishes", async () => {
+  const t1 = await account("tier1"), t2 = await account("tier2");
+  const ids = await dnsFixTargets(t1);
+  const jobId = randomUUID(), batchSize = 1;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  // The runner is driven here rather than by the route, so the demotion can land between two batches.
+  const running = runJobToEnd(db.app, jobId, TIMING);
+  const count = async () => Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n);
+  for (const end = Date.now() + 30_000; (await count()) < 1; await new Promise(r => setTimeout(r, 25))) assert.ok(Date.now() < end, "the first batch was never sent");
+  // One statement: the sent command fails and the role goes at the same instant, so no later batch can slip through.
+  await db.app.query("UPDATE commands SET status = 'failed', result_at = SYSUTCDATETIME() WHERE bulk_id = $1 AND status = 'queued'; UPDATE users SET role = 'tier1' WHERE id = $2", [jobId, t2.id]);
+  await running;
+  assert.equal(await count(), 1, "only what was already sent");
+  const targets = (await db.app.query<{ state: string; detail: string }>("SELECT state, detail FROM fleet_job_targets WHERE job_id = $1 ORDER BY [position]", [jobId])).rows;
+  assert.equal(targets.length, 3);
+  assert.ok(targets.slice(1).every(t => t.state === "skipped" && /role this operation needs/.test(t.detail)), JSON.stringify(targets));
+  assert.equal((await call("GET", `/api/fleet-operations/jobs/${jobId}`, undefined, t1)).body.state, "done", "the job ends rather than sitting running");
 });
