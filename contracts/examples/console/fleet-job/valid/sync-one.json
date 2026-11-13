@@ -1,1 +1,2 @@
-{"jobId": "11111111-2222-4333-8444-555555555555", "operation": "time.sync", "cabinetIds": ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"], "batchSize": 1, "stepUpToken": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE"}
+{"jobId": "11111111-2222-4333-8444-555555555555", "operation": "time.sync", "cabinetIds": ["aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"], "batchSize": 1, "planDigest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "stepUpToken": "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-AbCdE"}

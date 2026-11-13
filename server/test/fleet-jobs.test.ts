@@ -15,7 +15,7 @@ import { issueStepUpToken } from "../src/auth/stepup.js";
 import * as totp from "../src/auth/totp.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
-import { resumeJobs, runJob, startJob } from "../src/services/fleet-jobs.js";
+import { preview, resumeJobs, runJob, startJob } from "../src/services/fleet-jobs.js";
 import { ISSUE } from "../src/services/rules.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { tempDir } from "./helpers.js";
@@ -41,7 +41,12 @@ async function account(role: "tier1" | "tier2" | "admin", writeLimit = 20): Prom
   assert.equal((await call("POST", "/api/auth/totp", { code: totp.code(a.secret, totp.stepAt(clock)) }, a)).body.stage, "complete");
   return a;
 }
+const digests = new Map<string, string>();
 async function call(method: "GET" | "POST" | "PUT", url: string, body: unknown, a?: Account) {
+  if (url === "/api/fleet-operations/jobs" && body && typeof body === "object") {
+    const b = body as { jobId: string; planDigest?: string };
+    body = { planDigest: digests.get(b.jobId) ?? "0".repeat(64), ...b };
+  }
   const headers: Record<string, string> = { origin: ORIGIN };
   if (a?.cookie) headers.cookie = a.cookie;
   if (body !== undefined) headers["content-type"] = "application/json";
@@ -51,7 +56,11 @@ async function call(method: "GET" | "POST" | "PUT", url: string, body: unknown, 
 }
 /** The password confirmation, bound to the exact operation, cabinets and batch size, for this job ID. */
 async function confirm(a: Account, jobId: string, bound: { operation: string; cabinetIds: string[]; batchSize: number }) {
-  const r = await call("POST", "/api/auth/confirm-password", { password: a.password, action: "fleet.job", target: jobId, paramsHash: paramsHash(bound) }, a);
+  let planDigest = "0".repeat(64);
+  try { planDigest = (await preview(db.app, { role: "admin" }, bound.operation as Parameters<typeof preview>[2], bound.cabinetIds)).planDigest; }
+  catch (e) { assert.equal((e as { code?: string }).code, "one_site_only"); }
+  digests.set(jobId, planDigest);
+  const r = await call("POST", "/api/auth/confirm-password", { password: a.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ ...bound, planDigest }) }, a);
   assert.equal(r.status, 200, JSON.stringify(r.body));
   return r.body.token as string;
 }
@@ -244,8 +253,9 @@ test("a fleet-wide pause during a job skips the cabinets not yet reached; nothin
   const t1 = await account("tier1");
   const ids = await siteCabinets(await harborSite(), 4);
   const jobId = randomUUID();
-  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ operation: "time.sync", cabinetIds: ids, batchSize: 1 }));
-  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds: ids, batchSize: 1, stepUpToken: token });
+  const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", ids)).planDigest;
+  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 1 }));
+  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 1, stepUpToken: token });
   await db.app.query(`DELETE FROM settings WHERE [key] = 'writes.paused';
                       INSERT INTO settings ([key], [value]) VALUES ('writes.paused', '{"paused": true, "reason": "test", "by": null, "at": null}')`);
   try {
@@ -262,8 +272,9 @@ test("a job left running by a restart is picked up again and finished", async ()
   const t1 = await account("tier1");
   const ids = await siteCabinets(await harborSite(), 3);
   const jobId = randomUUID();
-  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ operation: "time.sync", cabinetIds: ids, batchSize: 3 }));
-  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds: ids, batchSize: 3, stepUpToken: token });
+  const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", ids)).planDigest;
+  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 3 }));
+  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 3, stepUpToken: token });
   assert.ok(await resumeJobs(db.app, TIMING) >= 1);
   const j = await waitDone(t1, jobId);
   assert.deepEqual(j.counts, { verified: 3 });
@@ -273,8 +284,9 @@ test("cancelling: only the person who started it or an Admin; a cancelled job se
   const t1 = await account("tier1"), other = await account("tier1"), admin = await account("admin");
   const ids = await siteCabinets(await harborSite(), 5);
   const jobId = randomUUID();
-  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ operation: "time.sync", cabinetIds: ids, batchSize: 1 }));
-  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds: ids, batchSize: 1, stepUpToken: token });
+  const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", ids)).planDigest;
+  const token = await issueStepUpToken(db.app, t1.id, "fleet.job", jobId, paramsHash({ planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 1 }));
+  await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, planDigest, operation: "time.sync", cabinetIds: ids, batchSize: 1, stepUpToken: token });
   assert.equal((await call("POST", `/api/fleet-operations/jobs/${jobId}/cancel`, {}, other)).status, 403);
   assert.equal((await call("POST", `/api/fleet-operations/jobs/${jobId}/cancel`, {}, admin)).status, 200);
   await runJob(db.app, jobId, TIMING);

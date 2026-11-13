@@ -28,7 +28,7 @@ const LIMIT = 200;
 
 interface Row { id: string; name: string; role: string; site: { id: string; name: string; timeZone: string | null }; client: { id: string; name: string }; demo: boolean;
   readOnly: boolean | null; online: boolean; timeZoneId: string | null; clockSkewSeconds: number | null; ipv4: string | null; openAlerts: number }
-interface Preview { operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; role?: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
+interface Preview { planDigest: string; operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; role?: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
 interface SiteOption { id: string; name: string; client: { id: string; name: string }; demo: boolean; cabinets: number }
 
 const KEY = "fleet-ops-selection";
@@ -84,7 +84,7 @@ export function FleetOperations() {
   const start = async (token: string) => {
     if (!preview) return;
     const r = await api<{ jobId: string }>("POST", "/api/fleet-operations/jobs",
-      { jobId: preview.jobId, operation: preview.operation, cabinetIds: preview.cabinetIds, batchSize, stepUpToken: token });
+      { jobId: preview.jobId, operation: preview.operation, cabinetIds: preview.cabinetIds, planDigest: preview.planDigest, batchSize, stepUpToken: token });
     setSelected({});
     navigate(`/fleet-operations/jobs/${r.jobId}`);
   };
@@ -164,7 +164,7 @@ export function FleetOperations() {
           <p><button className="btn primary" disabled={preview.change === 0} onClick={() => setConfirming(true)}>{opLabel[1]} on {preview.change} {preview.change === 1 ? "cabinet" : "cabinets"}</button></p>
         </>)}
         {preview && <PasswordDialog open={confirming} action="fleet.job" target={preview.jobId} onClose={() => setConfirming(false)}
-          params={{ operation: preview.operation, cabinetIds: preview.cabinetIds, batchSize }}
+          params={{ operation: preview.operation, cabinetIds: preview.cabinetIds, planDigest: preview.planDigest, batchSize }}
           description={<p>{opLabel[1]} on <strong>{preview.change}</strong> {preview.change === 1 ? "cabinet" : "cabinets"} ({preview.skip} skipped), {batchSize} at a time. Each one's result is checked from its next report.</p>}
           onToken={start} />}
       </section>

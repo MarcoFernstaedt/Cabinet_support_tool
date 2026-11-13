@@ -1297,7 +1297,7 @@ export interface FleetImport {
 }
 
 /**
- * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.
+ * Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize, planDigest}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.
  */
 export interface FleetJob {
   /**
@@ -1315,6 +1315,10 @@ export interface FleetJob {
    * How many cabinets are changed at a time; the next batch starts when this one has answered.
    */
   batchSize: number;
+  /**
+   * Server-computed canonical digest returned by the preview being confirmed.
+   */
+  planDigest: string;
   stepUpToken: string;
 }
 

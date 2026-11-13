@@ -10,7 +10,7 @@ import { transaction } from "../src/db/db.js";
 import { issueFromConsole } from "../src/services/console-commands.js";
 import { Refused } from "../src/services/errors.js";
 import { bulkApply } from "../src/services/firewall-policy.js";
-import { startJob } from "../src/services/fleet-jobs.js";
+import { preview, startJob } from "../src/services/fleet-jobs.js";
 import { resumeUserWrites } from "../src/services/users.js";
 import { setClientPause, setClientPauseByCli } from "../src/services/writes.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
@@ -104,7 +104,7 @@ test("a resumed person can start a fleet job and apply a bulk firewall change: e
   const { client, cabinet } = await clientWithCabinet("Bulk paths");
   const tech = await resumedAfterLimit(cabinet);
   const jobId = randomUUID();
-  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1 };
+  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1, planDigest: (await preview(db.app, { role: "tier2" }, "time.sync", [cabinet])).planDigest };
   // Before the fix both of these were refused write_limit_reached by the writes that had paused the person.
   assert.equal(await refusal(startJob(db.app, { userId: tech, role: "tier2" }, { jobId, ...job,
     stepUpToken: await issueStepUpToken(db.app, tech, "fleet.job", jobId, paramsHash(job)) })), "accepted");
@@ -136,7 +136,7 @@ test("going over the limit with a fleet job or a bulk firewall change pauses the
 
   const jobber = await overLimit();
   const jobId = randomUUID();
-  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1 };
+  const job = { operation: "time.sync" as const, cabinetIds: [cabinet], batchSize: 1, planDigest: (await preview(db.app, { role: "tier2" }, "time.sync", [cabinet])).planDigest };
   // Before this change both were refused write_limit_reached but left the person unpaused, though the refusal says "paused".
   assert.equal(await refusal(startJob(db.app, { userId: jobber, role: "tier2" }, { jobId, ...job,
     stepUpToken: await issueStepUpToken(db.app, jobber, "fleet.job", jobId, paramsHash(job)) })), "write_limit_reached");

@@ -11,7 +11,7 @@ import type { TestDatabase } from "./database.js";
 
 export const ORIGIN = "https://console.test";
 export type Role = "tier1" | "tier2" | "admin";
-export interface Account { id: string; username: string; password: string; secret: Buffer; cookie?: string }
+export interface Account { id: string; username: string; role: Role; password: string; secret: Buffer; cookie?: string }
 
 export class ConsoleHarness {
   /** The clock the app is built with (`now: () => harness.clock`); every code moves it on, so each is a fresh 30-second step. */
@@ -23,7 +23,7 @@ export class ConsoleHarness {
 
   /** Makes an account with an authenticator and signs it in. */
   async account(role: Role, writeLimit = 100): Promise<Account> {
-    const a: Account = { id: randomUUID(), username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
+    const a: Account = { id: randomUUID(), role, username: `${role}.${randomBytes(3).toString("hex")}`, password: "correct horse battery staple", secret: totp.newSecret() };
     await this.db.app.query(`INSERT INTO users (id, username, name, role, password_hash, must_change_password, totp_enabled, totp_secret_enc, write_limit)
                              VALUES ($1, $2, $3, $4, $5, 0, 1, $6, $7)`, [a.id, a.username, `Test ${a.username}`, role, await hashPassword(a.password), this.secrets.seal(a.secret), writeLimit]);
     const login = await this.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: ORIGIN, "content-type": "application/json" }, payload: JSON.stringify({ username: a.username, password: a.password }) });

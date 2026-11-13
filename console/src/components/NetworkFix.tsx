@@ -70,7 +70,7 @@ export function FixButton({ action, onDone, children }: { action: Doable; onDone
   );
 }
 
-interface Preview { change: number; skip: number; cabinets: { id: string; name: string; skip: string | null; detail: string | null }[] }
+interface Preview { planDigest: string; change: number; skip: number; cabinets: { id: string; name: string; skip: string | null; detail: string | null }[] }
 
 /** The same change on several cabinets: preview what each gets, confirm with the password, then follow the job. */
 export function FixAll({ operation, cabinetIds, children }: { operation: string; cabinetIds: string[]; children?: ReactNode }) {
@@ -90,13 +90,13 @@ export function FixAll({ operation, cabinetIds, children }: { operation: string;
       <button className="btn small primary" onClick={() => void open()}>{children ?? `${JOB_LABEL[operation] ?? operation} on ${cabinetIds.length} cabinets`}</button>
       {problem && <span className="error small" role="alert"> {problem}</span>}
       {preview && (
-        <PasswordDialog open onClose={() => setPreview(null)} action="fleet.job" target={preview.jobId} params={{ operation, cabinetIds, batchSize }}
+        <PasswordDialog open onClose={() => setPreview(null)} action="fleet.job" target={preview.jobId} params={{ operation, cabinetIds, batchSize, planDigest: preview.planDigest }}
           description={<>
             <p><strong>{JOB_LABEL[operation] ?? operation}</strong> on <strong>{preview.change}</strong> {preview.change === 1 ? "cabinet" : "cabinets"}{preview.skip > 0 ? ` (${preview.skip} skipped)` : ""}, {batchSize} at a time. Each one is read back to check the change.</p>
             <ul className="plain small">{preview.cabinets.map(c => <li key={c.id}><strong>{c.name}</strong>: {c.skip ?? c.detail ?? "will be changed"}</li>)}</ul>
           </>}
           onToken={async token => {
-            const r = await api<{ jobId: string }>("POST", "/api/fleet-operations/jobs", { jobId: preview.jobId, operation, cabinetIds, batchSize, stepUpToken: token });
+            const r = await api<{ jobId: string }>("POST", "/api/fleet-operations/jobs", { jobId: preview.jobId, operation, cabinetIds, batchSize, planDigest: preview.planDigest, stepUpToken: token });
             navigate(`/fleet-operations/jobs/${r.jobId}`);
           }} />)}
     </span>

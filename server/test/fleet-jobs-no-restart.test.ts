@@ -8,7 +8,7 @@ import { JOB_OPERATIONS } from "../src/services/fleet-jobs.js";
 
 test("a restart or shutdown is never a fleet job operation", () => {
   assert.ok(!(JOB_OPERATIONS as readonly string[]).includes("system.restart"));
-  const body = { jobId: randomUUID(), operation: "system.restart", cabinetIds: [randomUUID()], batchSize: 1, stepUpToken: "x".repeat(43) };
+  const body = { planDigest: "0".repeat(64), jobId: randomUUID(), operation: "system.restart", cabinetIds: [randomUUID()], batchSize: 1, stepUpToken: "x".repeat(43) };
   assert.equal(consoleBodies.fleetJob.is(body), false);
   // The same body with an operation that is allowed passes, so the refusal above is the operation's.
   assert.equal(consoleBodies.fleetJob.is({ ...body, operation: "time.sync" }), true);

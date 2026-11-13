@@ -15,7 +15,7 @@ import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import { initialNet } from "../src/demo/network.js";
 import type { NetworkBaseline } from "../src/diagnose/network-findings.js";
 import { ISSUE } from "../src/services/rules.js";
-import { runJob as runJobToEnd, startJob } from "../src/services/fleet-jobs.js";
+import { preview, runJob as runJobToEnd, startJob } from "../src/services/fleet-jobs.js";
 import { issueStepUpToken } from "../src/auth/stepup.js";
 import { raiseBaselineAlert } from "../src/diagnose/network.js";
 import { createPool } from "../src/db/db.js";
@@ -46,9 +46,10 @@ async function runBatch(a: Account, body: unknown, ms = 60_000) {
 /** A job on the Fleet operations path, confirmed with the password; returns the finished job. */
 async function runJob(a: Account, operation: string, cabinetIds: string[]) {
   const jobId = randomUUID(), batchSize = 10;
-  const t = await call("POST", "/api/auth/confirm-password", { password: a.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation, cabinetIds, batchSize }) }, a);
+  const planDigest = (await preview(db.app, { role: a.role }, operation as Parameters<typeof preview>[2], cabinetIds)).planDigest;
+  const t = await call("POST", "/api/auth/confirm-password", { password: a.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation, cabinetIds, batchSize, planDigest }) }, a);
   assert.equal(t.status, 200, JSON.stringify(t.body));
-  const started = await call("POST", "/api/fleet-operations/jobs", { jobId, operation, cabinetIds, batchSize, stepUpToken: t.body.token }, a);
+  const started = await call("POST", "/api/fleet-operations/jobs", { jobId, operation, cabinetIds, batchSize, planDigest, stepUpToken: t.body.token }, a);
   assert.equal(started.status, 202, JSON.stringify(started.body));
   for (const end = Date.now() + 60_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
     const j = (await call("GET", `/api/fleet-operations/jobs/${jobId}`, undefined, a)).body;
@@ -99,7 +100,7 @@ test("a whole site at once: Dallas shows three cabinets with the old DNS servers
   // Tier 1 may look but not change the network; the job needs Tier 2.
   const jobId = randomUUID();
   const forT1 = await call("POST", "/api/auth/confirm-password", { password: t1.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize: 10 }) }, t1);
-  assert.equal((await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "network.setDns", cabinetIds: ids, batchSize: 10, stepUpToken: forT1.body.token }, t1)).status, 403);
+  assert.equal((await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "network.setDns", cabinetIds: ids, batchSize: 10, planDigest: "0".repeat(64), stepUpToken: forT1.body.token }, t1)).status, 403);
   assert.equal((await call("POST", "/api/fleet-operations/preview", { operation: "network.setDns", cabinetIds: ids }, t1)).status, 403);
   const preview = (await call("POST", "/api/fleet-operations/preview", { operation: "network.setDns", cabinetIds: ids }, t2)).body;
   assert.equal(preview.change, 3);
@@ -173,8 +174,8 @@ test("a fixed address from another network (DHCP site) and a wrong gateway (fixe
   assert.equal(tg.targets[0].label, "Set the gateway to 172.20.10.1");
   // Both are network.setIp, each cabinet gets its own change from its own diagnosis, and a job covers one site: two sites, two jobs.
   const jobId = randomUUID();
-  const t = await call("POST", "/api/auth/confirm-password", { password: t2.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10 }) }, t2);
-  const mixed = await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10, stepUpToken: t.body.token }, t2);
+  const t = await call("POST", "/api/auth/confirm-password", { password: t2.password, action: "fleet.job", target: jobId, paramsHash: paramsHash({ operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10, planDigest: "0".repeat(64) }) }, t2);
+  const mixed = await call("POST", "/api/fleet-operations/jobs", { jobId, operation: "network.setIp", cabinetIds: [lab.id, triage.id], batchSize: 10, planDigest: "0".repeat(64), stepUpToken: t.body.token }, t2);
   assert.equal(mixed.status, 409, JSON.stringify(mixed.body));
   assert.equal(mixed.body.error, "one_site_only");
   for (const one of [lab, triage]) {
@@ -328,8 +329,9 @@ test("a job whose starter is demoted before its first batch sends nothing at all
   const t2 = await account("tier2");
   const ids = await dnsTargets();
   const jobId = randomUUID(), batchSize = 1;
-  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
-    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  const planDigest = (await preview(db.app, { role: "tier2" }, "network.setDns", ids)).planDigest;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, planDigest, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize, planDigest })) });
   await db.app.query("UPDATE users SET role = 'tier1' WHERE id = $1", [t2.id]);
   await runJobToEnd(db.app, jobId, TIMING);
   assert.equal(Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n), 0, "nothing was sent");
@@ -342,8 +344,9 @@ test("a demotion between two batches stops the rest, and the batch already sent 
   const t1 = await account("tier1"), t2 = await account("tier2");
   const ids = await dnsTargets();
   const jobId = randomUUID(), batchSize = 1;
-  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, operation: "network.setDns", cabinetIds: ids, batchSize,
-    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize })) });
+  const planDigest = (await preview(db.app, { role: "tier2" }, "network.setDns", ids)).planDigest;
+  await startJob(db.app, { userId: t2.id, role: "tier2" }, { jobId, planDigest, operation: "network.setDns", cabinetIds: ids, batchSize,
+    stepUpToken: await issueStepUpToken(db.app, t2.id, "fleet.job", jobId, paramsHash({ operation: "network.setDns", cabinetIds: ids, batchSize, planDigest })) });
   // The runner is driven here rather than by the route, so the demotion can land between two batches.
   const running = runJobToEnd(db.app, jobId, TIMING);
   const count = async () => Number((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n);

@@ -3,13 +3,14 @@
 // zone, its firewall policy) and says why it skips any. The job issues the commands in batches (the next batch
 // starts once this one has answered), records each cabinet's result, then verifies it from the cabinet's next report:
 // a change that cannot be seen is "not verified", never counted as done. Confirmed with the password, bound to the exact
-// operation, cabinets and batch size; at most 200 cabinets; the whole job counts as one write against the person's limit.
+// operation, cabinets, batch size and preview digest; at most 200 cabinets; the whole job counts as one write against the person's limit.
 // Sync cabinets go last, in batches of their own, and only once every satellite in the job checked out: a change that breaks a
 // sync cabinet cuts off every satellite at its site, so it is never made while a satellite's result is in doubt (the owner's decision, 8e).
 import { parseJson } from "./settings.js";
 import { randomUUID } from "node:crypto";
 import { catalog, operations } from "../contracts.js";
 import { audit, auditMany, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { paramsHash } from "../auth/canonical.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
@@ -126,11 +127,16 @@ async function networkFix(db: Queryable, cabinetId: string, operation: "network.
   return { params, label: String(a.label ?? operation) };
 }
 
+/** Only executable decisions are bound; display names and diagnosis labels are not write parameters. */
+function planDigest(operation: JobOperation, targets: Plan[]): string {
+  return paramsHash({ operation, targets: targets.map(t => ({ cabinetId: t.cabinetId, role: t.role, params: t.params, skip: t.skip })) });
+}
+
 export async function preview(db: Queryable, user: { role: Role }, operation: JobOperation, cabinetIds: string[]) {
   checkRole(user.role, operation);
   const p = await plan(db, operation, cabinetIds);
   const ipv4s = new Map((await db.query<{ id: string; ipv4: string | null }>("SELECT id, ipv4 FROM cabinets WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))", [cabinetIds])).rows.map(r => [r.id, r.ipv4]));
-  return { operation, limit: BULK_LIMIT, change: p.filter(x => !x.skip).length, skip: p.filter(x => x.skip).length,
+  return { operation, planDigest: planDigest(operation, p), limit: BULK_LIMIT, change: p.filter(x => !x.skip).length, skip: p.filter(x => x.skip).length,
     cabinets: p.map(x => ({ id: x.cabinetId, name: x.name, role: x.role, site: x.site, client: x.client, ipv4: ipv4s.get(x.cabinetId) ?? null, params: x.params, skip: x.skip, detail: x.detail ?? null })) };
 }
 
@@ -141,19 +147,29 @@ function checkRole(role: Role, operation: JobOperation): void {
 
 // ---- Starting a job -----------------------------------------------------------------------------------------------------
 
-export interface JobRequest { jobId: string; operation: JobOperation; cabinetIds: string[]; batchSize: number; stepUpToken: string }
+export interface JobRequest { jobId: string; operation: JobOperation; cabinetIds: string[]; batchSize: number; planDigest: string; stepUpToken: string }
 
 /** Starts a job: checks the password confirmation, the pauses and the limit, and fixes its target list. Running it is runJob's. */
 export async function startJob(pool: Pool, user: { userId: string; role: Role }, r: JobRequest): Promise<{ jobId: string; change: number; skip: number }> {
   checkRole(user.role, r.operation);
   if (r.cabinetIds.length > BULK_LIMIT) throw new Refused("too_many_cabinets", 409, `a fleet operation covers at most ${BULK_LIMIT} cabinets`);
   return pauseOnWriteLimit(pool, user.userId, () => transaction(pool, async c => {
-    await consumeStepUpToken(c, r.stepUpToken, user.userId, "fleet.job", r.jobId, { operation: r.operation, cabinetIds: r.cabinetIds, batchSize: r.batchSize });
+    await consumeStepUpToken(c, r.stepUpToken, user.userId, "fleet.job", r.jobId, { operation: r.operation, cabinetIds: r.cabinetIds, batchSize: r.batchSize, planDigest: r.planDigest });
     if ((await c.query("SELECT 1 FROM fleet_jobs WHERE id = $1", [r.jobId])).rows[0]) throw new Refused("job_exists", 409, "that job was already started");
     await lock(c, `writes:${user.userId}`);
     if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
     await assertUnderWriteLimit(c, user.userId);
-    const targets = await plan(c, r.operation, r.cabinetIds);
+    let targets: Plan[];
+    try { targets = await plan(c, r.operation, r.cabinetIds); }
+    catch (e) {
+      // A cabinet that is gone since the preview is drift: the operator goes back to a fresh preview. Any other refusal is
+      // its own answer and keeps its code (a plan that no longer covers one site, say).
+      if (e instanceof Refused && e.code === "not_found")
+        throw new Refused("preview_changed", 409, "the fleet plan changed; preview it again before confirming");
+      throw e;
+    }
+    if (planDigest(r.operation, targets) !== r.planDigest)
+      throw new Refused("preview_changed", 409, "the fleet plan changed; preview it again before confirming");
     await c.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, $2, $3, $4, $5)",
       [r.jobId, r.operation, user.userId, r.batchSize, targets.length]);
     // Every target in one statement (up to BULK_LIMIT rows), not one round trip each.

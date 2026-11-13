@@ -71,8 +71,9 @@ async function run(ids: Record<string, string>, order: string[], batchSize: numb
   // The fake agent answers for `ids`; the job covers `chosen` when given (a cabinet that never answers, such as an offline one, is in the job only).
   const cabinetIds = chosen ?? order.map(n => ids[n]!);
   const jobId = randomUUID();
-  const token = await issueStepUpToken(db.app, adminId, "fleet.job", jobId, paramsHash({ operation: "firewall.applyPolicy", cabinetIds, batchSize }));
-  await startJob(db.app, { userId: adminId, role: "admin" }, { jobId, operation: "firewall.applyPolicy", cabinetIds, batchSize, stepUpToken: token });
+  const planDigest = (await preview(db.app, { role: "admin" }, "firewall.applyPolicy", cabinetIds)).planDigest;
+  const token = await issueStepUpToken(db.app, adminId, "fleet.job", jobId, paramsHash({ operation: "firewall.applyPolicy", cabinetIds, batchSize, planDigest }));
+  await startJob(db.app, { userId: adminId, role: "admin" }, { jobId, operation: "firewall.applyPolicy", cabinetIds, batchSize, planDigest, stepUpToken: token });
   if (beforeRun) await beforeRun(jobId);
   const agent = fakeAgent(ids, fail);
   try { await runJob(db.app, jobId, TIMING); } finally { await agent.stop(); }

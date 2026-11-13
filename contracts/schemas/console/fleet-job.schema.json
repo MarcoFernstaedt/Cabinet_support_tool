@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/fleet-job.schema.json",
   "title": "fleet-job",
-  "description": "Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.",
+  "description": "Starts a fleet operation (docs/spec/13-roadmap.md modules 21 and 45): one fixed operation on up to 200 chosen cabinets, as a job with a fixed target list, run in batches, each cabinet's result and verification recorded. The parameters come from the server: each cabinet's site's zone for time.setZone, its client's policy for firewall.applyPolicy. Confirmed with the password: the token (action fleet.job, target jobId) is bound to {operation, cabinetIds, batchSize, planDigest}. For network.setDns and network.setIp the server takes each cabinet's change from its latest network diagnosis (at most 30 minutes old); a cabinet without a current finding is skipped.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -10,7 +10,8 @@
     "operation",
     "cabinetIds",
     "batchSize",
-    "stepUpToken"
+    "stepUpToken",
+    "planDigest"
   ],
   "properties": {
     "jobId": {
@@ -42,6 +43,11 @@
       "type": "integer",
       "minimum": 1,
       "maximum": 50
+    },
+    "planDigest": {
+      "description": "Server-computed canonical digest returned by the preview being confirmed.",
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
     },
     "stepUpToken": {
       "type": "string",
