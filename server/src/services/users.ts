@@ -70,9 +70,9 @@ async function keepAnAdmin(c: Queryable, t: Target, stillAdmin: boolean): Promis
 }
 
 export async function createUser(pool: Pool, adminId: string, u: { username: string; name: string; role: Role; writeLimit?: number }, stepUpToken: string) {
-  // The console's form uses the same rule. Refusing here means a mistyped username is an answer the Admin can act on,
-  // rather than the table's check-constraint error reaching them (D57).
   if (!USERNAME_PATTERN.test(u.username)) throw new Refused("username_invalid", 422, "a username is 2 to 64 characters: lower-case letters, digits, dot, dash or underscore");
+  // The console's form uses the same rule. Refusing here means a mistyped username is an answer the Admin can act on,
+  // rather than the table's check-constraint error reaching them.
   const temporary = temporaryPassword();
   const hash = await hashPassword(temporary);
   const id = randomUUID();

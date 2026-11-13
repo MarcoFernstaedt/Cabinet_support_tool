@@ -104,6 +104,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "Too short or too easy to guess, so it was rejected.",
     fix: "Use at least 12 characters mixing words, numbers and symbols.",
   },
+  username_invalid: {
+    title: "Username not allowed",
+    detail: "A username is 2 to 64 characters: lower-case letters, digits, dot, dash or underscore.",
+    fix: "Change the username and create the account again.",
+  },
   username_taken: {
     title: "Username taken",
     detail: "Another account already uses this name.",

@@ -28,7 +28,7 @@ const DISCOVERED_CODES = [
   "rule_impossible", "rule_too_broad", "same_person", "search_too_slow", "setup_not_started",
   "signature_invalid", "signed_out", "sign_in_incomplete", "stale_base", "step_up_required", "too_large",
   "too_many_cabinets", "too_many_items", "too_many_notes", "too_many_proposals", "totp_required",
-  "unavailable", "unknown_command", "unknown_keyword", "unknown_operation", "usage", "username_deleted",
+  "unavailable", "unknown_command", "unknown_keyword", "unknown_operation", "usage", "username_deleted", "username_invalid",
   "username_taken", "version_exists", "version_not_newer", "weak_password", "writes_paused",
   "writes_paused_for_you", "wrong_category", "wrong_stage",
 ] as const;
