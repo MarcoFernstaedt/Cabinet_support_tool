@@ -6,6 +6,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D84. An agent's firewall event is recorded by commands.ts, the firewall history's owner (2026-11-15)
+
+**What the code did:** `storeEvents` in `services/events.ts` wrote `firewall_changes` (owner `commands.ts`) for each `firewall_changed`
+event it had just stored:
+- **Event for a platform write:** if the event named a command whose history row had no event yet, it set the event on that row. The
+  row was recorded from the write's own result, so the event confirms that change.
+- **Any other event:** otherwise it added a row, marked explained when the event named a command.
+
+**The decision** (F21.R2):
+- **`commands.ts` exports `recordFirewallEvent(c, cabinetId, event)`.** It holds both statements, unchanged.
+- **`storeEvents` calls it** in the batch's transaction, for each `firewall_changed` event it has just stored, as before. An event
+  already stored by an earlier batch is still not recorded again.
+- **Input check:**
+  - The cabinet id must be an id.
+  - The event is checked against `event.schema.json` with the contract's own validator, and must be a `firewall_changed` event.
+  - Anything else is refused before the database is touched.
+  - The agent API already checks each batch against its contract, so a stored event always passes. The check guards the function's
+    own boundary, for any later caller.
+- **No new cycle:** `events.ts` now imports `commands.ts`, and nothing `commands.ts` imports leads back to `events.ts`.
+  `import-cycles.test.ts` passes.
+- One entry comes off the debt list, which leaves 97.
+
+**Proof.** `test/firewall-history.test.ts`, three tests:
+- **The cases:** a platform write's first event confirms its row and adds none. A later event for the same command is a further
+  change, and one with no command is an unexplained one.
+- **Through `storeEvents`:** an event goes in once, and a repeat of the same event or another kind adds nothing.
+- **Hostile input:** 8 bad cabinet ids and 13 bad events are refused with nothing recorded. The bad events include an injection string
+  in the event id, a bad command id, a bad time, an unknown field, a message over its length and a missing field. So is an event of
+  another kind.
+- **Red check:** with the old `events.ts` back, `table-ownership.test.ts` fails with "services/events.ts writes firewall_changes (owned by
+  services/commands.ts)".
+
+---
+
 ## D82. A rollout batch whose every cabinet stays offline moves on, rather than holding the rollout open (2026-11-15)
 
 **What the code did** (`server/src/services/rollouts.ts`, `evaluate`, at `d669848`; found in review of #268, and on main before it):
@@ -109,6 +143,9 @@ not pages; noted on the tracker.
 - **The staged-rollout test** now also asserts that its offline cabinet ends `skipped` / `offline`, and its comment says so. No
   existing assertion was changed.
 - `upgrades.test.ts` passes 11 of 11, with two real-agent tests skipped, and `audit-sweep.test.ts` passes 5 of 5.
+
+---
+
 
 ---
 

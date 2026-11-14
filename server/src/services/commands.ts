@@ -1,7 +1,7 @@
 // Commands: issued by a person, delivered on the cabinet's long poll, answered by a result.
 import { raiseSecurityAlert } from "./security.js";
 import { randomUUID } from "node:crypto";
-import { catalog, isOperationName, operations, type CatalogEntry, type Command, type OperationName, type Result } from "../contracts.js";
+import { catalog, envelopes, isOperationName, operations, type CatalogEntry, type Command, type Event, type OperationName, type Result } from "../contracts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
@@ -281,4 +281,24 @@ export async function clearOldCommandResults(db: Queryable, cutoff: Date, o: Bat
 export async function pruneFirewallChanges(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
   checkRetentionCutoff(cutoff);
   return inBatches(db, "DELETE TOP ($1) FROM firewall_changes WHERE occurred_at < $2", [cutoff], o, { table: "firewall_changes", cutoff });
+}
+
+const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * An agent's firewall_changed event, put into the cabinet's firewall history (F21.R2, decision-log D84). A change made through the
+ * platform was already recorded from the write's own result; its first event confirms it by setting the event on that row. Any other
+ * event (no command, or a later one for the same command: a profile's timer turning it back on, a safety-net rollback) is a further
+ * change. Called by storeEvents in the batch's transaction, for an event it has just stored. The event is checked against its contract
+ * and the cabinet id before the database is touched.
+ */
+export async function recordFirewallEvent(c: Queryable, cabinetId: string, event: Event): Promise<void> {
+  if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("a cabinet id is required to record a firewall change");
+  const e = envelopes.event.parse(event);
+  if (e.kind !== "firewall_changed") throw new Error(`only a firewall_changed event goes into the firewall history, not ${String(e.kind)}`);
+  const linked = e.commandId ? await c.query("UPDATE firewall_changes SET event_id = $2 WHERE id = (SELECT TOP (1) id FROM firewall_changes WHERE command_id = $1 AND event_id IS NULL)",
+    [e.commandId, e.eventId]) : null;
+  if (!linked || linked.rowCount === 0)
+    await c.query(`INSERT INTO firewall_changes (cabinet_id, command_id, event_id, explained, detail, occurred_at) VALUES ($1, $2, $3, $4, $5, $6)`,
+      [cabinetId, e.commandId ?? null, e.eventId, !!e.commandId, e.detail ? safeJson(e.detail) : null, new Date(e.occurredAt)]);
 }

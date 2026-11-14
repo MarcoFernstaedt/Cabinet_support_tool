@@ -10,6 +10,7 @@ import { upsertSetting } from "./settings.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
 import { processBatch, type Outcome } from "./alerts.js";
 import { Refused } from "./errors.js";
+import { recordFirewallEvent } from "./commands.js";
 import { countRuleHits, RULES_STAMP_SQL } from "./rules.js";
 
 /** Which checks in an agent's security event raise which security alert (a safety-net rollback is reported, but is not one of them). */
@@ -68,15 +69,8 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
       if (kind)
         await raiseSecurityAlert(c, { kind, signature: `${kind}|${cabinetId}`, cabinetId, title: AGENT_SECURITY_TITLE[kind],
           detail: { eventId: e.eventId, check, message: e.detail?.message ?? null, fields: e.detail?.fields ?? {} } });
-      if (e.kind === "firewall_changed") {
-        // The write's own result already recorded the change; the agent's event confirms it. Later events for the
-        // same command (a profile's timer turning it back on, a safety-net rollback) are further changes.
-        const linked = e.commandId ? await c.query("UPDATE firewall_changes SET event_id = $2 WHERE id = (SELECT TOP (1) id FROM firewall_changes WHERE command_id = $1 AND event_id IS NULL)",
-          [e.commandId, e.eventId]) : null;
-        if (!linked || linked.rowCount === 0)
-          await c.query(`INSERT INTO firewall_changes (cabinet_id, command_id, event_id, explained, detail, occurred_at) VALUES ($1, $2, $3, $4, $5, $6)`,
-            [cabinetId, e.commandId ?? null, e.eventId, !!e.commandId, e.detail ? safeJson(e.detail) : null, new Date(e.occurredAt)]);
-      }
+      // The firewall history is commands.ts's (D84).
+      if (e.kind === "firewall_changed") await recordFirewallEvent(c, cabinetId, e);
     }
     const processed = await processBatch(c, cabinetId, stored, inserted[0]?.version ?? null);
     return { stored: stored.length, outcomes: processed.outcomes, ruleHits: processed.ruleHits };
