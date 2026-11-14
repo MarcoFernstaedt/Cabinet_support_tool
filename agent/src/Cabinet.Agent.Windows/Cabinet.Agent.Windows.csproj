@@ -13,9 +13,9 @@
     <!-- WMI: devices, drivers, BIOS serial, disk health and services. No standard-library equivalent. -->
     <PackageReference Include="System.Management" Version="10.0.14" />
     <!-- System.Diagnostics.Eventing.Reader: the only managed reader for modern event log channels. -->
-    <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.14" />
+    <PackageReference Include="System.Diagnostics.EventLog" Version="11.0.0" />
     <!-- Already used by the services; here for services.list, service.control and the service watcher (milestone 10). -->
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.14" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="11.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj" />

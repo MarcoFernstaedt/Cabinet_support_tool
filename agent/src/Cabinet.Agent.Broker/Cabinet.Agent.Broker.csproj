@@ -8,7 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <!-- ServiceBase: the standard Windows service host. -->
-    <PackageReference Include="System.ServiceProcess.ServiceController" Version="10.0.14" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="11.0.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Cabinet.Agent.Windows\Cabinet.Agent.Windows.csproj" />
