@@ -59,22 +59,28 @@ Do not commit. Leave the changes in the working tree.
 
 ## Acceptance commands
 
-Run from `server/`, and paste the exact output into your summary:
+Run from `server/`, and paste the exact output into your summary. The DB-backed tests need the disposable SQL Server
+test container on `127.0.0.1:11433` **and** the admin URL in the environment — without `TEST_DATABASE_ADMIN_URL` every
+case fails with a connection error, which is not a code defect. Never point these tests at the live platform database.
 
 ```bash
 cd /home/marco/cabinet_support_tool/server
-npm run build                                        # must succeed; tsc emits dist/
-node --test dist/test/fleet-jobs.test.js             # existing lifecycle tests, must stay green
-node --test dist/test/fleet-jobs-preview.test.js
-node --test dist/test/fleet-jobs-retention.test.js
-node --test dist/test/fleet-jobs-sync-last.test.js
+SA=$(docker inspect cab-test-mssql --format '{{range .Config.Env}}{{println .}}{{end}}' | sed -n 's/^MSSQL_SA_PASSWORD=//p')
+export TEST_DATABASE_ADMIN_URL="sqlserver://sa:${SA}@127.0.0.1:11433/master?trustServerCertificate=true"
+export PATH="$HOME/.dotnet:$PATH"                       # agent-spawning e2e starts `dotnet` by name
+npm run build                                           # must succeed; tsc emits dist/
+node --test --test-timeout=600000 dist/test/fleet-jobs.test.js          # existing lifecycle tests, must stay green
+node --test --test-timeout=600000 dist/test/fleet-jobs-preview.test.js
+node --test --test-timeout=600000 dist/test/fleet-jobs-retention.test.js
+node --test --test-timeout=600000 dist/test/fleet-jobs-sync-last.test.js
 cd /home/marco/cabinet_support_tool
 git status --short
 git diff --stat
 ```
 
-The tests need the SQL Server test container on `127.0.0.1:11433`; if it is down, say so and report the tests as
-unrun rather than reporting a pass.
+`--test-timeout` is not optional: browser-driven files have hung indefinitely on this host. If the container is down or
+the URL is refused, say so and report the tests as unrun rather than reporting a pass. Take the verdict from the
+`# tests / # pass / # fail / # skipped` summary — a bare exit code with no summary means no tests ran.
 
 Plus one red/green proof for the new mechanism: the test you add for defect 1 must go **red** with the resume path
 disabled (make the comparison `if (false)` so the build stays valid, or remove the guard), and green again with the
