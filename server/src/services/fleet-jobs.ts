@@ -208,13 +208,15 @@ export async function runJob(pool: Pool, jobId: string, timing: Timing = DEFAULT
     pool = ownedPool(pool, name, holder, JOB_LEASE_MS);
     const job = (await pool.query<{ operation: JobOperation; created_by: string; batch_size: number; state: string; role: Role }>(
       "SELECT j.operation, j.created_by, j.batch_size, j.state, u.role FROM fleet_jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $1", [jobId])).rows[0];
-    if (!job || job.state !== "running") return;
+    if (!job || (job.state !== "running" && job.state !== "cancelled")) return;
     for (;;) {
-      if (await cancelled(pool, jobId)) break;
       // Issued commands from before a restart are followed up first; then the next batch.
       let batch = (await pool.query<{ cabinet_id: string; command_id: string; params: Record<string, unknown> }>(
-        "SELECT cabinet_id, command_id, params FROM fleet_job_targets WHERE job_id = $1 AND state = 'issued' ORDER BY [position]", [jobId])).rows;
-      if (batch.length === 0) batch = await issueBatch(pool, jobId, job);
+        "SELECT cabinet_id, command_id, params FROM fleet_job_targets WHERE job_id = $1 AND state IN ('issued', 'succeeded') ORDER BY [position]", [jobId])).rows;
+      if (batch.length === 0) {
+        if (await cancelled(pool, jobId)) break;
+        batch = await issueBatch(pool, jobId, job);
+      }
       if (batch.length === 0) break;
       await followUp(pool, jobId, job.operation, batch, timing, { userId: job.created_by, role: job.role });
     }
@@ -422,15 +424,15 @@ const setTarget = (db: Queryable, jobId: string, cabinetId: string, state: strin
 
 /** After a restart: every job still running is picked up again where it stopped. */
 export async function resumeJobs(pool: Pool, timing: Timing = DEFAULT_TIMING, log: (m: string) => void = () => {}): Promise<number> {
-  const ids = (await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running'")).rows.map(r => r.id);
+  const ids = (await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running' OR (state = 'cancelled' AND finished_at IS NULL)")).rows.map(r => r.id);
   for (const id of ids) void runJob(pool, id, timing, log);
   return ids.length;
 }
 
-/** Retry startup acquisition, not failed work. Snapshot running jobs once the legacy startup lease is acquired;
- * retry each snapshot job only until a runner owns it. Cancelled jobs and failed runners retain existing recovery behaviour. */
+/** Discover unfinished jobs every interval, including failed runners and cancelled jobs with work to reconcile.
+ * The per-job lease fences all work; failed attempts leave durable progress for the next scan. */
 export function scheduleFleetRecovery(pool: Pool, timing: Timing = DEFAULT_TIMING, log: (m: string) => void = () => {}, intervalMs = 10_000): () => void {
-  let pending: Set<string> | undefined;
+  let started = false;
   let busy = false;
   let stopped = false;
   const inFlight = new Set<string>();
@@ -438,18 +440,18 @@ export function scheduleFleetRecovery(pool: Pool, timing: Timing = DEFAULT_TIMIN
     if (busy || stopped) return;
     busy = true;
     try {
-      if (!pending) {
+      if (!started) {
         if (!(await takeLease(pool, "jobs.resume-fleet-jobs", 600_000))) return;
-        pending = new Set((await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running'")).rows.map(r => r.id));
+        started = true;
       }
       if (stopped) return;
-      for (const id of pending) {
+      const ids = (await pool.query<{ id: string }>("SELECT id FROM fleet_jobs WHERE state = 'running' OR (state = 'cancelled' AND finished_at IS NULL)")).rows.map(r => r.id);
+      for (const id of ids) {
         if (inFlight.has(id)) continue;
         inFlight.add(id);
-        void runJob(pool, id, timing, log, () => { pending!.delete(id); })
+        void runJob(pool, id, timing, log)
           .finally(() => { inFlight.delete(id); });
       }
-      if (pending.size === 0) clearInterval(timer);
     } catch (e) { log(`fleet recovery acquisition stopped: ${(e as Error).message}`); }
     finally { busy = false; }
   };

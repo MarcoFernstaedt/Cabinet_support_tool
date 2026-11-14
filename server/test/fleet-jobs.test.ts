@@ -446,3 +446,49 @@ test("startup retries fleet recovery after another holder lease expires", async 
     assert.deepEqual(result.counts, { verified: 1 });
   } finally { stop(); }
 });
+
+for (const cancel of [false, true]) test(`periodic recovery resumes a runner lost after startup${cancel ? " and reconciles cancellation" : ""}`, async () => {
+  const t1 = await account("tier1");
+  const cabinetIds = await siteCabinets(await harborSite(), 1), jobId = randomUUID();
+  let failed = false;
+  const faulty = new Proxy(db.app, { get(target, key) {
+    if (key === "transaction") return (fn: Parameters<Pool["transaction"]>[0]) => target.transaction(c => fn(new Proxy(c, { get(tx, prop) {
+      if (prop === "query") return (text: string, params?: readonly unknown[]) => {
+        if (!failed && text.includes("FROM commands WHERE id IN")) {
+          failed = true;
+          throw new Error("injected transient database failure");
+        }
+        return tx.query(text, params);
+      };
+      return Reflect.get(tx, prop);
+    } }) as Tx));
+    return Reflect.get(target, key);
+  } });
+  // Consume the startup scan before this job exists.
+  const stop = fleetJobs.scheduleFleetRecovery(db.app, TIMING, () => {}, 100);
+  try {
+    await new Promise(r => setTimeout(r, 200));
+    const planDigest = (await preview(db.app, { role: "tier1" }, "time.sync", cabinetIds)).planDigest;
+    const token = await confirm(t1, jobId, { operation: "time.sync", cabinetIds, batchSize: 1 });
+    await startJob(db.app, { userId: t1.id, role: "tier1" }, { jobId, operation: "time.sync", cabinetIds, batchSize: 1, planDigest, stepUpToken: token });
+    const logs: string[] = [];
+    await runJob(faulty, jobId, TIMING, m => logs.push(m));
+    assert.ok(failed);
+    assert.ok(logs.some(m => m.includes("injected transient database failure")));
+    if (cancel) await fleetJobs.cancelJob(db.app, { userId: t1.id, role: "tier1" }, jobId);
+    // Simulate the dead holder's lease having elapsed, without changing the production lease duration.
+    await db.app.query("UPDATE job_leases SET until = DATEADD(second, -1, SYSUTCDATETIME()) WHERE name = $1", [`fleet.job.${jobId}`]);
+    const end = Date.now() + 10_000;
+    let finished = false;
+    while (Date.now() < end) {
+      finished = !!(await db.app.query<{ finished_at: Date | null }>("SELECT finished_at FROM fleet_jobs WHERE id = $1", [jobId])).rows[0]?.finished_at;
+      if (finished) break;
+      await new Promise(r => setTimeout(r, 100));
+    }
+    assert.ok(finished, "periodic recovery must finish a runner lost after its startup scan");
+    const result = await fleetJobs.job(db.app, jobId);
+    assert.equal(result!.state, cancel ? "cancelled" : "done");
+    assert.deepEqual(result!.counts, { verified: 1 });
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n, 1, "recovery never reissues the outstanding change");
+  } finally { stop(); }
+});
