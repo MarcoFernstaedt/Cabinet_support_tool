@@ -31,6 +31,16 @@ interface Row { id: string; name: string; role: string; site: { id: string; name
 interface Preview { planDigest: string; operation: Operation; change: number; skip: number; cabinets: { id: string; name: string; role?: string; site: string; client: string; ipv4: string | null; params: unknown; skip: string | null }[] }
 interface SiteOption { id: string; name: string; client: { id: string; name: string }; demo: boolean; cabinets: number }
 
+interface CabinetLimit { shown: number; matched: number; limit: number }
+
+export function FleetSelectionStatus({ selected, siteCabinets, limits }: { selected: number; siteCabinets?: number; limits?: CabinetLimit }) {
+  const cut = limits && limits.shown < limits.matched;
+  return <span role="status"><strong>{selected}</strong>{cut ? " cabinets selected; list is cut." : <>{siteCabinets !== undefined ? ` of ${siteCabinets}` : ""} selected</>}
+    {selected > LIMIT && <span className="error"> (at most {LIMIT})</span>}
+    {cut && <span className="notice warn small" role="note"> Showing {limits.shown.toLocaleString("en-US")} of {limits.matched.toLocaleString("en-US")} cabinets that match. Narrow by client, site or problem to see the rest.</span>}
+  </span>;
+}
+
 const KEY = "fleet-ops-selection";
 /** The chosen site and the ticked cabinets, kept for this tab. */
 const readSelection = (): { siteId: string; selected: Record<string, string> } => {
@@ -55,7 +65,7 @@ export function FleetOperations() {
   const diagnose = useStartDiagnosis();
   const siteList = useLoad<{ sites: SiteOption[] }>("/api/fleet-operations/sites");
   const query = new URLSearchParams({ siteId, problem }).toString();
-  const list = useLoad<{ cabinets: Row[] }>(siteId ? `/api/fleet-operations/cabinets?${query}` : null);
+  const list = useLoad<{ cabinets: Row[]; limits: { cabinets: CabinetLimit } }>(siteId ? `/api/fleet-operations/cabinets?${query}` : null);
   const jobs = useLoad<{ jobs: { id: string; operation: string; state: string; startedAt: string; total: number; startedBy: string; verified: number; problems: number }[] }>("/api/fleet-operations/jobs");
   useEffect(() => writeSelection(siteId, selected), [siteId, selected]);
   const rows = list.data?.cabinets ?? [];
@@ -112,7 +122,7 @@ export function FleetOperations() {
           <button className="btn small ghost" onClick={() => { setSelected({}); setPreview(null); }} disabled={ids.length === 0}>Clear selection</button>
           <button className="btn small" onClick={() => void diagnose.start({ cabinetIds: ids })} disabled={ids.length === 0 || ids.length > 60 || diagnose.busy}>Diagnose network on the selected</button>
           {diagnose.problem && <span className="error small" role="alert">{diagnose.problem}</span>}
-          <span role="status"><strong>{ids.length}</strong>{site ? <> of {site.cabinets}</> : null} selected{ids.length > LIMIT && <span className="error"> (at most {LIMIT})</span>}</span>
+          <FleetSelectionStatus selected={ids.length} siteCabinets={site?.cabinets} limits={list.data?.limits.cabinets} />
         </p>
         {!siteId && <Empty>Choose a site to see its cabinets.</Empty>}
         {list.data && (rows.length === 0 ? <Empty>No cabinet matches.</Empty> : (

@@ -15,7 +15,7 @@ export async function fleetOpsRoutes(app: FastifyInstance, o: ConsoleApiOptions 
   app.get("/api/fleet-operations/cabinets", async request => {
     await o.guards.role(request, "tier1");
     const q = consoleBodies.fleetCabinetsQuery.parse(request.query);
-    return { cabinets: await fleetCabinets(o.pool, q) };
+    return fleetCabinets(o.pool, q);
   });
 
   app.post("/api/fleet-operations/preview", async request => {

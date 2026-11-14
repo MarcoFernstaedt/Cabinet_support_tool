@@ -33,7 +33,10 @@ export const DEFAULT_TIMING: Timing = { pollMs: 1000, verifyMs: 150_000, batchMs
 
 // ---- Choosing cabinets --------------------------------------------------------------------------------------------------
 
-/** The cabinets the page lists: active ones, narrowed by client, site and a problem. At most 500. */
+// Match the bulk selection budget: the console can choose at most 200 cabinets for a job.
+const CABINETS_LIMIT = BULK_LIMIT;
+
+/** The cabinets the page lists: active ones, narrowed by client, site and a problem. */
 export async function fleetCabinets(db: Queryable, q: { clientId?: string | undefined; siteId?: string | undefined; problem?: Problem | undefined }) {
   const where: string[] = ["k.status = 'active'"];
   const args: unknown[] = [];
@@ -45,15 +48,16 @@ export async function fleetCabinets(db: Queryable, q: { clientId?: string | unde
   if (q.problem === "firewall_drift") where.push(open(ISSUE.firewallPolicy));
   args.push(OFFLINE_AFTER_MS / 1000);
   const rows = (await db.query<{ id: string; name: string; role: string; site_id: string; site: string; client_id: string; client: string; demo: number; read_only: boolean | null;
-    online: number; time_zone_id: string | null; site_zone: string | null; skew: number | null; alerts: string; ipv4: string | null }>(
-    `SELECT TOP (500) k.id, k.name, k.role, s.id AS site_id, s.name AS site, cl.id AS client_id, cl.name AS client, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo, k.read_only,
+    online: number; time_zone_id: string | null; site_zone: string | null; skew: number | null; alerts: string; ipv4: string | null; matched: number }>(
+    `SELECT TOP (${CABINETS_LIMIT}) COUNT(*) OVER () AS matched, k.id, k.name, k.role, s.id AS site_id, s.name AS site, cl.id AS client_id, cl.name AS client, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo, k.read_only,
             CASE WHEN k.last_heartbeat_at > DATEADD(second, -$${args.length}, SYSUTCDATETIME()) THEN 1 ELSE 0 END AS online,
             k.time_zone_id, ${SITE_ZONE_SQL} AS site_zone, k.clock_skew_seconds AS skew, k.ipv4,
             (SELECT COUNT(*) FROM alerts a WHERE a.cabinet_id = k.id AND a.state <> 'resolved') AS alerts
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE ${where.join(" AND ")} ORDER BY cl.name, s.name, k.name`, args)).rows;
-  return rows.map(r => ({ id: r.id, name: r.name, role: r.role, site: { id: r.site_id, name: r.site, timeZone: r.site_zone }, client: { id: r.client_id, name: r.client },
+      WHERE ${where.join(" AND ")} ORDER BY cl.name, s.name, k.name, k.id`, args)).rows;
+  const cabinets = rows.map(r => ({ id: r.id, name: r.name, role: r.role, site: { id: r.site_id, name: r.site, timeZone: r.site_zone }, client: { id: r.client_id, name: r.client },
     demo: r.demo === 1, readOnly: r.read_only, online: r.online === 1, timeZoneId: r.time_zone_id, clockSkewSeconds: r.skew, ipv4: r.ipv4, openAlerts: Number(r.alerts) }));
+  return { cabinets, limits: { cabinets: { shown: cabinets.length, matched: Number(rows[0]?.matched ?? 0), limit: CABINETS_LIMIT } } };
 }
 
 /** The sites to choose from: a bulk change covers one site, so the page starts by choosing one. */
