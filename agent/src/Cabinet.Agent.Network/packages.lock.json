@@ -72,7 +72,7 @@
           "Cabinet.Agent.Core": "[1.0.0, )",
           "System.Diagnostics.EventLog": "[11.0.0, )",
           "System.Management": "[11.0.0, )",
-          "System.ServiceProcess.ServiceController": "[10.0.14, )"
+          "System.ServiceProcess.ServiceController": "[11.0.0, )"
         }
       }
     },
