@@ -19,7 +19,7 @@
     <!-- JsonSchema.Net: .NET has no JSON Schema validator, and every input must be
          validated against the shared draft 2020-12 schemas before anything else
          reads it. The same package the contract tests already prove agrees with Ajv. -->
-    <PackageReference Include="JsonSchema.Net" Version="9.6.0" />
+    <PackageReference Include="JsonSchema.Net" Version="9.7.0" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Cabinet.Agent.Contracts\Cabinet.Agent.Contracts.csproj" />
