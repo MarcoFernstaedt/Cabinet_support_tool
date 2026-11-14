@@ -17,6 +17,7 @@ import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { DemoSimulator, enableDemo } from "../src/demo/demo.js";
 import * as fleetJobs from "../src/services/fleet-jobs.js";
 import { preview, resumeJobs, runJob, startJob } from "../src/services/fleet-jobs.js";
+import { takeLeasedCommands } from "../src/services/commands.js";
 import { takeLease } from "../src/services/job-lease.js";
 import type { Pool, Tx } from "../src/db/db.js";
 import { ISSUE } from "../src/services/rules.js";
@@ -491,4 +492,211 @@ for (const cancel of [false, true]) test(`periodic recovery resumes a runner los
     assert.deepEqual(result!.counts, { verified: 1 });
     assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1", [jobId])).rows[0]!.n, 1, "recovery never reissues the outstanding change");
   } finally { stop(); }
+});
+
+test("each issued target keeps its own budget and known offline targets settle promptly", async () => {
+  const owner = await account("tier1");
+  const site = await bigSite(3);
+  const ids = await siteCabinets(site, 3);
+  const jobId = randomUUID();
+  const commands = ids.map(() => randomUUID());
+  await db.app.query("UPDATE cabinets SET demo_scenario = NULL WHERE site_id = $1", [site]);
+  await db.app.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, 'time.sync', $2, 3, 3)", [jobId, owner.id]);
+  for (let i = 0; i < ids.length; i++) {
+    await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+      VALUES ($1, $2, 'time.sync', '{}', $3, DATEADD(second, $5, SYSUTCDATETIME()), DATEADD(minute, 2, SYSUTCDATETIME()), 'queued', $4)`,
+    [commands[i], ids[i], owner.id, jobId, i === 0 ? -10 : 0]);
+    await db.app.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, command_id)
+      VALUES ($1, $2, $3, '{}', 'issued', $4)`, [jobId, ids[i], i, commands[i]]);
+  }
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -1, SYSUTCDATETIME()) WHERE id = $1", [ids[2]]);
+  const logs: string[] = [];
+  const runner = runJob(db.app, jobId, { pollMs: 30, verifyMs: 200, batchMs: 2000 }, m => logs.push(m));
+  try {
+    await new Promise(r => setTimeout(r, 500));
+    const targets = (await db.app.query<{ cabinet_id: string; state: string }>("SELECT cabinet_id, state FROM fleet_job_targets WHERE job_id = $1", [jobId])).rows;
+    const state = (id: string) => targets.find(t => t.cabinet_id === id)!.state;
+    assert.equal(state(ids[0]!), "failed", "the older command exhausts its own budget promptly");
+    assert.equal(state(ids[1]!), "issued", "the fresh neighbour still has its own budget");
+    assert.equal(state(ids[2]!), "offline", "known offline cabinets do not wait for expiry");
+    await new Promise(r => setTimeout(r, 2000));
+    assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done", "the fresh target also exhausts its budget without leaving the job running");
+  } finally {
+    // Also bounds cleanup when exercising the old shared deadline in the red proof.
+    await db.app.query("UPDATE commands SET status = 'expired' WHERE bulk_id = $1", [jobId]);
+    await runner;
+  }
+  assert.deepEqual(logs, []);
+  assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done");
+});
+
+
+test("offline targets have no deliverable command after their independent budgets settle", async () => {
+  const owner = await account("tier1");
+  const site = await bigSite(2);
+  const ids = await siteCabinets(site, 2);
+  const jobId = randomUUID();
+  const commands = ids.map(() => randomUUID());
+  await db.app.query("UPDATE cabinets SET demo_scenario = NULL WHERE site_id = $1", [site]);
+  await db.app.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, 'time.sync', $2, 2, 2)", [jobId, owner.id]);
+  for (let i = 0; i < ids.length; i++) {
+    await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+      VALUES ($1, $2, 'time.sync', '{}', $3, DATEADD(second, $5, SYSUTCDATETIME()), DATEADD(minute, 2, SYSUTCDATETIME()), 'queued', $4)`,
+    [commands[i], ids[i], owner.id, jobId, i === 0 ? -10 : 0]);
+    await db.app.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, command_id)
+      VALUES ($1, $2, $3, '{}', 'issued', $4)`, [jobId, ids[i], i, commands[i]]);
+  }
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -1, SYSUTCDATETIME()) WHERE id = $1", [ids[1]]);
+  const logs: string[] = [];
+  const runner = runJob(db.app, jobId, { pollMs: 30, verifyMs: 100, batchMs: 1500 }, m => logs.push(m));
+  try {
+    await Promise.race([runner, new Promise(r => setTimeout(r, 2500))]);
+    assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done");
+    assert.equal((await fleetJobs.job(db.app, jobId))!.cabinets.find(c => c.id === ids[1])!.state, "offline");
+    await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [ids[1]]);
+    assert.deepEqual((await takeLeasedCommands(db.app, ids[1]!)).commands, [], "returning agent cannot take the offline target's command");
+    assert.equal((await db.app.query<{ n: number }>("SELECT COUNT(*) AS n FROM commands WHERE bulk_id = $1 AND status IN ('queued', 'delivered')", [jobId])).rows[0]!.n, 0);
+    assert.deepEqual(logs, []);
+  } finally {
+    await db.app.query("UPDATE commands SET status = 'expired' WHERE bulk_id = $1", [jobId]);
+    await runner;
+  }
+});
+
+test("a waiting command removed mid-flight cannot keep the runner polling", async () => {
+  const owner = await account("tier1");
+  const site = await bigSite(1);
+  const id = (await siteCabinets(site, 1))[0]!;
+  const jobId = randomUUID(), commandId = randomUUID();
+  await db.app.query("UPDATE cabinets SET demo_scenario = NULL WHERE id = $1", [id]);
+  await db.app.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, 'time.sync', $2, 1, 1)", [jobId, owner.id]);
+  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+    VALUES ($1, $2, 'time.sync', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 2, SYSUTCDATETIME()), 'queued', $4)`, [commandId, id, owner.id, jobId]);
+  await db.app.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, command_id)
+    VALUES ($1, $2, 0, '{}', 'issued', $3)`, [jobId, id, commandId]);
+  let polls = 0;
+  const observed = new Proxy(db.app, { get(target, key) {
+    if (key === "transaction") return ((fn) => target.transaction(c => fn(new Proxy(c, { get(tx, prop) {
+      if (prop === "query") return (text: string, values?: readonly unknown[]) => {
+        if (/SELECT id, status, issued_at/.test(text)) polls++;
+        return tx.query(text, values);
+      };
+      return Reflect.get(tx, prop);
+    } }) as Tx))) as Pool["transaction"];
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const logs: string[] = [];
+  const runner = runJob(observed, jobId, { pollMs: 30, verifyMs: 100, batchMs: 1500 }, m => logs.push(m));
+  try {
+    for (let i = 0; polls === 0 && i < 100; i++) await new Promise(r => setTimeout(r, 20));
+    assert.ok(polls > 0, "the runner polled the waiting command before removal");
+    // Retention clears references before deleting the command.
+    await db.app.query("UPDATE fleet_job_targets SET command_id = NULL WHERE job_id = $1", [jobId]);
+    await db.app.query("DELETE FROM commands WHERE id = $1", [commandId]);
+    await Promise.race([runner, new Promise(r => setTimeout(r, 2500))]);
+    assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done");
+    assert.equal((await fleetJobs.job(db.app, jobId))!.cabinets[0]!.state, "failed");
+    const finishedPolls = polls;
+    await new Promise(r => setTimeout(r, 100));
+    assert.equal(polls, finishedPolls, "polling stops after the missing command settles");
+    assert.deepEqual(logs, []);
+  } finally {
+    // A bounded shared-deadline mutant can also finish cleanly after this row is restored.
+    await db.app.query(`IF NOT EXISTS (SELECT 1 FROM commands WHERE id = $1)
+      INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+      VALUES ($1, $2, 'time.sync', '{}', $3, DATEADD(minute, -2, SYSUTCDATETIME()), DATEADD(minute, -1, SYSUTCDATETIME()), 'expired', $4)`, [commandId, id, owner.id, jobId]);
+    await runner;
+  }
+});
+
+
+test("a command issued at the withdrawal instant settles without violating its expiry constraint", async () => {
+  const owner = await account("tier1");
+  const site = await bigSite(1);
+  const id = (await siteCabinets(site, 1))[0]!;
+  const jobId = randomUUID(), commandId = randomUUID();
+  await db.app.query("UPDATE cabinets SET demo_scenario = NULL, last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [id]);
+  await db.app.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, 'time.sync', $2, 1, 1)", [jobId, owner.id]);
+  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+    VALUES ($1, $2, 'time.sync', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 2, SYSUTCDATETIME()), 'queued', $4)`, [commandId, id, owner.id, jobId]);
+  await db.app.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, command_id)
+    VALUES ($1, $2, 0, '{}', 'issued', $3)`, [jobId, id, commandId]);
+  let withdrawals = 0;
+  const simultaneous = new Proxy(db.app, { get(target, key) {
+    if (key === "transaction") return ((fn) => target.transaction(c => fn(new Proxy(c, { get(tx, prop) {
+      if (prop === "query") return (text: string, values?: readonly unknown[]) => {
+        if (text.includes("UPDATE commands SET status = CASE")) {
+          withdrawals++;
+          // Run the real withdrawal SQL with issue time and retirement time exactly equal.
+          return tx.query(`DECLARE @retiredAt datetime2(3) = SYSUTCDATETIME();
+            UPDATE commands SET issued_at = @retiredAt, expires_at = DATEADD(minute, 2, @retiredAt) WHERE id = $4;
+            ${text.replaceAll("SYSUTCDATETIME()", "@retiredAt")}`, [...values!, commandId]);
+        }
+        return tx.query(text, values);
+      };
+      return Reflect.get(tx, prop);
+    } }) as Tx))) as Pool["transaction"];
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const logs: string[] = [];
+  await runJob(simultaneous, jobId, { pollMs: 0, verifyMs: 100, batchMs: 0 }, m => logs.push(m));
+  assert.equal(withdrawals, 1);
+  assert.deepEqual(logs, []);
+  const result = (await fleetJobs.job(db.app, jobId))!;
+  assert.equal(result.state, "done");
+  assert.equal(result.cabinets[0]!.state, "failed");
+  const command = (await db.app.query<{ status: string; lifetime_ms: number }>(
+    "SELECT status, DATEDIFF(millisecond, issued_at, expires_at) AS lifetime_ms FROM commands WHERE id = $1", [commandId])).rows[0]!;
+  assert.equal(command.status, "failed");
+  assert.equal(command.lifetime_ms, 1);
+});
+
+for (const outcome of ["expired", "failed", "audit-failure"] as const) test(`fleet withdrawal audits its retirement atomically: ${outcome}`, async () => {
+  const owner = await account("tier1");
+  const site = await bigSite(1);
+  const id = (await siteCabinets(site, 1))[0]!;
+  const jobId = randomUUID(), commandId = randomUUID();
+  await db.app.query(`UPDATE cabinets SET demo_scenario = NULL, last_heartbeat_at = ${outcome === "expired" ? "DATEADD(hour, -1, SYSUTCDATETIME())" : "SYSUTCDATETIME()"} WHERE id = $1`, [id]);
+  await db.app.query("INSERT INTO fleet_jobs (id, operation, created_by, batch_size, total) VALUES ($1, 'time.sync', $2, 1, 1)", [jobId, owner.id]);
+  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+    VALUES ($1, $2, 'time.sync', '{}', $3, DATEADD(second, -10, SYSUTCDATETIME()), DATEADD(minute, 2, SYSUTCDATETIME()), 'queued', $4)`, [commandId, id, owner.id, jobId]);
+  await db.app.query(`INSERT INTO fleet_job_targets (job_id, cabinet_id, [position], params, state, command_id)
+    VALUES ($1, $2, 0, '{}', 'issued', $3)`, [jobId, id, commandId]);
+  const before = (await db.app.query<{ expires_at: Date }>("SELECT expires_at FROM commands WHERE id = $1", [commandId])).rows[0]!;
+  let rejectedAudit = false;
+  const faulty = new Proxy(db.app, { get(target, key) {
+    if (key === "transaction") return ((fn) => target.transaction(c => fn(new Proxy(c, { get(tx, prop) {
+      if (prop === "query") return (text: string, values?: readonly unknown[]) => {
+        if (outcome === "audit-failure" && text.includes("EXEC audit_append_many")) {
+          rejectedAudit = true;
+          throw new Error("injected withdrawal audit failure");
+        }
+        return tx.query(text, values);
+      };
+      return Reflect.get(tx, prop);
+    } }) as Tx))) as Pool["transaction"];
+    const value = Reflect.get(target, key, target);
+    return typeof value === "function" ? value.bind(target) : value;
+  } });
+  const logs: string[] = [];
+  await runJob(faulty, jobId, { pollMs: 0, verifyMs: 100, batchMs: 0 }, m => logs.push(m));
+  const command = (await db.app.query<{ status: string; expires_at: Date }>("SELECT status, expires_at FROM commands WHERE id = $1", [commandId])).rows[0]!;
+  const entries = (await db.app.query<{ actor_kind: string; actor_id: string; action: string; target_kind: string; target_id: string; outcome: string; details: Record<string, unknown> }>(
+    "SELECT actor_kind, actor_id, action, target_kind, target_id, outcome, details FROM audit_log WHERE target_id = $1 AND action = 'command.expire'", [commandId])).rows;
+  if (outcome === "audit-failure") {
+    assert.equal(rejectedAudit, true, "retirement attempts to append its audit row");
+    assert.ok(logs.some(m => m.includes("injected withdrawal audit failure")));
+    assert.equal(command.status, "queued", "an unaudited retirement rolls back");
+    assert.deepEqual(command.expires_at, before.expires_at, "withdrawal rolls back with the status");
+    assert.equal(entries.length, 0);
+    assert.equal((await fleetJobs.job(db.app, jobId))!.cabinets[0]!.state, "issued");
+  } else {
+    assert.deepEqual(logs, []);
+    assert.equal(command.status, outcome);
+    assert.deepEqual(entries, [{ actor_kind: "system", actor_id: "command-expiry", action: "command.expire", target_kind: "command", target_id: commandId,
+      outcome: "succeeded", details: { cabinetId: id, operation: "time.sync", jobId, status: outcome, why: "fleet-job-withdrawal", delivered: false, automatic: true } }]);
+    assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done");
+  }
 });
