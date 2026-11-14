@@ -8,6 +8,10 @@ Sequence Marco asked for: **build all of it, then test, then dev check.**
 
 ## The professional bar — every item, no exceptions
 
+The single source is `CONTRIBUTING.md` in the repo root: it states the definition of done, the test rules, and the
+invariants that do not bend. This section is that standard applied to this program, and no item is exempt because a tool
+wrote it.
+
 1. **One item, one PR, one purpose.** No drive-by reformatting, no unrelated tidying. Untouched code stays untouched.
 2. **The test ships with the change.** A behaviour with no test is not done. A changed assertion in an *existing* test is
    a finding, not plumbing — report it, do not weaken it.
