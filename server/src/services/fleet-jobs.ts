@@ -27,9 +27,9 @@ export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolic
 export type JobOperation = (typeof JOB_OPERATIONS)[number];
 type Problem = "any" | "time_zone_wrong" | "clock_off" | "firewall_drift";
 
-interface Timing { pollMs: number; verifyMs: number }
-/** How often a running job looks at its commands, and how long it waits for a cabinet's next report to verify a change. */
-export const DEFAULT_TIMING: Timing = { pollMs: 1000, verifyMs: 150_000 };
+interface Timing { pollMs: number; verifyMs: number; batchMs?: number }
+/** Poll interval and per-target answer and report verification budgets. batchMs defaults for existing callers. */
+export const DEFAULT_TIMING: Timing = { pollMs: 1000, verifyMs: 150_000, batchMs: 150_000 };
 
 // ---- Choosing cabinets --------------------------------------------------------------------------------------------------
 
@@ -328,18 +328,48 @@ const FAILED_STATUSES = new Set(["failed", "rejected", "expired"]);
 async function followUp(pool: Pool, jobId: string, operation: JobOperation, batch: { cabinet_id: string; command_id: string; params: Record<string, unknown> }[], timing: Timing,
   creator: { userId: string; role: Role }) {
   const waiting = new Map(batch.map(b => [b.command_id, b]));
-  const answered: { cabinet_id: string; params: Record<string, unknown>; at: Date }[] = [];
-  // A command expires 2 minutes after it was issued; the agent's answer can arrive a little after that.
-  const deadline = Date.now() + 150_000;
-  while (waiting.size > 0 && Date.now() < deadline) {
-    const rows = (await pool.query<{ id: string; status: string; result: { error?: { code: string; message: string } } | null; result_at: Date | null; delivered: boolean | number }>(
-      `SELECT id, status, result, result_at, CAST(CASE WHEN delivered_at IS NULL THEN 0 ELSE 1 END AS bit) AS delivered
+  const answered: { cabinet_id: string; params: Record<string, unknown>; at: Date; verifyBy: number }[] = [];
+  // Budget from the durable issue time: recovery must not grant an unanswered command extra time.
+  const batchMs = timing.batchMs ?? DEFAULT_TIMING.batchMs!;
+  while (waiting.size > 0 || answered.length > 0) {
+    // Withdraw outstanding commands atomically with respect to agent delivery before reporting a terminal outcome.
+    // Delivered commands retain expiry's late-result handling; an online, undispatched timeout is a failure.
+    // Even an immediate withdrawal must keep expires_at strictly above issued_at (commands_check).
+    const rows = waiting.size === 0 ? [] : await transaction(pool, async tx => {
+      const retired = (await tx.query<{ id: string; cabinet_id: string; operation: string; status: string; delivered: boolean | number }>(
+      `DECLARE @retired TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), status varchar(16), delivered bit);
+       UPDATE commands SET status = CASE WHEN delivered_at IS NOT NULL OR NOT EXISTS
+           (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
+             AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())) THEN 'expired' ELSE 'failed' END, expires_at = CASE WHEN DATEADD(millisecond, 1, issued_at) > SYSUTCDATETIME() THEN DATEADD(millisecond, 1, issued_at)
+           WHEN expires_at > SYSUTCDATETIME() THEN SYSUTCDATETIME() ELSE expires_at END
+         OUTPUT inserted.id, inserted.cabinet_id, inserted.operation, inserted.status,
+           CAST(CASE WHEN inserted.delivered_at IS NULL THEN 0 ELSE 1 END AS bit) INTO @retired
+         WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status IN ('queued', 'delivered')
+           AND (issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())
+             OR (status = 'queued' AND delivered_at IS NULL AND NOT EXISTS
+               (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
+                 AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))));
+       SELECT id, cabinet_id, operation, status, delivered FROM @retired`, [[...waiting.keys()], OFFLINE_AFTER_MS / 1000, batchMs])).rows;
+      if (retired.length > 0)
+        await auditMany(tx, retired.map(r => ({ actorKind: "system", actorId: "command-expiry", action: "command.expire", targetKind: "command", targetId: r.id.toLowerCase(),
+          outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation, jobId, status: r.status,
+            why: "fleet-job-withdrawal", delivered: r.delivered === true || r.delivered === 1, automatic: true } })));
+      return (await tx.query<{ id: string; status: string; result: { error?: { code: string; message: string } } | null; result_at: Date | null; issued_at: Date; delivered: boolean | number }>(
+        `SELECT id, status, issued_at, result, result_at, CAST(CASE WHEN delivered_at IS NULL THEN 0 ELSE 1 END AS bit) AS delivered
          FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`, [[...waiting.keys()]])).rows;
+    });
+    // Retention (or a recovered target without a command) must not keep the lease alive forever.
+    const present = new Set(rows.map(r => r.id));
+    for (const [id, t] of waiting) {
+      if (present.has(id)) continue;
+      await setTarget(pool, jobId, t.cabinet_id, "failed", "The command is missing; its outcome could not be confirmed.");
+      waiting.delete(id);
+    }
     for (const r of rows) {
       const t = waiting.get(r.id)!;
       if (r.status === "succeeded") {
         await setTarget(pool, jobId, t.cabinet_id, "succeeded", "The cabinet made the change; waiting for its next report to verify it.");
-        answered.push({ cabinet_id: t.cabinet_id, params: t.params, at: r.result_at ?? new Date() });
+        answered.push({ cabinet_id: t.cabinet_id, params: t.params, at: r.result_at ?? new Date(), verifyBy: Date.now() + timing.verifyMs });
         waiting.delete(r.id);
       } else if (r.status === "expired" && !(r.delivered === true || r.delivered === 1)) {
         // Never taken: the cabinet was out of contact for the whole job, so nothing was tried on it (F18.R2).
@@ -352,23 +382,17 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
         waiting.delete(r.id);
       }
     }
-    if (waiting.size > 0) await sleep(timing.pollMs);
-  }
-  for (const t of waiting.values()) await setTarget(pool, jobId, t.cabinet_id, "failed", "No answer from the cabinet in time.");
-  // Verification: the cabinet's own report after the change shows the result (its zone, its clock, its firewall).
-  const verifyBy = Date.now() + timing.verifyMs;
-  let left = answered;
-  while (left.length > 0) {
-    const still: typeof left = [];
-    for (const a of left) {
-      if (await verified(pool, operation, a, creator)) await setTarget(pool, jobId, a.cabinet_id, "verified", verifiedText[operation]);
-      else still.push(a);
+    for (let i = answered.length - 1; i >= 0; i--) {
+      const a = answered[i]!;
+      if (await verified(pool, operation, a, creator)) {
+        await setTarget(pool, jobId, a.cabinet_id, "verified", verifiedText[operation]);
+      } else if (Date.now() >= a.verifyBy) {
+        await setTarget(pool, jobId, a.cabinet_id, "not_verified", "The cabinet said it made the change, but its next report did not show it in time. Check it.");
+      } else continue;
+      answered.splice(i, 1);
     }
-    left = still;
-    if (left.length === 0 || Date.now() >= verifyBy) break;
-    await sleep(timing.pollMs);
+    if (waiting.size > 0 || answered.length > 0) await sleep(timing.pollMs);
   }
-  for (const a of left) await setTarget(pool, jobId, a.cabinet_id, "not_verified", "The cabinet said it made the change, but its next report did not show it in time. Check it.");
 }
 
 const verifiedText: Record<JobOperation, string> = {
