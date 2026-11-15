@@ -21,6 +21,7 @@ import { sitePoliciesFrom, type SitePolicyFields } from "../../lib/site-policies
 import { describePolicy } from "../../components/FirewallPolicy";
 import { zoneName } from "../cabinet/Time";
 import { replaceable, replacementSentence, replacesFrom, type SiteCabinet } from "../../lib/replacement";
+import { everySiteCabinet, type SitePage } from "../../lib/site-cabinets";
 
 export function AdminHome() {
   const { data } = useLoad<unknown[]>("/api/admin/enrollments");
@@ -158,7 +159,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
     setSiteCabinets([]);
     if (!siteId) return;
     let live = true;
-    void api<{ sync: { syncCabinets: SyncCabinetRef[] }; cabinets: SiteCabinet[] }>("GET", `/api/fleet/sites/${siteId}`)
+    // Every cabinet of the site, not only its first page: the one this replaces can be any of them (D85).
+    void everySiteCabinet<SiteCabinet, { sync: { syncCabinets: SyncCabinetRef[] }; cabinets: SiteCabinet[]; cabinetsPage: SitePage<SiteCabinet>["cabinetsPage"] }>(
+      path => api("GET", path), siteId)
       .then(r => { if (live) { setSyncCabinets(r.sync.syncCabinets); setSiteCabinets(r.cabinets); } })
       .catch(() => undefined);
     return () => { live = false; };
