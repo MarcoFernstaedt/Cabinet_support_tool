@@ -686,6 +686,25 @@ export async function checkOffline(pool: Pool, guard: FleetContact = fleetContac
   });
 }
 
+const ALERT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const CLOSER = /^[a-z][a-z0-9-]{0,63}$/;
+
+/**
+ * Closes a cabinet's open alert of one issue type, because the check that raises it found the condition gone (F21.R2, decision-log D92):
+ * the network diagnosis's baseline alert and the file-version alert. Audited as alert.resolve by `by` through closeAutomatically, in the
+ * caller's transaction or a new one. The closer, the cabinet, the issue type and the resolution are checked before the database is
+ * touched. Returns the alerts closed.
+ */
+export async function closeIssueAlert(db: Queryable, by: string, cabinetId: string, issueTypeId: string, resolution: string): Promise<{ id: string; cabinetId: string }[]> {
+  if (typeof by !== "string" || !CLOSER.test(by)) throw new Error("an alert closer is a lower-case name of 1 to 64 letters, digits and hyphens");
+  if (typeof cabinetId !== "string" || !ALERT_ID.test(cabinetId)) throw new Error("a cabinet id is required to close its alert");
+  if (typeof issueTypeId !== "string" || !ALERT_ID.test(issueTypeId)) throw new Error("an issue type id is required to close its alert");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  return closeAutomatically(db, by, `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $3
+    ${CLOSED_OUTPUT} WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'`, [cabinetId, issueTypeId, resolution]);
+}
+
 /**
  * Resolves offline alerts for cabinets heard from again (one cabinet, or all when null). Two fixed statements, so the one-cabinet case
  * (every heartbeat after a silence) never runs with the plan made for the whole fleet; both use the open-alerts index.
