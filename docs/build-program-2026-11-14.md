@@ -8,6 +8,44 @@ fleet-hardening audit or a gap verified absent from source in `module-status-202
 the file that has it. Item 12 is partly built. The file's pattern scan missed them because they live inside `network.config` and
 `storage.health` under other names.
 
+## Marco's priorities, 2026-11-15 — and where the count lives
+
+**The count is not in this file.** `docs/platform/remaining-phases.md` is the one place the remaining work is counted,
+re-checked against the source on 2026-11-14 and brought current through #266. This file carries the *order* and the
+row-level premises; where the two disagree, that file wins and this one is corrected.
+
+What Marco asked for on 2026-11-15, in his words:
+
+- Alerts from the error logs, hardware first, hard drives especially — and from that, long term, an algorithm that says
+  when a drive will fail, so replacements ship before a cabinet goes down. This is what leadership is interested in.
+- Fleet-wide similarity: a few cabinets blue-screen, and the platform shows what they have in common.
+- Agent updates drivable from the platform whenever needed.
+- Drivers installed more easily, and motherboard flashing hosted — it is done over remote access today.
+- Networking is *an* issue, not the biggest one.
+- **Do not over-build.**
+
+The order that follows from that: fleet incident correlation (#22) → the drive risk class's missing wiring, which the
+count file records as crash correlation and NVMe counters → daily health snapshot (#19) → WER mining (#14) → boot
+configuration and WinRE (#9) → process signer/parent (#6) and the service dependency graph (#7) → per-model scanner
+profiles (#20) → `updates.install` and fleet compliance (#15, #16) → agent update and health in the console → driver
+lifecycle → BIOS/firmware flashing → packet capture (#11) and DISM/SFC (#12) → site readiness (#18).
+
+Two corrections to keep this file from repeating old claims: **traceroute already exists** (`network.trace`) and so do
+the BIOS, Secure Boot, TPM and last-boot reads with their settings (`power.status`, `power.set`), both recorded in the
+count file. What is *not* built there is hosting a BIOS/firmware flash as a Tier 2 write. **The drive risk class also
+already exists** — `server/src/services/trends.ts:81` defines Healthy/Attention/High risk/Critical/Unknown,
+`server/src/services/drives.ts` assesses every drive with the rules that fired and a projection from
+`slopePerDay`/`daysUntilEmpty`, `drives.ts:90` raises `disk-forecast` inside seven days, and `/api/fleet/drives-at-risk`
+with `DriveTrends.tsx` shows the fleet. What is missing is around it, exactly as the count file says: crash correlation,
+NVMe counters, and confirmation that it runs against real cabinet data.
+
+**Deferred as over-building, on Marco's instruction:** #10 machine variables, #13 on-demand ETW, #17 AMT/vPro
+detection (detection only, and Wake-on-LAN is excluded by the owner anyway). They stay written down so the decision is
+visible rather than silent.
+
+**Items 1–3 have all landed** — #263 (`06ed0db`), #265 (`40ad16b`), #266 (`6890466`) — so some rows below still read
+"pending" or "unbuilt"; that is history, not status. The files they touched (`fleet-jobs.ts`, `job-lease.ts`) are free.
+
 Sequence Marco asked for: **build all of it, then test, then dev check.**
 
 ## The professional bar — every item, no exceptions
