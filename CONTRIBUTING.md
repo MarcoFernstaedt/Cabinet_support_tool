@@ -88,6 +88,13 @@ blocking finding:
   either.
 - The operations catalogue is `contracts/schemas/operations/` — that, not a document, is the list of what exists.
 - A roadmap column that says something is "to build" is planning text, never status. Check the code.
+- **The same goes for a count, a handoff, a tracker or a note.** "Remaining: 15 items", "missing", "already built",
+  "has never run" — each is a hypothesis about the code until you have opened the file that decides it and quoted the
+  line. A claim that survives in a document because nobody re-read it is how a platform gets described as eight months
+  behind when it is not. When a claim turns out to be wrong, the correction names the file and line that contradicts it.
+- **Correct it everywhere it appears, in the same change.** A stale sentence lives in more than one file, and the one
+  you leave behind is the one somebody acts on. A statement made earlier in conversation is not a source either — read
+  the code again rather than repeating yourself.
 - **When your change moves behaviour the spec describes, the spec bullet moves in the same PR.** A sentence in
   `docs/spec/` that describes the old behaviour is a false statement in the authoritative document, and it is a finding
   against your PR — not a follow-up. Grep the spec for the mechanism you changed before you open the PR.
