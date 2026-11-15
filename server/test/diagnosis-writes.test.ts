@@ -110,3 +110,28 @@ test("anything but ids, a known kind and state, a bounded command list, findings
   for (const p of refusals) await assert.rejects(p, (e: Error) => !/reached the database/.test(e.message) && !(e instanceof TypeError));
   assert.equal(await count(k), 0, "nothing was stored");
 });
+
+test("a diagnosis that has finished stays as it finished: a failure afterwards changes nothing (D91)", async () => {
+  // network.ts marks its run done and then counts the known fixes it showed; an error in that count reaches the same handler that
+  // marks a run failed. A done diagnosis was then reported failed, beside the findings it had stored.
+  const k = await cabinet();
+  const done = randomUUID();
+  await startDiagnosis(db.app, { id: done, cabinetId: k, kind: "network", runBy: user, commands: [cmd("config")], batchId: null });
+  await finishDiagnosis(db.app, done, [{ id: "dns-failed", severity: "fail" }], { takenAt: "2026-11-15T00:00:00.000Z" });
+  assert.equal(await failDiagnosis(db.app, done, "The diagnosis stopped because of a server error."), false);
+  const r = (await row(done))!;
+  assert.equal(r.state, "done", "a done diagnosis is not turned into a failed one");
+  assert.equal(r.failure, null);
+  assert.deepEqual(json(r.findings), [{ id: "dns-failed", severity: "fail" }]);
+
+  // A run that never finished is still marked failed, and a second failure does not rewrite the first.
+  const running = randomUUID();
+  await startDiagnosis(db.app, { id: running, cabinetId: k, kind: "cabinet", runBy: user, commands: [cmd("system")], batchId: null });
+  assert.equal(await failDiagnosis(db.app, running, "First failure."), true);
+  assert.equal(await failDiagnosis(db.app, running, "Second failure."), false);
+  assert.equal((await row(running))!.failure, "First failure.");
+  // An offline batch member is finished too.
+  const off = await recordUnstartedDiagnosis(db.app, { cabinetId: k, runBy: user, state: "offline", failure: "Offline.", batchId: await batch(k) });
+  assert.equal(await failDiagnosis(db.app, off, "Late failure."), false);
+  assert.equal((await row(off))!.state, "offline");
+});
