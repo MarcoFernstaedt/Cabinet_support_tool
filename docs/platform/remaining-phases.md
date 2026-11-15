@@ -191,6 +191,19 @@ and a stated reason, so a builder can start on any of them without another surve
   **Open for Marco:** keep the decision (then #28 closes as *decided, not built*), or reverse it for a bounded case
   (a per-site window with a cap, one lifecycle owner, a confirmation, and the ordering above) — in which case the spec
   line and `fleet-jobs-no-restart.test.ts` change **on his word and in the same change**, never quietly.
+- **Service start order — half is buildable, half is an owner question.** Codex stopped before implementing, and it was
+  right twice over: `docs/spec/STANDING-INSTRUCTIONS.md:21` says *"if the spec does not answer something, stop and ask
+  rather than guessing"*, and the spec **plans the read** — `12-milestones-8-to-12.md:51` defines `services.list` as
+  "every Windows service, with:" a list that includes the dependencies, and `:84` names *"the dependencies of F14.R1"* as
+  work the agent owes — while defining **no operation for setting** a service's dependencies. There is a baseline
+  mechanism waiting for the read too: `15-baselines-and-config.md:16` lists a `services` baseline keyed `service:<name>`
+  (start type, state, account) fed by the `services.list` reader, which is where "declared order vs real order" belongs.
+  What it found already read: display name, start type including delayed-auto, running state, logon account, recovery
+  actions. Missing: **configured dependencies and reverse dependencies**.
+  So the brief was revised to revision 2 (read, display the effective order, report drift, survive malformed input) and
+  dispatched. **Open for Marco, after the #28 answer:** does the platform get a write that *sets* a service's
+  dependencies on a live cabinet? The spec has no operation for it, so it needs a decision before it needs a contract —
+  and it is the same shape of question as #28: a real need, a change to a live cabinet, and no spec answer.
 - **Brief-writing lesson, recorded because it has now cost two runs:** a brief that names an acceptance command must
   check the repository's own runner (`server/package.json:12` is `npm run build && node --test`, not Vitest), and a brief
   that asserts an existing capability ("fleet jobs already drive a restart") must quote the file that proves it. Codex
