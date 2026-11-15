@@ -700,3 +700,33 @@ for (const outcome of ["expired", "failed", "audit-failure"] as const) test(`fle
     assert.equal((await fleetJobs.job(db.app, jobId))!.state, "done");
   }
 });
+
+for (const n of [205, 7, 0]) test(`cabinet selection reports the same filtered match count as its capped list (${n} matches)`, async () => {
+  const siteId = await bigSite(n);
+  const t1 = await account("tier1");
+  // Names stay distinct: `cabinets_site_id_name_key` allows one cabinet name per site, so no fixture can make two
+  // cabinets in a site share a display name and the id tie-break in the ordering cannot be reached from here. What the
+  // ordering has to guarantee is observed the way it can be: two identical calls return the same order.
+  const clientId = (await db.app.query<{ client_id: string }>("SELECT client_id FROM sites WHERE id = $1", [siteId])).rows[0]!.client_id;
+  const filter = { siteId, clientId, problem: "any" as const };
+  const first = await fleetJobs.fleetCabinets(db.app, filter);
+  assert.deepEqual(first.limits.cabinets, { shown: Math.min(n, 200), matched: n, limit: 200 });
+  assert.equal(first.cabinets.length, Math.min(n, 200));
+  const expected = (await db.app.query<{ id: string }>("SELECT TOP (200) id FROM cabinets WHERE site_id = $1 ORDER BY name, id", [siteId])).rows.map(r => r.id);
+  assert.deepEqual(first.cabinets.map(r => r.id), expected);
+  const second = await fleetJobs.fleetCabinets(db.app, filter);
+  assert.deepEqual(second.cabinets.map(r => r.id), first.cabinets.map(r => r.id));
+  const route = await call("GET", `/api/fleet-operations/cabinets?siteId=${siteId}&clientId=${clientId}&problem=any`, undefined, t1);
+  assert.equal(route.status, 200);
+  assert.deepEqual(route.body.limits, first.limits);
+  assert.deepEqual(route.body.cabinets, first.cabinets);
+  if (n > 0) {
+    const row = first.cabinets[0]!;
+    assert.deepEqual(Object.keys(row).sort(), ["id", "name", "role", "site", "client", "demo", "readOnly", "online", "timeZoneId", "clockSkewSeconds", "ipv4", "openAlerts"].sort());
+    assert.deepEqual(row, { id: expected[0], name: (await db.app.query<{ name: string }>("SELECT name FROM cabinets WHERE id = $1", [expected[0]])).rows[0]!.name, role: "satellite", site: { id: siteId, name: (await db.app.query<{ name: string }>("SELECT name FROM sites WHERE id = $1", [siteId])).rows[0]!.name, timeZone: "Eastern Standard Time" },
+      client: { id: clientId, name: (await db.app.query<{ name: string }>("SELECT name FROM clients WHERE id = $1", [clientId])).rows[0]!.name },
+      demo: true, readOnly: false, online: true, timeZoneId: "Eastern Standard Time", clockSkewSeconds: 0.3, ipv4: null, openAlerts: 0 });
+  }
+  const noProblem = await fleetJobs.fleetCabinets(db.app, { ...filter, problem: "time_zone_wrong" });
+  assert.deepEqual(noProblem, { cabinets: [], limits: { cabinets: { shown: 0, matched: 0, limit: 200 } } });
+});
