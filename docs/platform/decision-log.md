@@ -6,6 +6,41 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D84. An agent's firewall event is recorded by commands.ts, the firewall history's owner (2026-11-15)
+
+**What the code did:** `storeEvents` in `services/events.ts` wrote `firewall_changes` (owner `commands.ts`) for each `firewall_changed`
+event it had just stored:
+- **Event for a platform write:** if the event named a command whose history row had no event yet, it set the event on that row. The
+  row was recorded from the write's own result, so the event confirms that change.
+- **Any other event:** otherwise it added a row, marked explained when the event named a command.
+
+**The decision** (F21.R2):
+- **`commands.ts` exports `recordFirewallEvent(c, cabinetId, event)`.** It holds both statements, unchanged.
+- **`storeEvents` calls it** in the batch's transaction, for each `firewall_changed` event it has just stored, as before. An event
+  already stored by an earlier batch is still not recorded again.
+- **Input check:**
+  - The cabinet id must be an id.
+  - The event is checked against `event.schema.json` with the contract's own validator, and must be a `firewall_changed` event.
+  - Anything else is refused before the database is touched.
+  - The agent API already checks each batch against its contract, so a stored event always passes. The check guards the function's
+    own boundary, for any later caller.
+- **No new cycle:** `events.ts` now imports `commands.ts`, and nothing `commands.ts` imports leads back to `events.ts`.
+  `import-cycles.test.ts` passes.
+- One entry comes off the debt list, which leaves 97.
+
+**Proof.** `test/firewall-history.test.ts`, three tests:
+- **The cases:** a platform write's first event confirms its row and adds none. A later event for the same command is a further
+  change, and one with no command is an unexplained one.
+- **Through `storeEvents`:** an event goes in once, and a repeat of the same event or another kind adds nothing.
+- **Hostile input:** 8 bad cabinet ids and 13 bad events are refused with nothing recorded. The bad events include an injection string
+  in the event id, a bad command id, a bad time, an unknown field, a message over its length and a missing field. So is an event of
+  another kind.
+- **Red check:** with the contract check disabled in place (`false && envelopes.event.parse(event)`), the hostile-input test fails
+  (8 tests, 7 pass, 1 fail). With the old `events.ts` back, `table-ownership.test.ts` fails with "services/events.ts writes firewall_changes (owned by
+  services/commands.ts)".
+
+---
+
 ## D83. A cancelled fleet job's page follows it until the batch already sent has finished (2026-11-14)
 
 **What the code did** (`console/src/pages/FleetOperations.tsx`, `FleetJob`, at `91d64d3`; finding 6 of the 2026-11-13 fleet audit):
@@ -39,6 +74,9 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Red check:** with the cancelling phase disabled in place (a cancelled job read as ended at once), the console test fails (2 pass,
   1 fail) and the browser test fails waiting for "Cancelling: finishing the cabinet already sent". Restored and `cmp` identical, both
   pass.
+
+---
+
 
 ---
 
