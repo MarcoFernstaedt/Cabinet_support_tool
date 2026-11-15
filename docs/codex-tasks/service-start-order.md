@@ -1,9 +1,12 @@
 # Task: see a cabinet's service start order, and catch it drifting
 
-**Status: ready to run. Revision 2 (2026-11-15).** Revision 1 also asked for the write half; a run stopped on
+**Status: ready to run. Revision 3 (2026-11-15).** Revision 1 asked for the write half as well; a run stopped on
 `docs/spec/STANDING-INSTRUCTIONS.md:21` — "if the spec does not answer something, stop and ask rather than guessing" —
 because the spec plans dependency **reads** but defines no operation for **setting** service dependencies. Revision 2
-drops the write. It is a question for the owner, not for you. Build the read half, which the spec does plan.
+dropped the write but cited the wrong spec lines and named a drift mechanism that does not exist; a run stopped on both.
+Revision 3 fixes the citation (`:51`-`:57` versus `:84`) and grounds step 3 in `server/src/services/baseline-drift.ts`,
+the file that actually decides how drift is raised. The write half is still out of scope: it is a question for the
+owner, not for you. Build the read half, which the spec does plan.
 
 ## Why this exists
 
@@ -21,8 +24,10 @@ owes. It has not been built.
   than trust** — found display name, start type **including delayed-auto**, running state, logon account and recovery
   actions already read, and **configured dependencies and reverse dependencies missing**. Confirm that by reading the
   schema and the agent before you change either.
-- **The spec's own field list for `services.list`** is `docs/spec/12-milestones-8-to-12.md:51`. Build to that, not to
-  your own idea of what a services view should hold.
+- **The spec's own field list for `services.list`** is `docs/spec/12-milestones-8-to-12.md:51`-`:57`. **Read it
+  carefully**: as written, that list does **not** contain the dependencies — a previous brief of mine claimed it did and
+  was wrong. What plans them is `:84`, which names *"the dependencies of F14.R1"* as work the agent owes. Build to the
+  spec's list *plus* the dependencies that `:84` plans, and say in your report where the two disagree.
 - **A baseline mechanism for exactly this kind of drift already exists:** `docs/spec/15-baselines-and-config.md:16` lists
   a `services` baseline keyed `service:<name>` holding start type, state and account, fed by the `services.list` reader.
   "Declared vs real" belongs there — extend that mechanism, do not invent a second one.
@@ -41,9 +46,18 @@ owes. It has not been built.
    here, and what waits for what" without opening `services.msc` on the cabinet. Where the order cannot be determined
    from what the agent reports, the console says **that** — "could not check" is a valid and required answer, never a
    guessed order and never healthy.
-3. **Report drift against the baseline.** When a cabinet's real dependency graph no longer matches what the platform
-   holds as its baseline, open the platform's existing drift finding, with the same certainty vocabulary the other
-   findings use, and say what changed: which service gained or lost a dependency.
+3. **Make a drifted dependency show up the way drift already shows up.** Do **not** mint a new mechanism, and do not
+   attach the diagnose-findings certainty vocabulary to this — a previous brief of mine said "open the existing drift
+   finding with the same certainty vocabulary", which was wrong about both halves. Read
+   `server/src/services/baseline-drift.ts` before you write anything: it computes `DriftRow`s
+   (`{category, itemKey, field, mode, expected, actual, origin, severity: "minor"|"major", required}`) and raises them
+   through **`upsertAlert`**, with `cabinet_drift` rows owned by that same file. The certainty vocabulary
+   (confirmed / probable / possible / could not check) belongs to the *diagnose* findings
+   (`docs/spec/13-roadmap.md:163`), a different path. So the work is: **extend the `services` baseline item to carry the
+   dependency list**, and let the existing drift → alert path do the rest. The console's Baseline tab already reads
+   `/api/cabinets/:id/drift` (`15-baselines-and-config.md:95`, `:106`), so a support person sees a service that gained or
+   lost a dependency the same way they see any other configuration drift, with the same severity — no new lifecycle, no
+   new table, no new route.
 4. **Hostile and malformed input.** The agent reads whatever Windows hands back. Cover: dependency list absent; empty;
    naming a service that does not exist; a service naming itself; and a cycle. A cycle is reported as a cycle, never
    rendered as an order.
@@ -106,7 +120,8 @@ so and do not claim it. **Never report a suite as passing that you did not run.*
    above if it was wrong.
 2. Every file added and changed, one line of reason each.
 3. **Why the order you display is the order Windows actually enforces**, and what the console shows when it cannot tell.
-4. The drift finding: what counts as drift, the certainty vocabulary, and the exact wording a support person sees.
+4. The drift half: how a gained or lost dependency reaches a support person, which existing path it rides, and the exact
+   wording they see. No certainty vocabulary here — that belongs to diagnose findings.
 5. The malformed-input cases tested and what happened in each (absent, empty, unknown name, self-reference, cycle).
 6. Anything that contradicts this brief, the acceptance output verbatim, before/after test counts, and anything you could
    not run.
