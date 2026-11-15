@@ -66,7 +66,8 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Debt list:** the three entries for `alerts` come off, which leaves 86.
 
 **Proof** (`server/test/signature-alert-writes.test.ts`, four tests):
-- **Retitle:** that alert takes the new title, another alert keeps its own, and the same title again changes nothing.
+- **Retitle:** that alert takes the new title, and another alert keeps its own. A retitle with the title it already has is the same
+  statement again, and its guard is in the statement, so the test does not claim it changed nothing.
 - **Close:** the cabinet's open alert of the signature is closed with the sentence and audited once by the closer. Another cabinet's,
   another signature's and an already resolved alert are left as they were. A claimed alert counts as unresolved, and a repeat closes and
   audits nothing.
