@@ -165,7 +165,7 @@ and a stated reason, so a builder can start on any of them without another surve
 
 ## Marco's decisions, 2026-11-15 (evening)
 
-- **#28 — reboot times, set by site or by individual cabinet: BLOCKED on the owner's own decision.** I wrote here that
+- **#28 — reboot times, set by site or by individual cabinet: ANSWERED by the owner, reopened narrowly (2026-11-15 late).** I wrote here that
   "`system.restart` restarts a cabinet now and the fleet-job machinery can drive it at scale, so the missing half is the
   schedule." **That is false, and it is the same class of mistake as the Windows-readers claim: I asserted a capability
   without reading the file that decides it.** The code says the opposite, in three places, all of them the owner's
@@ -177,8 +177,9 @@ and a stated reason, so a builder can start on any of them without another surve
   - `server/test/fleet-jobs-no-restart.test.ts:9` — asserts `JOB_OPERATIONS` excludes `system.restart` and that the
     contract refuses it. A guard, not a comment.
   What already exists is the *single-cabinet* case (`09-open-decisions.md:376`): restart now, or after a delay of up to
-  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist, and must not be
-  built without reversing that decision, is a recurring schedule and a fleet-wide run.
+  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist is a recurring
+  schedule and a fleet-wide run — and it may not be built without reversing that decision, which the owner then did, on
+  his word and in writing, the same evening: *"Narrow for schedualed reboots."*
   **The sync-cabinet order was also already answered** (`09-open-decisions.md:901`): *"Closed on 2026-10-29: restarts
   never become job operations ('No bulk restarts' above), so there is no restart order for the platform to keep; **a
   person restarting cabinets one at a time keeps this order**."* So the ordering half of Marco's 2026-11-15 ask
@@ -188,9 +189,15 @@ and a stated reason, so a builder can start on any of them without another surve
   cabinets (`server/src/services/sync-cabinets.ts:3`), and each satellite names its own via `sync_cabinet_id`
   (`server/migrations/0011_sync_cabinets.sql:12`). Any future ordering works per satellite -> its own sync cabinet, never
   "the site's one sync point".
-  **Open for Marco:** keep the decision (then #28 closes as *decided, not built*), or reverse it for a bounded case
-  (a per-site window with a cap, one lifecycle owner, a confirmation, and the ordering above) — in which case the spec
-  line and `fleet-jobs-no-restart.test.ts` change **on his word and in the same change**, never quietly.
+  **Answered by the owner, 2026-11-15 late:** *"Narrow for schedualed reboots."* The decision is reopened for one bounded
+  facility — a scheduled restart window, per site or per cabinet — and for nothing else. What stays exactly as it was:
+  `system.restart` does not enter `JOB_OPERATIONS`, the contract still refuses it as a fleet job, and
+  `fleet-jobs-no-restart.test.ts` stays green and unedited, because its meaning is *no ad-hoc bulk restarts*, which is
+  the part the owner was protecting. No button restarts a site. The schedule is a facility of its own and owes a spec
+  before it owes code: the window, the cap on simultaneous restarts, the confirmation bound to the parameters, the audit
+  trail, the ordering per satellite behind **its own** sync cabinet, and what happens when a cabinet does not come back.
+  The spec amendment is in `09-open-decisions.md` under "No bulk restarts" (the narrowed paragraph). The build brief
+  follows the two PRs, the demo split and the two baselines.
 - **Service start order — half is buildable, half is an owner question.** Codex stopped before implementing, and it was
   right twice over: `docs/spec/STANDING-INSTRUCTIONS.md:21` says *"if the spec does not answer something, stop and ask
   rather than guessing"*, and the spec **plans the read** — `12-milestones-8-to-12.md:51` defines `services.list` as
