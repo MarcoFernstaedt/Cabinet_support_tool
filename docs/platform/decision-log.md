@@ -6,6 +6,42 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D97. The baseline-alert ordering test locks the alert by its id (2026-11-15)
+
+**What the test did** (`server/test/network-troubleshooting.test.ts:270`, at `2f45af4`, after D93):
+- **The holder.** It locked the alert with `SELECT … WITH (UPDLOCK, ROWLOCK) WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <>
+  'resolved'`.
+- **The probe.** D93's probe checked for that lock with `UPDLOCK, READPAST` on the same predicate, and gave up after 10 s with "the
+  holder never took the alert row".
+- **Seen.** That failure, once, in the #285 gate (non-browser files at concurrency 2). The re-run passed.
+
+**What I found:**
+- **Not the login.** D93 put the late holder down to a slow login. With the holder's acquire limit forced to 1 ms, the test fails with
+  the timeout itself ("operation timed out"), not with "never took". A holder batch that fails is also reported with its own error. So
+  neither produces this message.
+- **A mechanism that does.** On the test database the holder's read by cabinet and issue type reads other alert rows too, so it blocks on
+  another cabinet's alert held by another transaction, while the probe skips that row and sees this alert free. With another cabinet's
+  baseline alert held for 11 s from a third connection, main's version failed 2 of 2: once "the holder never took the alert row", once
+  with the diagnosis failing after the holder got through late.
+- **Not proven:** that this is what happened in the #285 gate. What held a lock that long there is not known.
+
+**The decision:**
+- **Lock and look up by id.** The test reads the alert's id once, then the holder locks `WHERE id = $2` and the probe looks it up by the
+  same id. That is a primary-key seek that reads the alert alone, so another cabinet's locks no longer reach the test.
+- **D93's comment** no longer blames the login. It says the holder was late taking the row.
+- **Unchanged:** the order the test proves, the 7 s hold, the 10 s wait and every assertion.
+- **Noted, not changed:** on the test database the diagnosis's own close (`closeIssueAlert`, D92) blocked on that other cabinet's lock too,
+  although `alerts_open_issue` covers it. That points at a scan on a table with few rows; whether it happens at production size is not
+  measured, so no product change is made.
+
+**Proof** (that one test, run alone):
+- **Another cabinet's alert held for 11 s:** the fixed test passes 2 of 2. Main's version fails 2 of 2, as above.
+- **Red check:** with `finishDiagnosis` moved before `reconcileBaselineAlert` in `network.ts`, the fixed test fails. Restored and `cmp`
+  identical, it passes 3 of 3.
+- **The whole file:** 13 of 13.
+
+---
+
 ## D94. Service recovery, peer differences and firmware drift retitle and close their alerts through alerts.ts (2026-11-15)
 
 **What the code did** (at `dd7190c`; three entries on the ownership debt list, F21.R2):
