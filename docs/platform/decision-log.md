@@ -26,7 +26,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - the resolution is 1 to 500 characters, not blank, with no control characters, as in `closeIssueAlert` (D92). The longest one
     `regroup` writes is "Regrouped under " and an issue name of at most 128 characters (`issue_types.name`).
 - **Unchanged:** which alert closes, the audit and the transaction. No existing assertion changed.
-- **Debt list:** the `services/rules.ts` entry for `alerts` comes off, which leaves 85 after #284 (88 against main at `dd7190c`).
+- **Debt list:** the `services/rules.ts` entry for `alerts` comes off, which leaves 85 after #284 (89 against main at `dd7190c`).
 
 **Proof** (`server/test/alert-close-by-id.test.ts`, three tests):
 - **Closing:** that alert is closed with the resolution and audited once by the closer, with its cabinet and the resolution. Another
