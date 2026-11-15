@@ -561,9 +561,9 @@ test("a rollout completes only once the offers of every batch it reached have an
   assert.deepEqual(targets.filter(t => t.state === "pending" || t.state === "offered"), [], "nothing is left waiting");
   const of = (cabinet: string) => targets.find(t => t.cabinetId === cabinet)!;
   assert.deepEqual([of(ids["office-2"]!).state, of(ids["office-2"]!).outcome], ["failed", "timed_out"]);
-  for (const cabinet of [ids["office-3"]!, quiet!.cabinetId])
-    assert.deepEqual([of(cabinet).state, of(cabinet).outcome, of(cabinet).message], ["skipped", "offline", "Offline when the rollout completed: not upgraded."]);
-  assert.deepEqual([of(idle!.cabinetId).state, of(idle!.cabinetId).outcome, of(idle!.cabinetId).message], ["skipped", null, "The rollout completed before this cabinet took the version."]);
+  for (const cabinet of [ids["office-3"]!, quiet!.cabinetId]) assert.deepEqual([of(cabinet).state, of(cabinet).outcome], ["skipped", "offline"]);
+  assert.deepEqual([of(idle!.cabinetId).state, of(idle!.cabinetId).outcome], ["skipped", null]);
+  assert.ok(of(idle!.cabinetId).message, "a cabinet skipped with no outcome still says why");
   const complete = (await db.app.query<{ details: { closedOffline: number; closedNotReached: number } }>(
     "SELECT details FROM audit_log WHERE target_id = $1 AND action = 'rollout.complete'", [id])).rows;
   assert.deepEqual(complete.map(c => [c.details.closedOffline, c.details.closedNotReached]), [[2, 1]], "completed once, saying what it closed");

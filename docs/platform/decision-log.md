@@ -24,6 +24,10 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   `offline` with "Offline when the rollout completed: not upgraded." when the cabinet was out of contact. Otherwise there is no outcome,
   with "The rollout completed before this cabinet took the version."
 - **The `rollout.complete` audit entry counts both** (`closedOffline`, `closedNotReached`).
+- **The Upgrades screen tells the two kinds apart** (review of #268). It called every skipped cabinet "Skipped (offline)", true until
+  now, and showed a target's message only when it had an outcome. `console/src/lib/rollout-target.ts` now gives "Skipped (offline)"
+  for outcome `offline` and "Skipped (not reached)" otherwise, and shows the message of a cabinet skipped with no outcome. The
+  screen's state filter calls the option "Skipped".
 - **Unchanged:** stopping a rollout, which an Admin does on purpose and which leaves its targets as they were; the batch rules; the
   thresholds; and the offer to a cabinet that comes back while the rollout still runs.
 
