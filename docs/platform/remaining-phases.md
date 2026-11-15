@@ -172,12 +172,12 @@ system." The engine underneath exists (`crashes.ts` affected-against-unaffected,
 cabinets it touches, the attributes they share, the errors that accompany it, and what it is tied to — shown as one
 thing rather than a list of per-cabinet alerts that an operator has to join by hand. New item **#27**.
 
-**BIOS/firmware flashing: reopened by the owner.** Marco flashes firmware over remote access today and wants it here,
-which overrides the written exclusion in `0029_firmware_drift.sql:3` and `15-baselines-and-config.md:85`. It gets built
-under the write rules, not beside them: signed package, allowlisted model, role-gated, an explicit confirmation naming
-the cabinet, one cabinet at a time, and verification by re-reading the version after the reboot. Item #25 moves from
-"missing, by design" to "approved to build". Marco also asked for re-imaging the operating system where needed; that is
-bigger than a flash and needs its own spec before it becomes an item.
+**BIOS/firmware flashing: skipped for now, on the owner's instruction (2026-11-15).** An earlier note here recorded this
+as reopened because Marco flashes firmware over remote access today; he has since said to skip the motherboard flashing
+for now, so the written exclusion stands — `0029_firmware_drift.sql:3` and `15-baselines-and-config.md:85`: detect the
+drift, alert, hand it to a human. The reporting half stays built and reachable (BIOS vendor, version, date, TPM, Secure
+Boot, plus firmware-drift alerting). Item #25 is deferred, not deleted. Marco also mentioned re-imaging the operating
+system where needed; that is bigger than a flash and needs its own spec before it becomes an item.
 
 **A second branch, off main, for an agent tunnel.** Marco's words: after the whole project is complete, a branch that
 carries all of main plus one extra feature — the ability to use the agents as a tunnel onto the machine, so an operator

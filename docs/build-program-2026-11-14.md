@@ -28,7 +28,8 @@ The order that follows from that: fleet incident correlation (#22) → the drive
 count file records as crash correlation and NVMe counters → daily health snapshot (#19) → WER mining (#14) → boot
 configuration and WinRE (#9) → process signer/parent (#6) and the service dependency graph (#7) → per-model scanner
 profiles (#20) → `updates.install` and fleet compliance (#15, #16) → agent update and health in the console → driver
-lifecycle → BIOS/firmware flashing → packet capture (#11) and DISM/SFC (#12) → site readiness (#18).
+lifecycle → packet capture (#11) and DISM/SFC (#12) → site readiness (#18). #25 BIOS/firmware flashing is **deferred on
+Marco's instruction (skip it for now)**; the reporting half stays built.
 
 Two corrections to keep this file from repeating old claims: **traceroute already exists** (`network.trace`), and so does
 the **whole network quartet** — network category and the machine WinHTTP proxy in `network.config`, the hosts file as
