@@ -5,6 +5,39 @@ end-of-project review, where each one is gone over again. Newest first. Figures 
 where) or **worked out** from limits in the code; nothing here is an estimate presented as a measurement.
 
 ---
+
+## D89. Every place that checks a certificate serial uses one rule, the table's: upper-case hex, 2 to 64 digits (2026-11-15)
+
+**What the code did** (at `41e30e7`):
+- **Three rules for one value:**
+  - `recordIssuedCertificate` in `server/src/services/cabinets.ts` (D87) allowed 1 to 40 digits.
+  - `authenticate`, in the same file, allowed 2 to 64.
+  - `server/src/agent-api/server.ts:355` and `:495` read the serial a TLS peer presents, also 2 to 64.
+- **What the table allows:** `cabinet_certificates_serial_check` (`server/migrations/0001_baseline.sql:281`) allows 2 to 64.
+- **The effect:**
+  - A 1-digit serial passed the service check and was refused by the constraint, as a database error rather than the check's refusal.
+  - A serial of 41 to 64 digits was refused when recorded, though the table, `authenticate` and the agent API accept it.
+  - Our CA issues 32 digits (`server/src/pki/x509.ts:126`, 16 random bytes), so no cabinet met either case.
+
+**The decision:**
+- **One rule.** `cabinets.ts` exports `CERTIFICATE_SERIAL = /^[0-9A-F]{2,64}$/`, the table's range.
+- **Who uses it:** `recordIssuedCertificate`, `authenticate` and both agent-API reads. The agent API upper-cases the peer's serial
+  before testing it, which is what its old case-blind pattern did.
+- **`authenticate` also refuses a value that is not a string**, as `recordIssuedCertificate` does.
+- **What changes:** only the serials a recording accepts. 1 digit is now refused by the check, before the database is touched, and 41
+  to 64 digits are now recorded. Nothing else accepts or refuses differently.
+- **An existing assertion changed with the rule:** D87's bad-input test listed 41 digits as a bad serial. It now lists 1 and 65 digits.
+
+**Proof** (`server/test/certificate-writes.test.ts`):
+- **New test:** serials of 2, 32, 41 and 64 digits are recorded and then authenticate. 1 and 65 digits are refused by both
+  `recordIssuedCertificate` and `authenticate`.
+- **Red checks** (`certificate-writes`, 4 tests):
+  - With D87's 1-to-40 rule back in `recordIssuedCertificate`, the new test fails.
+  - With the serial check disabled (`false && …`), the bad-input test fails.
+  - Restored and `cmp` identical, 4 of 4 pass.
+- **Neighbours:** `certificate-writes`, `agent-api`, `table-ownership` and `enrollment-decision` pass, 34 of 34.
+
+---
 ## D88. The operations checks resolve their alerts through security.ts, the alerts' owner (2026-11-15)
 
 **What the code did** (`server/src/services/ops-health.ts`, `settle`, at `430cf57`; an entry on the ownership debt list, F21.R2):
@@ -51,7 +84,8 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **One revoke statement:** `revokeCabinet` uses `revokeCabinetCertificates` too, so the statement is written once.
 - **Input check:**
   - the cabinet id must be an id;
-  - the serial must be upper-case hex of at most 40 digits, which is 20 bytes (RFC 5280), as `x509.ts` gives it;
+  - the serial must be upper-case hex of at most 40 digits, which is 20 bytes (RFC 5280), as `x509.ts` gives it (D89 later made it
+    2 to 64, the table's range);
   - the expiry must be a real date.
   - Anything else is refused before the database is touched.
 - **Unchanged:** the REVOCATION_CHANNEL notification and the audit, which stay with each caller, and what each flow does.
