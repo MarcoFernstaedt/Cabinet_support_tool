@@ -40,7 +40,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 
 ## Build and test
 
-Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) runs on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback.
+Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) is set up to run on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback. **GitHub Actions is on hold for billing (November 2026), so its checks show red on every PR and are not evidence either way.** Until it runs again, the gate is the local suites below, run on each change and quoted in the PR.
 
 Run each line from the repository root:
 
@@ -58,13 +58,18 @@ Do not install the agent on a production cabinet from a developer build. Release
 
 ## Where it stands
 
-The build plan's milestones 0 to 12 are built: the agent, both APIs, the console, signed upgrades, the firewall policy, services, network diagnosis with the full read and path trace, crash investigation, time zones, fleet operations, evidence packages, known fixes with approval, and demo mode. The Midnight Navy and Electric Cyan design system is used throughout. **Five phases are left** — what each one contains, and how the diagnostic engine's own six-phase plan maps onto them, is in [phases left](docs/platform/remaining-phases.md).
+The build plan's milestones 0 to 12 are built: the agent, both APIs, the console, signed upgrades, the firewall policy, services, network diagnosis with the full read and path trace, crash investigation, time zones, fleet operations, evidence packages, known fixes with approval, and demo mode. The agent's catalogue has 56 operations (`contracts/schemas/operations/catalog.json`). The Midnight Navy and Electric Cyan design system is used throughout. What is done, what can still be built and what is blocked, counted and checked against the code, is in [what is left](docs/platform/remaining-phases.md). The [roadmap](docs/spec/13-roadmap.md) is the owner's module list and the plan for it; it is not a status page, so read the code or the tracker before taking a "to build" there as unbuilt.
 
-The platform is live on the VPS, and a real Windows machine has run the read-only agent: it self-updated to 0.2.5 and answered 19 of the 34 read operations before it was removed and its cabinet revoked. **No write has ever run on real hardware**, and the agent's own read-only mode — not operator discipline — is what refuses them. [Testing a live agent](docs/platform/live-test.md) has the results, including the 15 reads that reported themselves unavailable.
+The platform is live on the VPS, and real Windows machines have run the agent ([testing a live agent](docs/platform/live-test.md) and the [hardware test fixes](docs/platform/remaining-phases.md#fixes-from-the-hardware-test-2026-10-30) have the detail):
+
+- **2026-10-25, read-only:** the agent self-updated to 0.2.5 and answered 19 of the 34 read operations it had then; read-only mode refused the one write tried.
+- **2026-10-30, agent 0.3.1 on a 64-bit Windows 11 machine:** 34 of 34 reads and the reversible writes worked; the fixes that came out of it are listed with the tracker.
+- **2026-11-13, read-write, a 64-bit desktop:** of the 44 checks in the write sweep, 21 passed, each checked in the machine's own state and put back (time, DNS, the DHCP lease, firewall rules and profiles, power, the cancel path of a restart, and the rights refusals). The service and process writes have not run on real hardware: they wait for an Admin to set an approved-programs list, which is the intended default. The same run found and fixed a broker that refused three of its own reads, which had stopped every install since 2026-11-03 (#239).
+- **2026-11-13, the 32-bit package** ran on that 64-bit machine, installed on purpose with `-AllowArchitectureMismatch` (#241), and the platform recorded it as `windows-x86`.
 
 Still to do before a field rollout:
 
-- A writable test on real cabinet hardware, and a 32-bit install on a real 32-bit machine (the x86 build and its cross-architecture refusal are proven live).
+- The rest of the write sweep on real hardware (the service and process writes, once an approved-programs list is set), and both sweeps, read and write, on a real 32-bit machine with the current build. Both builds come from the same code (`agent/Directory.Build.props`, `win-x64;win-x86`), but a 32-bit process has a smaller address space, and one running on 64-bit Windows (the `-AllowArchitectureMismatch` test install) is shown the 32-bit registry: `software.list` reads `HKLM` in the process's own view, so there it lists only 32-bit programs. An install check alone covers neither.
 - Put the release signing key in a KMS and get the production code-signing certificate; the installer still needs `-AllowUnsigned` because releases carry the development key.
 - Repeat the load test on production hosting, get an independent security test, and write the incident-response steps and a database restore test.
 

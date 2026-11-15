@@ -4,6 +4,10 @@ Written 2026-11-14. Owner: Marco. Builders: Claude sessions and Codex CLI runs. 
 diffs, runs the gates and commits. Nothing here is speculative scope — every item is either a named defect from the
 fleet-hardening audit or a gap verified absent from source in `module-status-2026-11-14.md`.
 
+**Correction, 2026-11-14:** items 4, 5 and 8 were listed from that file's "verified gaps", but the operations exist: each row now names
+the file that has it. Item 12 is partly built. The file's pattern scan missed them because they live inside `network.config` and
+`storage.health` under other names.
+
 Sequence Marco asked for: **build all of it, then test, then dev check.**
 
 ## The professional bar — every item, no exceptions
@@ -39,11 +43,11 @@ wrote it.
 
 | # | Item | Scope |
 |---|---|---|
-| 4 | Route table | Read the routing table per interface (no `route print` / `GetIpForwardTable` anywhere today). New read operation + schema + console surface. |
-| 5 | ARP table | Neighbour table read (today: one passing mention in `NetworkExtras.cs`). Same shape as 4. |
+| 4 | ~~Route table~~ — **built** | Checked 2026-11-14: `network.config` returns `routes` (destination, prefix, next hop, metric, interface; `Win32_IP4RouteTable` in `agent/src/Cabinet.Agent.Windows/NetworkExtras.cs`), and the console shows them (`RoutesTable`, `console/src/components/NetworkReadings.tsx`). Nothing to build. |
+| 5 | ~~ARP table~~ — **built** | Checked 2026-11-14: `network.config` returns `neighbors` (address, MAC, state, interface; `MSFT_NetNeighbor` in `NetworkExtras.cs`), shown in `NetworkReadings.tsx`, and the network diagnosis reads the gateway's entry (`server/src/diagnose/network-observations.ts`). Nothing to build. |
 | 6 | Process signer and parent | Per process: signature status and parent PID. Today `processes.list` carries neither; `SignedData.cs` is package signing, not processes. |
 | 7 | Service dependency graph | The `DependentServices`/`ServicesDependedOn` chain behind a service that will not start. |
-| 8 | Volume health | File-system/storage-stack health, distinct from `disk.smart`. |
+| 8 | ~~Volume health~~ — **built** | Checked 2026-11-14: `storage.health` returns each fixed volume's repair state (`MSFT_Volume` `HealthStatus`) and dirty bit (`agent/src/Cabinet.Agent.Windows/StorageOperations.cs`), and the console badges it (`console/src/lib/storage-health.ts`). Distinct from `disk.smart`. Nothing to build. |
 | 9 | Read-only boot configuration + WinRE | What the machine does on next boot, and whether the recovery environment is intact. No `bcdedit`/WinRE identifier exists. |
 | 10 | Machine variables | Machine environment variables, values that look like secrets hidden, comparable across cabinets. No operation exists. |
 
@@ -52,7 +56,7 @@ wrote it.
 | # | Item | Scope |
 |---|---|---|
 | 11 | Packet capture (module 31) | Admin-started `pktmon`, max 60 s, filtered to one host or port, size-capped, deleted after retention. Nothing exists. |
-| 12 | DISM and SFC (module 33) | Read-only servicing state; DISM/SFC as Tier 2 operations with a code and a result. Nothing exists. |
+| 12 | DISM and SFC (module 33) | Partly built: `system.checkHealth` already runs `DISM /CheckHealth`, read only (`agent/src/Cabinet.Agent.Windows/ActionOperations.cs`). Left: an SFC scan, and DISM `/ScanHealth` or repair, as Tier 2 operations with a code and a result. |
 | 13 | On-demand ETW (modules 17, 33) | Deep tracing, only ever started on demand. Nothing exists. |
 | 14 | WER crash-report mining | Read the Windows Error Reporting queue for crash detail the event log does not carry. Crash grouping exists; WER does not. |
 
