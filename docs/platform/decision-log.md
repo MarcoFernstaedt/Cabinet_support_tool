@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D95. A rule going live closes the alerts it regroups through alerts.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (at `dd7190c`; an entry on the ownership debt list, F21.R2):
+- **The write.** When a rule goes live, `regroup` in `server/src/services/rules.ts` folds each matching open unrecognized alert into the
+  issue's alert with `foldAlert`, which is the owner's. It then closed the old alert itself (`:356`): `UPDATE alerts … WHERE id = $1`,
+  passed to `closeAutomatically` with the resolution "Regrouped under <issue name>."
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `rules.ts` writes `alerts` nowhere else. (It also moves the old
+  alert's events to the new one with `UPDATE events`, an entry under `events` that this does not touch.)
+
+**The decision:**
+- **An owner function.** `alerts.ts` exports `closeAlertById(db, by, alertId, resolution)`. It holds the same statement, by id alone,
+  because the caller has just read the alert as unresolved in the same transaction. It runs through `closeAutomatically`, so the close is
+  still audited as `alert.resolve` by `rule-regroup`, with `automatic: true`, in the caller's transaction.
+- **The caller** passes what it passed before. `rules.ts` drops its now-unused `automatic-close.js` import.
+- **Input check, before the database is touched:**
+  - the closer is a lower-case name of 1 to 64 letters, digits and hyphens;
+  - the alert is an id;
+  - the resolution is 1 to 500 characters, not blank, with no control characters, as in `closeIssueAlert` (D92). The longest one
+    `regroup` writes is "Regrouped under " and an issue name of at most 128 characters (`issue_types.name`).
+- **Unchanged:** which alert closes, the audit and the transaction. No existing assertion changed.
+- **Debt list:** the `services/rules.ts` entry for `alerts` comes off, which leaves 85 after #284 (89 against main at `dd7190c`).
+
+**Proof** (`server/test/alert-close-by-id.test.ts`, three tests):
+- **Closing:** that alert is closed with the resolution and audited once by the closer, with its cabinet and the resolution. Another
+  alert of the cabinet stays open. An unknown id closes nothing.
+- **Rollback:** a close in a transaction that rolls back leaves the alert open and unaudited.
+- **Bad input:** 22 bad calls are refused through a connection that fails the test if it is used, including an injection string, a line
+  feed and a NUL. Nothing is closed.
+- **Red checks** (`alert-close-by-id`, `table-ownership`, `audit-sweep`, `import-cycles`; 15 tests):
+  - With `rules.ts` as on main, `table-ownership.test.ts` fails.
+  - With the id check disabled (`false && …`), the bad-input test fails.
+  - Restored and `cmp` identical, 15 of 15 pass.
+- **Neighbours:** `alerts`, `alerts-sql`, `crash-signatures` and every file that imports `rules.ts` (26 files) pass, 243 of 248, with 5
+  skipped that need `TEST_AGENT_DLL`.
+
+---
+
 ## D94. Service recovery, peer differences and firmware drift retitle and close their alerts through alerts.ts (2026-11-15)
 
 **What the code did** (at `dd7190c`; three entries on the ownership debt list, F21.R2):
