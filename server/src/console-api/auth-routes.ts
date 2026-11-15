@@ -4,7 +4,7 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
 import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passwords.js";
-import { createSession, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
+import { createSession, endOtherSessions, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
 import { networkOf, raiseSecurityAlertNow } from "../services/security.js";
 import { recordAuthFailure } from "../services/auth-failures.js";
 import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
@@ -205,7 +205,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     await transaction(o.pool, async c => {
       await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [u.userId, hash]);
       // Every other session of this user ends; this one continues.
-      await c.query("DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2", [u.userId, u.sessionHash]);
+      await endOtherSessions(c, u.userId, u.sessionHash);
       // Every other browser must pass the full sign-in again before it counts as this account's own.
       await forgetTrustedDevices(c, u.userId, readCookie(request, DEVICE_COOKIE));
       if (u.stage === "password_change") await setStage(c, u.sessionHash, "complete");

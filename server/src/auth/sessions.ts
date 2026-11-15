@@ -65,6 +65,30 @@ export const endAllSessions = async (db: Queryable, userId: string) => {
   return db.query("DELETE FROM sessions WHERE user_id = $1", [userId]);
 };
 
+const SESSION_HASH_BYTES = 32;
+const UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+const isSessionHash = (h: unknown): h is Buffer => Buffer.isBuffer(h) && h.length === SESSION_HASH_BYTES;
+
+/**
+ * Records the cabinet a session has open, for the "who is looking at this cabinet" view (F21.R2, decision-log D86). The cabinet view
+ * route calls it in the transaction that audits the view. The session hash and the cabinet id are checked before the database is touched.
+ */
+export async function setCurrentCabinet(db: Queryable, sessionHash: Buffer, cabinetId: string): Promise<void> {
+  if (!isSessionHash(sessionHash)) throw new Error("a session hash is required to record the cabinet it has open");
+  if (typeof cabinetId !== "string" || !UUID.test(cabinetId)) throw new Error("a cabinet id is required to record the cabinet a session has open");
+  await db.query("UPDATE sessions SET current_cabinet = $2 WHERE id_hash = $1", [sessionHash, cabinetId]);
+}
+
+/**
+ * Ends every session of a user except the one given: after the user changes their own password, the browser that changed it stays
+ * signed in and every other one must sign in again (F21.R2, D86). The caller audits the change in the same transaction.
+ */
+export async function endOtherSessions(db: Queryable, userId: string, keepSessionHash: Buffer): Promise<number> {
+  if (typeof userId !== "string" || !UUID.test(userId)) throw new Error("a user id is required to end that user's other sessions");
+  if (!isSessionHash(keepSessionHash)) throw new Error("the session to keep is required to end a user's other sessions");
+  return (await db.query("DELETE FROM sessions WHERE user_id = $1 AND id_hash <> $2", [userId, keepSessionHash])).rowCount ?? 0;
+}
+
 /** The next stage a signed-in user must pass before using the console. An Admin setting can require an authenticator for every account. */
 /** Every account, of every role, needs an authenticator at sign-in (docs/spec/12-milestones-8-to-12.md). */
 export function nextStage(u: { totpEnabled: boolean; role: string; mustChangePassword: boolean }, passedTotp: boolean): Stage {
