@@ -23,7 +23,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Unchanged:** what each route does, and its audit.
 - **The audit sweep's listed exception** for `DELETE FROM sessions WHERE user_id` now names `auth-routes.ts` among the callers that audit
   it.
-- **The debt list:** `sessions` comes off it, which leaves 96.
+- **The debt list:** `sessions` comes off it, which leaves 95.
 
 **Proof** (`server/test/session-writes.test.ts`, three tests):
 - **The cabinet:** a session records the cabinet it has open, and another session of the same user does not change.
