@@ -150,7 +150,12 @@ public static class ConfigBuilders
     };
 
     public static ConfigSnapshotCategory Services(ServicesListOutput output) => Make(ConfigCategory.Services, output.Services.Select(s =>
-        Item(Key("service", s.Name), ("startType", Snake(s.StartType)), ("state", ServiceStateName(s.State)), ("account", Text(s.Account)), ("path", Text(s.ExecutablePath)))));
+        Item(Key("service", s.Name), ("startType", Snake(s.StartType)), ("state", ServiceStateName(s.State)), ("account", Text(s.Account)), ("path", Text(s.ExecutablePath)), ("dependencies", DependencyList(s.Dependencies)))));
+
+    // Keep complete sets only, within configValue's existing limits. Never truncate a dependency into a different name.
+    public static IReadOnlyList<string>? DependencyList(IReadOnlyList<string>? names) =>
+        names is null || names.Count > MaxList || names.Any(n => string.IsNullOrEmpty(n) || n.Length > 200 || n.Any(c => c < ' ' || c == '\u007f' || char.IsSurrogate(c)))
+            ? null : names.Select(n => n.ToLowerInvariant()).Distinct(StringComparer.Ordinal).OrderBy(n => n, StringComparer.Ordinal).ToArray();
 
     // ---- Drivers, updates, devices ------------------------------------------------------------------------------------------------------
 
