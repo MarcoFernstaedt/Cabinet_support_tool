@@ -187,8 +187,14 @@ into a live cabinet, so it stays opt-in, audited, and out of the released agent.
 
 **The deadline that reorders everything: a satellite site and a sink cabinet this week.** Deployment comes before new
 features. So, ahead of everything above: the two audit ship items (#5, a rollout that ends while targets are offline
-leaves them pending forever, and #7, cancelling freezes the console), and the real-hardware run that proves the agent's
-reads and writes on Windows at both architectures. Everything else waits behind those.
+leaves them pending forever, and #7, cancelling freezes the console) — **both already fixed in the code**, verified
+2026-11-15 (`fleet-jobs.ts:380` gives an offline target a terminal state reading "nothing was changed on it"; `:215-232`
+with `:455` reconciles a cancelled job and finishes it) — and then the full real-hardware test.
+
+Be precise about that history, because an earlier note here got it wrong. The agent **has** run on real Windows: it was
+onboarded on Marco's HP as cabinet `DEVICEB-Lab` and the read sweep and the write tests were exercised there on
+2026-11-02 and again on 2026-11-13. What is outstanding is a **fresh full test once the whole project is ready** —
+both architectures, reads and writes — which is Marco's instruction, not a first attempt.
 
 ## Roadmap phases (reviewed against the code on 2026-11-03)
 
