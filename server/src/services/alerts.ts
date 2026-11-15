@@ -753,3 +753,18 @@ export async function pruneResolvedAlerts(db: Queryable, cutoff: Date, o: BatchO
                          AND NOT EXISTS (SELECT 1 FROM events e WHERE e.alert_id = alerts.id)`, [cutoff], o, { table: "alerts", cutoff });
 }
 
+
+/**
+ * Closes one alert by its id, because a rule going live folded it into an issue's alert (F21.R2, decision-log D95). Audited as
+ * alert.resolve by `by` through closeAutomatically, in the caller's transaction or a new one. The statement is the one rules.ts ran:
+ * by id alone, as the caller has just read the alert as unresolved in the same transaction. The closer, the id and the resolution are
+ * checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeAlertById(db: Queryable, by: string, alertId: string, resolution: string): Promise<{ id: string; cabinetId: string }[]> {
+  if (typeof by !== "string" || !CLOSER.test(by)) throw new Error("an alert closer is a lower-case name of 1 to 64 letters, digits and hyphens");
+  if (typeof alertId !== "string" || !ALERT_ID.test(alertId)) throw new Error("an alert id is required to close it");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  return closeAutomatically(db, by, `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT} WHERE id = $1`,
+    [alertId, resolution]);
+}

@@ -40,13 +40,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** see the open pull requests. 89 cross-module writes are left on the debt list (`server/src/db/table-owners.ts`).
+**In review:** see the open pull requests. 88 cross-module writes are left on the debt list (`server/src/db/table-owners.ts`).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the 89 listed cross-module writes behind their owners (D65 to D78 done, and none is left in maintenance.ts; the firewall event writer in events.ts, D84, done in #274; the session writes in the console routes, D86, done in #276; the certificate writes in enrollment and replacement, D87, done in #277; the operations checks' alert resolve, D88, done in #278; the network diagnosis's writes to diagnoses, D90, done in #280; the issue-alert closes in the network diagnosis and the file-version check, D92, in review), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
+| Move the 88 listed cross-module writes behind their owners (D65 to D78 done, and none is left in maintenance.ts; the firewall event writer in events.ts, D84, done in #274; the session writes in the console routes, D86, done in #276; the certificate writes in enrollment and replacement, D87, done in #277; the operations checks' alert resolve, D88, done in #278; the network diagnosis's writes to diagnoses, D90, done in #280; the issue-alert closes in the network diagnosis and the file-version check, D92, done in #282; the regroup close in rules.ts, D95, in review), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | about 13 to 20 |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |

@@ -6,8 +6,7 @@ import { commonDefs } from "../contracts.js";
 import { audit, isUniqueViolation, lock, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
-import { foldAlert } from "./alerts.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { closeAlertById, foldAlert } from "./alerts.js";
 
 export const ISSUE = {
   scanner: "00000000-0000-4000-8000-000000000101",
@@ -353,8 +352,7 @@ async function regroupOpen(c: Tx, ruleId: string, issueTypeId: string, m: Sympto
     const target = await foldAlert(c, { cabinetId: a.cabinet_id, issueTypeId, severity: issue.severity, signature: `issue:${issueTypeId}`, title: issue.name,
       occurrences: a.occurrences, firstSeen: a.first_seen, lastSeen: a.last_seen, ruleId, eventId: a.last_event_id }, "regroup");
     await c.query("UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1", [a.id, target.id, ruleId]);
-    await closeAutomatically(c, "rule-regroup", `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT} WHERE id = $1`,
-      [a.id, `Regrouped under ${issue.name}.`]);
+    await closeAlertById(c, "rule-regroup", a.id, `Regrouped under ${issue.name}.`);
   }
   return found.length;
 }
