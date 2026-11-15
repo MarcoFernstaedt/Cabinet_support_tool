@@ -571,3 +571,38 @@ test("a rollout completes only once the offers of every batch it reached have an
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [ids["office-3"]]);
   assert.equal(await offerFor(db.app, ids["office-3"]!, "0.1.0"), null);
 });
+
+test("a batch whose every cabinet stays offline moves on once they are skipped, so the rollout completes and the next can start", async () => {
+  // Decision-log D82, found in review of #268: nothing in such a batch can be counted, so its rate was never reached; the day-offline
+  // skip only moved the cabinets to skipped, and the rollout stayed running for good, refusing every later rollout with rollout_active.
+  const r = makeRelease(key, "0.9.9");
+  await ready(r);
+  const ids = await fleet([{ name: "pilot", version: "0.1.0" }, { name: "office-a", version: "0.1.0", inOffice: true, online: false },
+    { name: "office-b", version: "0.1.0", inOffice: true, online: false }, { name: "field-a", version: "0.1.0" }]);
+  const id = await startRollout(db.app, admin, { version: "0.9.9", architecture: X64, pilotCabinetId: ids.pilot!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  assert.equal(await offerFor(db.app, ids.pilot!, "0.1.0"), "0.9.9");
+  assert.equal(await report(ids.pilot!, "0.9.9", "succeeded"), true);
+  assert.equal((await rolloutOf(id)).currentBatch, 2, "batch 2 is the two offline office cabinets");
+  // Within the day the batch waits for them, as before.
+  await checkRollouts(db.app);
+  assert.equal((await rolloutOf(id)).currentBatch, 2);
+  // A day later they are skipped as offline, and the batch moves on instead of holding the rollout open.
+  await db.app.query("UPDATE rollouts SET batch_started_at = DATEADD(hour, -25, SYSUTCDATETIME()) WHERE id = $1", [id]);
+  await checkRollouts(db.app);
+  const moved = await rolloutOf(id);
+  assert.equal(moved.state, "running");
+  assert.ok(moved.currentBatch > 2, `the rollout left batch 2 (now ${moved.currentBatch})`);
+  for (const cabinet of [ids["office-a"]!, ids["office-b"]!]) assert.deepEqual([(await targetOf(id, cabinet)).state, (await targetOf(id, cabinet)).outcome], ["skipped", "offline"]);
+  const batch = (await db.app.query<{ details: { finishedBatch: number; counted: number } }>(
+    "SELECT details FROM audit_log WHERE target_id = $1 AND action = 'rollout.batch' ORDER BY seq", [id])).rows.map(a => a.details);
+  assert.deepEqual(batch.map(b => [b.finishedBatch, b.counted]), [[1, 1], [2, 0]], "the move past batch 2 is audited, saying nothing in it was counted");
+  // The last cabinet upgrades: the rollout completes, and the fleet can start another one.
+  assert.equal(await offerFor(db.app, ids["field-a"]!, "0.1.0"), "0.9.9");
+  assert.equal(await report(ids["field-a"]!, "0.9.9", "succeeded"), true);
+  assert.equal((await rolloutOf(id)).state, "completed");
+  const next = makeRelease(key, "1.0.0");
+  await ready(next);
+  const second = await startRollout(db.app, admin, { version: "1.0.0", architecture: X64, pilotCabinetId: ids["field-a"]!, successRatePercent: 95, failureLimitPercent: 5 }, null);
+  assert.ok(second, "a second rollout starts instead of being refused with rollout_active");
+  await changeRollout(db.app, admin, second, "stop", null);
+});

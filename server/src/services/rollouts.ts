@@ -198,7 +198,11 @@ export async function evaluate(db: Queryable, rolloutId: string): Promise<void> 
       details: { rolloutId, batch, failed, total, failureLimitPercent: r.failure_limit_percent } });
     return;
   }
-  if (counted <= 0 || succeeded * 100 < r.success_rate_percent * counted) return;
+  // A batch whose every cabinet was skipped (offline for the whole batch) has no rate to reach: none of it can be counted. It moves on
+  // rather than holding the rollout open for good, which would also refuse every later rollout (D82). While any cabinet is still
+  // waiting out its day offline, the batch waits as before.
+  const allSkipped = counted <= 0 && Number(n.waiting_offline) === 0 && Number(n.skipped) > 0;
+  if (!allSkipped && (counted <= 0 || succeeded * 100 < r.success_rate_percent * counted)) return;
 
   const next = (await db.query<{ batch: number }>("SELECT MIN(batch) AS batch FROM rollout_targets WHERE rollout_id = $1 AND batch > $2", [rolloutId, batch])).rows[0]?.batch;
   if (next) {
