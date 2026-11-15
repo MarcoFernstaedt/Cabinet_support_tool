@@ -154,18 +154,22 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
   const [syncCabinets, setSyncCabinets] = useState<SyncCabinetRef[] | null>(null);
   // The site's cabinets, for "this replaces": a failed drive reinstalled gets a new agent, and the approval says which cabinet it was.
   const [siteCabinets, setSiteCabinets] = useState<SiteCabinet[]>([]);
+  // A failed read says so beside the choices it feeds: empty lists would read as "nothing to replace" and lead to a duplicate (D85).
+  const [siteProblem, setSiteProblem] = useState<string | null>(null);
+  const [siteTry, setSiteTry] = useState(0);
   useEffect(() => {
     setSyncCabinets(null);
     setSiteCabinets([]);
+    setSiteProblem(null);
     if (!siteId) return;
     let live = true;
     // Every cabinet of the site, not only its first page: the one this replaces can be any of them (D85).
     void everySiteCabinet<SiteCabinet, { sync: { syncCabinets: SyncCabinetRef[] }; cabinets: SiteCabinet[]; cabinetsPage: SitePage<SiteCabinet>["cabinetsPage"] }>(
       path => api("GET", path), siteId)
       .then(r => { if (live) { setSyncCabinets(r.sync.syncCabinets); setSiteCabinets(r.cabinets); } })
-      .catch(() => undefined);
+      .catch(e => { if (live) setSiteProblem(describeError(e)); });
     return () => { live = false; };
-  }, [siteId]);
+  }, [siteId, siteTry]);
   const candidates = useMemo(() => replaceable(siteCabinets, form.role), [siteCabinets, form.role]);
   const replacing = candidates.find(c => c.id === form.replacesCabinetId) ?? null;
   // A new client chooses whether it uses a fingerprint scanner; an existing client keeps its own setting (changed on its page).
@@ -213,6 +217,9 @@ export function PendingCard({ p, clients, onDone }: { p: Pending; clients: Known
           <label className="field"><span>Cabinet name</span><input required maxLength={128} value={form.cabinet} onChange={e => setForm(f => ({ ...f, cabinet: e.target.value }))} /></label>
           <label className="field"><span>Role</span><select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))}>
             <option value="sync">Sync</option><option value="satellite">Satellite</option><option value="standalone">Standalone</option></select></label>
+          {siteProblem && (
+            <div className="row gap wrap"><p className="error" role="alert">This site's cabinets could not be read, so the cabinet this replaces and the sync cabinet cannot be offered: {siteProblem}</p>
+              <button type="button" className="btn small" onClick={() => setSiteTry(t => t + 1)}>Try again</button></div>)}
           {candidates.length > 0 && (
             <label className="field"><span>Replaces</span>
               <select value={replacing?.id ?? ""} onChange={e => {

@@ -26,6 +26,12 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Both screens use it.** The approved-programs picker goes through `useEverySiteCabinet`, which has `useLoad`'s shape, so its
   existing "Try again" path is unchanged.
 - **A site of 200 or fewer is still one request.**
+- **A failed read says so on the enrollment approval** (review of #275). `Admin.tsx` used to discard the read's failure. The cabinets
+  for "Replaces" and the sync cabinets both come from that read, so on a large site a failed second page would leave both lists empty
+  with nothing on screen, which reads as "this site has nothing to replace". It now shows "This site's cabinets could not be read, so
+  the cabinet this replaces and the sync cabinet cannot be offered", with "Try again".
+- **Not a snapshot of one moment.** The pages are read by offset, so a cabinet added or removed between two pages can shift the list
+  under the read. A picker is a snapshot, and the route has no cursor, so this is left as is.
 
 **Alternative.** A search box in the pickers. Rejected for now: the site route has no search, and a picker that offers every cabinet
 of one site is what these two screens were written to do. A site of thousands of cabinets would want one.
@@ -42,6 +48,9 @@ of one site is what these two screens were written to do. A site of thousands of
   all 230 in name order, and the requests are the bare first page and then `?limit=500&offset=200`.
   - With `ApprovedApps.tsx` as on main, the test fails waiting for "Cab 230".
 - **`console-approved-apps-e2e`**, whose "Try again" check intercepts the bare site URL, still passes.
+- **A second browser test, the enrollment approval on a site of 230 with the second page failing once:** the alert appears and no
+  "Replaces" list is offered. After "Try again", all 230 are offered and the alert is gone.
+  - With `Admin.tsx` as it was before the review, the test fails waiting for the alert.
 
 ---
 
