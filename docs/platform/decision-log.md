@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D82. A rollout batch whose every cabinet stays offline moves on, rather than holding the rollout open (2026-11-15)
+
+**What the code did** (`server/src/services/rollouts.ts`, `evaluate`, at `d669848`; found in review of #268, and on main before it):
+- **The rate is measured over the counted cabinets:** `counted` is the batch's targets minus those waiting offline and those skipped.
+- **A batch of offline cabinets has nothing to count.** While they wait out their 24 hours, `counted` is 0, and `evaluate` returns while
+  it is 0. After the day, the skip moves them to `skipped`, and `counted` is still 0.
+- **So the batch never reached its rate, and the rollout stayed `running` for good.** One rollout runs at a time, so every later
+  rollout was refused with `rollout_active`. The reviewer measured it: a rollout whose batch 2 was two offline cabinets was still at
+  batch 2 twenty-five hours later.
+
+**The decision:**
+- **A batch whose every target was skipped moves on:** nothing is waiting offline any more, at least one target was skipped, and none
+  was counted. It goes to the next batch, or the rollout completes, through the same path and audit (`rollout.batch` with `counted: 0`,
+  or `rollout.complete`).
+- **Unchanged:** while any cabinet is still waiting out its day, the batch waits as before. A batch with anything counted needs its rate
+  as before. Offline cabinets still do not count against the rate.
+
+**Alternative.** Counting skipped cabinets as failures, which would pause the rollout. Rejected: the spec says offline cabinets do not
+count against a batch, and a pause would still need an Admin to resume a rollout that has nothing left to try in that batch.
+
+**Proof** (`server/test/upgrades.test.ts`, one new test, the reviewer's case):
+- the pilot upgrades, and batch 2 is two offline cabinets;
+- within the day the rollout stays at batch 2;
+- with the batch started 25 hours ago, the two are skipped as `offline` and the rollout moves past batch 2, audited with `counted: 0`;
+- the last cabinet upgrades and the rollout completes;
+- a second rollout then starts.
+- **Red check:** with `allSkipped` disabled (`false && …`), the new test fails (14 tests, 11 pass, 1 fail, 2 skipped). Restored and
+  `cmp` identical, 12 pass, 0 fail, 2 skipped.
+
+---
+
 ## D80. A rollout completes only with every offer answered, and closes every target still waiting (2026-11-14)
 
 **What the code did** (`server/src/services/rollouts.ts`, `evaluate`, at `91d64d3`; finding 4 of the 2026-11-13 fleet audit):
