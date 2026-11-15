@@ -11,8 +11,7 @@ import { syncForCabinet } from "../services/device-settings.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { Refused } from "../services/errors.js";
 import { findingKey, fixesForFindings, markSeen } from "../services/known-fixes.js";
-import { upsertAlert } from "../services/alerts.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "../services/automatic-close.js";
+import { closeIssueAlert, upsertAlert } from "../services/alerts.js";
 import { ISSUE } from "../services/rules.js";
 import { layerStates, type Finding, type FixAction, type NetworkBaseline, type NetworkEvidence, type Profiles, type TestRun } from "./network-findings.js";
 import type { TraceRun } from "./network-observations.js";
@@ -206,8 +205,7 @@ async function reconcileBaselineAlert(pool: Pool, cabinetId: string, findings: F
   if (off.length > 0) {
     await raiseBaselineAlert(pool, cabinetId, off.map(f => f.title));
   } else {
-    await closeAutomatically(pool, "network-diagnosis", `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'A network diagnosis found the settings matching the site baseline.'
-                       ${CLOSED_OUTPUT} WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'`, [cabinetId, ISSUE.networkBaseline]);
+    await closeIssueAlert(pool, "network-diagnosis", cabinetId, ISSUE.networkBaseline, "A network diagnosis found the settings matching the site baseline.");
   }
 }
 

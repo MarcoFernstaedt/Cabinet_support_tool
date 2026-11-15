@@ -32,6 +32,47 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D92. The network diagnosis and the file-version check close their alerts through alerts.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (at `6d2d73a`; two entries on the ownership debt list, F21.R2):
+- **Two writers of `alerts`, one statement.** When the condition its check raises was gone, each closed the cabinet's unresolved alert
+  of one issue type. Each did it with its own `UPDATE alerts … WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'`,
+  passed to `closeAutomatically`:
+  - `server/src/diagnose/network.ts:209`, `reconcileBaselineAlert`, for the network-baseline alert;
+  - `server/src/services/filefacts-ingest.ts:233`, `reconcileVersionAlert`, for the file-version alert.
+- **Who owns that table:** `alerts` belongs to `services/alerts.ts`. Neither file writes `alerts` anywhere else; each raises through
+  `upsertAlert`, which is already the owner's.
+
+**The decision:**
+- **One owner function.** `alerts.ts` exports `closeIssueAlert(db, by, cabinetId, issueTypeId, resolution)`. It runs the same statement
+  through `closeAutomatically`, so each close is still audited as `alert.resolve` by `by`, with `automatic: true`, in the caller's
+  transaction or a new one. The resolution sentence is now a parameter instead of a literal in the SQL.
+- **The callers** pass what they passed before: closer `network-diagnosis` or `file-versions`, the cabinet, the issue type and the same
+  sentence. Both drop their now-unused `automatic-close.js` import.
+- **Input check, before the database is touched:**
+  - the closer is a lower-case name of 1 to 64 letters, digits and hyphens;
+  - the cabinet and the issue type are ids;
+  - the resolution is 1 to 500 characters, not blank, with no control characters.
+- **Unchanged:** which alerts close (open and claimed, not resolved), the audit, and the transaction.
+- **An existing assertion changed:** `filefacts-ingest.test.ts` checked the close's parameters as `[cabinet, issue type]`. It now checks
+  `[cabinet, issue type, the resolution sentence]`, which also covers the sentence.
+- **Debt list:** the `diagnose/network.ts` and `services/filefacts-ingest.ts` entries for `alerts` come off, which leaves 89.
+
+**Proof** (`server/test/issue-alert-close.test.ts`, three tests):
+- **Closing:** the cabinet's open alert of the issue type is closed with the sentence and audited once by the closer. Another cabinet's,
+  another issue type's and an already resolved alert are left as they were. A claimed alert counts as unresolved, and a repeat closes and
+  audits nothing.
+- **Rollback:** a close in a transaction that rolls back leaves the alert open and unaudited.
+- **Bad input:** 29 bad calls are refused through a connection that fails the test if it is used: bad closers, cabinets, issue types and
+  resolutions, including an injection string, a line feed and a NUL. Nothing is closed.
+- **Red checks** (`issue-alert-close`, `table-ownership`, `audit-sweep`, `import-cycles`; 15 tests):
+  - With both callers as on main, `table-ownership.test.ts` fails.
+  - With the resolution check disabled (`false && …`), the bad-input test fails.
+  - Restored and `cmp` identical, 15 of 15 pass.
+- **Neighbours:** `alerts`, `alerts-sql`, the four `filefacts` files, `network-troubleshooting` and `troubleshooting` pass, 107 of 107.
+
+---
+
 ## D91. A diagnosis that has finished stays as it finished (2026-11-15)
 
 **What the code did** (at `fdee60e`):
