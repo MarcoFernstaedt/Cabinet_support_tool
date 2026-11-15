@@ -317,6 +317,7 @@ Decided here, open to change:
 - **Batches.** Batch 1 is one cabinet the Admin picks. Batch 2 is the cabinets an Admin has marked "in office" (a flag on the Upgrades screen). Batch 3 is 5% of the remaining cabinets, rounded up and picked at random. Batch 4 is the rest. Empty batches are skipped. Cabinets already on that version or newer are left out.
 - **Thresholds** are chosen per rollout. The defaults are 95% success and a 5% failure limit; the success rate cannot be set below 50% or the failure limit above 50%.
   - Cabinets that are offline do not count against a batch's success rate. After 24 hours they are skipped, and they are still offered the version if they come back while the rollout runs.
+  - A batch whose cabinets were all skipped that way has no rate to measure: it moves on to the next batch, or the rollout completes, rather than staying open for good (an open rollout refuses every other one; decision-log D82).
   - An offered cabinet that reports nothing within 30 minutes counts as failed.
   - A rollout completes only once every offer in every batch it reached has an outcome (or has timed out). At completion, every cabinet still waiting, in any batch, is closed as skipped: "offline" when it was out of contact, otherwise "the rollout completed before this cabinet took the version". Nothing is left pending, and a completed rollout offers nothing more (decision-log D80).
   - Resuming after an automatic pause accepts the failures so far. Only new failures count toward the limit again.
