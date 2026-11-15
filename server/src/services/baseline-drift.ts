@@ -5,8 +5,7 @@ import { lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { valueText, type Item } from "./config-canonical.js";
 import { currentItems, markBaselineViolations, type Category } from "./config-ingest.js";
 import { resolveForCabinet, type Origin, type ResolvedItem } from "./baselines.js";
-import { upsertAlert } from "./alerts.js";
-import { closeAutomatically, CLOSED_OUTPUT } from "./automatic-close.js";
+import { closeSignatureAlert, retitleAlert, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 
 export interface DriftRow {
@@ -109,11 +108,8 @@ async function checkFirmware(c: Queryable, cabinetId: string, rows: readonly Dri
   if (firmware.length > 0) {
     const title = firmwareTitle(firmware);
     const { id } = await upsertAlert(c, { cabinetId, issueTypeId: ISSUE.firmwareDrift, severity: "minor", signature: FIRMWARE_SIGNATURE, title, seenAt: new Date(), ruleId: null, eventId: null });
-    await c.query("UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2", [id, title]);
+    await retitleAlert(c, id, title);
     return;
   }
-  await closeAutomatically(c, "firmware-drift",
-    `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
-      WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`,
-    [cabinetId, "The cabinet's firmware matches its model's expectation again (seen in its configuration).", FIRMWARE_SIGNATURE]);
+  await closeSignatureAlert(c, "firmware-drift", cabinetId, FIRMWARE_SIGNATURE, "The cabinet's firmware matches its model's expectation again (seen in its configuration).");
 }

@@ -26,7 +26,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - the resolution is 1 to 500 characters, not blank, with no control characters, as in `closeIssueAlert` (D92). The longest one
     `regroup` writes is "Regrouped under " and an issue name of at most 128 characters (`issue_types.name`).
 - **Unchanged:** which alert closes, the audit and the transaction. No existing assertion changed.
-- **Debt list:** the `services/rules.ts` entry for `alerts` comes off, which leaves 88 against main at `dd7190c`.
+- **Debt list:** the `services/rules.ts` entry for `alerts` comes off, which leaves 85 after #284 (88 against main at `dd7190c`).
 
 **Proof** (`server/test/alert-close-by-id.test.ts`, three tests):
 - **Closing:** that alert is closed with the resolution and audited once by the closer, with its cabinet and the resolution. Another
@@ -40,6 +40,53 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - Restored and `cmp` identical, 15 of 15 pass.
 - **Neighbours:** `alerts`, `alerts-sql`, `crash-signatures` and every file that imports `rules.ts` (26 files) pass, 243 of 248, with 5
   skipped that need `TEST_AGENT_DLL`.
+
+---
+
+## D94. Service recovery, peer differences and firmware drift retitle and close their alerts through alerts.ts (2026-11-15)
+
+**What the code did** (at `dd7190c`; three entries on the ownership debt list, F21.R2):
+- **Three writers of `alerts`, the same two statements each.** Each check raises its alert with `upsertAlert`, which is the owner's,
+  then wrote `alerts` itself twice:
+  - **a retitle**, `UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2`, because the fold keeps an alert's first title and these
+    titles name what the latest reading found;
+  - **a close by signature**, `UPDATE alerts … WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`, passed to
+    `closeAutomatically`, when the condition was gone.
+- **Where:** `server/src/services/service-recovery.ts:37` and `:40`; `server/src/services/peer-differences.ts:115` and `:118`;
+  `server/src/services/baseline-drift.ts:112` and `:115`. None of the three writes `alerts` anywhere else.
+
+**The decision:**
+- **Two owner functions** in `alerts.ts`, holding the same statements:
+  - `retitleAlert(db, alertId, title)`;
+  - `closeSignatureAlert(db, by, cabinetId, signature, resolution)`, through `closeAutomatically`, so each close is still audited as
+    `alert.resolve` by `by`, with `automatic: true`, in the caller's transaction or a new one.
+- **The callers** pass what they passed before: the closer (`service-recovery`, `peer-difference`, `firmware-drift`), the cabinet, the
+  signature constant and the same sentence. All three drop their now-unused `automatic-close.js` import.
+- **Input check, before the database is touched:**
+  - the alert id and the cabinet are ids, and the closer is a lower-case name of 1 to 64 letters, digits and hyphens;
+  - the signature is 1 to 450 characters (the column's width), not blank, with no control characters;
+  - the resolution is 1 to 500 characters, not blank, with no control characters, as in `closeIssueAlert` (D92);
+  - the title must be a non-blank string. It has no upper bound here: it is the title `upsertAlert` has just stored, which has none, so
+    a bound would refuse a retitle the insert accepted.
+- **Unchanged:** which alerts close (open and claimed, not resolved), the audit, the transactions, and when each check retitles.
+- **No existing assertion changed.**
+- **Debt list:** the three entries for `alerts` come off, which leaves 86.
+
+**Proof** (`server/test/signature-alert-writes.test.ts`, four tests):
+- **Retitle:** that alert takes the new title, and another alert keeps its own. A retitle with the title it already has is the same
+  statement again, and its guard is in the statement, so the test does not claim it changed nothing.
+- **Close:** the cabinet's open alert of the signature is closed with the sentence and audited once by the closer. Another cabinet's,
+  another signature's and an already resolved alert are left as they were. A claimed alert counts as unresolved, and a repeat closes and
+  audits nothing.
+- **Rollback:** a close in a transaction that rolls back leaves the alert open and unaudited.
+- **Bad input:** 41 bad calls are refused through a connection that fails the test if it is used, including an injection string, a line
+  feed, a tab and a NUL. Nothing is changed.
+- **Red checks** (`signature-alert-writes`, `table-ownership`, `audit-sweep`, `import-cycles`; 16 tests):
+  - With the three callers as on main, `table-ownership.test.ts` fails.
+  - With the signature check disabled (`false && …`), the bad-input test fails; so it does with the retitle's id check disabled.
+  - Restored and `cmp` identical, 16 of 16 pass.
+- **Neighbours:** `alerts`, `alerts-sql`, `issue-alert-close`, `firmware-drift`, `peer-differences` and `service-reboot-recovery` pass,
+  46 of 46. The 14 files that import the three changed modules pass, 111 of 111 (one of them is a benchmark).
 
 ---
 
