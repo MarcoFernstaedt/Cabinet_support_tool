@@ -82,3 +82,6 @@ server/load-results/
 deploy/**/*.env
 deploy/env/*.env
 !deploy/**/*.env.example
+
+# One-off staged inputs for a worker run (never committed).
+.staging/
