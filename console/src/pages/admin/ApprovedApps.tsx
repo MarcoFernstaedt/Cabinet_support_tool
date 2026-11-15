@@ -9,6 +9,8 @@ import { useLoad } from "../../lib/useLoad";
 import { fullTime } from "../../lib/time";
 import type { KnownClient } from "./Admin";
 import { documentBytes, entryKey, entryProblem, readSignatureFile, toEntry, type AppEntry, type AppList } from "../../lib/approved-apps";
+import { useEverySiteCabinet } from "../../lib/useEverySiteCabinet";
+import type { SitePage } from "../../lib/site-cabinets";
 type Level = "fleet" | "client" | "site" | "cabinet";
 
 export function ApprovedApps() {
@@ -19,7 +21,8 @@ export function ApprovedApps() {
   const [cabinetId, setCabinetId] = useState("");
   const client = clients.data?.find(c => c.id === clientId) ?? null;
   // A cabinet's own list exists mostly because a replacement copied it from the cabinet it replaced; it wins over every level above.
-  const site = useLoad<{ cabinets: { id: string; name: string }[] }>(level === "cabinet" && siteId ? `/api/fleet/sites/${siteId}` : null);
+  // Every cabinet of the site, not only its first page (D85).
+  const site = useEverySiteCabinet<{ id: string; name: string }, SitePage<{ id: string; name: string }>>(level === "cabinet" && siteId ? siteId : null);
   const scopeId = level === "client" ? clientId : level === "site" ? siteId : level === "cabinet" ? cabinetId : null;
   const table = { fleet: "", client: "clients", site: "sites", cabinet: "cabinets" }[level];
   const endpoint = level === "fleet" ? "/api/admin/approved-apps" : scopeId ? `/api/${table}/${scopeId}/approved-apps` : null;
