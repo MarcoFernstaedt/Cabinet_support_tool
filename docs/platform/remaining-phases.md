@@ -204,6 +204,42 @@ and a stated reason, so a builder can start on any of them without another surve
   dispatched. **Open for Marco, after the #28 answer:** does the platform get a write that *sets* a service's
   dependencies on a live cabinet? The spec has no operation for it, so it needs a decision before it needs a contract —
   and it is the same shape of question as #28: a real need, a change to a live cabinet, and no spec answer.
+- **Marco's 2026-11-15 queue, second batch (verbatim): *"Get those pr closed from claude / I want the demo out unless
+  it's beneficial it wasn't suppose to be a aa big part of thee cos ole only for demoing get this fixed / Power managment
+  on all cabinets should be off aswell so us all ports don't sleep that's on all our cabinets and sometimes flips so this
+  pendpint agent should also have a baseline for that so it keeps it off / Ensure if the drivers don't show in device
+  manager or however it's best to see it then that can gets an alert / Narrow for schedualed reboots."*** Five items:
+  1. **The two Claude PRs resolved.** #269 (a site with more than 200 cabinets showed only the first 200) is a real
+     defect fix with its own gate run at `da2acfd`; it has had no independent review, so Aster reviews then merges.
+     **#268 is held by its own open console finding**: `console/src/pages/admin/Upgrades.tsx:36` labels *every* skipped
+     target "Skipped (offline)", and after D80 a cabinet can be skipped while it was never offline, so the screen tells
+     the support desk something false; the message D80 writes reaches nobody because `:269` renders a target explanation
+     only when `t.outcome` is set. **That is a misreport of fleet state and it holds the merge** (invariant). Fix the
+     console case, then merge. Both merges wait until no builder owns the tree.
+  2. **A defect found on main while reviewing #268, not of that PR:** *a batch in which every cabinet is offline never
+     completes.* `counted = total - waiting_offline - skipped` stays 0, so the rate is never reached; 24 hours later the
+     skip only moves those cabinets to `skipped` and `counted` is still 0. Measured against the branch: a rollout whose
+     batch 2 is two offline cabinets is still running at batch 2 twenty-five hours later, and **a second rollout is
+     refused with `rollout_active`** — the fleet cannot start another rollout. On main today. Needs its own item, and it
+     matters for the deployment this week.
+  3. **Demo out.** Marco: "it wasn't supposed to be a big part of the console, only for demoing." Agreed, and the reason
+     it looked bigger than a screen is the fixture coupling: 19 non-demo test files compile against the simulator, which
+     also seeds rows across the schema (`demo_scenario` on cabinets, a demo writer in `table-owners.ts`). Brief splits it:
+     **the surface (UI, routes, contracts, docs) is deleted; the simulator becomes an explicit test-support fixture.**
+  4. **Power management off on every cabinet, with a baseline.** Marco: ports must not sleep, it "sometimes flips", and
+     the agent should hold a baseline "so it keeps it off". `power.status` already reads the power plan, Fast Startup,
+     hibernation and USB settings — **verify whether it covers per-device power management (the "allow the computer to
+     turn off this device to save power" option) before promising anything**. Missing half: a baseline expectation so the
+     flip is visible. Drift surfaces on the Baseline tab and in health, **not** as an alert (D48) — do not invent one.
+  5. **A driver absent from Device Manager raises an alert.** The platform reads devices that *report a problem*; a device
+     that has **vanished** is different, and that is what Marco is asking about. This one wants an **alert**, which drift
+     does not provide (D48) — so establish first what already fires for a missing device, then bring the owner the alert
+     question with the `15-baselines-and-config.md:85` / D48 precedent. Do not build an alert policy on a guess.
+  6. **Scheduled reboots: "narrow".** The owner answered the question asked. The 2026-10-29 *"No bulk restarts"* decision
+     is reopened **narrowly**: a scheduled, per-site, bounded window with a cap, a confirmation, an audit trail, and
+     satellites ordered behind their own sync cabinet. **The spec decision and `server/test/fleet-jobs-no-restart.test.ts`
+     change in the same change, on the owner's word, and the test keeps asserting that ad-hoc bulk restarts stay
+     forbidden.**
 - **Brief-writing lesson, recorded because it has now cost two runs:** a brief that names an acceptance command must
   check the repository's own runner (`server/package.json:12` is `npm run build && node --test`, not Vitest), and a brief
   that asserts an existing capability ("fleet jobs already drive a restart") must quote the file that proves it. Codex
