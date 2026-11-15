@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D86. The console routes' two writes to sessions go through auth/sessions.ts, its owner (2026-11-15)
+
+**What the code did** (at `e5465f7`; two entries on the ownership debt list, F21.R2):
+- **`console-api/fleet-routes.ts:52`** set `current_cabinet` on the viewer's session when a cabinet view was opened, in the transaction that
+  audits `cabinet.view`.
+- **`console-api/auth-routes.ts:208`** deleted every other session of a user who changed their own password, in the transaction that
+  audits `auth.password.change`.
+- **`sessions` is owned by `auth/sessions.ts`** (`server/src/db/table-owners.ts`).
+
+**The decision:**
+- **`auth/sessions.ts` exports `setCurrentCabinet(db, sessionHash, cabinetId)` and `endOtherSessions(db, userId, keepSessionHash)`.**
+  They hold the same statements, and the routes call them in the same transactions as before.
+- **Input check:** the session hash must be a 32-byte buffer, as `hashId` makes it, and the cabinet id and user id must be ids. Anything
+  else is refused before the database is touched.
+- **Unchanged:** what each route does, and its audit.
+- **The audit sweep's listed exception** for `DELETE FROM sessions WHERE user_id` now names `auth-routes.ts` among the callers that audit
+  it.
+- **The debt list:** `sessions` comes off it, which leaves 95.
+
+**Proof** (`server/test/session-writes.test.ts`, three tests):
+- **The cabinet:** a session records the cabinet it has open, and another session of the same user does not change.
+- **Other sessions:** ending a user's other sessions keeps the one given and leaves another user's alone, and a repeat ends nothing.
+- **Bad input:** 9 bad session hashes and 8 bad ids are refused by both functions, with nothing recorded and nothing ended. They include
+  a hex string, buffers of 0, 31 and 33 bytes, an injection string and a number.
+- **Red checks:**
+  - With both hash checks disabled (`false && …`), the bad-input test fails.
+  - With both route files as on main, `table-ownership.test.ts` fails.
+  - Restored and `cmp` identical, these and `console-api` and `auth` pass, 31 of 31.
+
+---
+
 ## D84. An agent's firewall event is recorded by commands.ts, the firewall history's owner (2026-11-15)
 
 **What the code did:** `storeEvents` in `services/events.ts` wrote `firewall_changes` (owner `commands.ts`) for each `firewall_changed`
