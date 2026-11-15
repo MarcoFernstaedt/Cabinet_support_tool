@@ -131,8 +131,8 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                     </form>
                   : <>{START[s.startType]}{canStartType && ["automatic", "automatic_delayed", "manual", "disabled"].includes(s.startType)
                     && <> <button className="btn small ghost" data-tour={s.startType === "disabled" ? "start-type" : undefined} onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
-                <td>{s.dependencies?.join(", ") || (s.dependencies ? "None" : "Could not check")}</td>
-                <td>{s.dependentServices?.join(", ") || (s.dependentServices ? "None" : "Could not check")}</td>
+                <td className="small wrap">{s.dependencies?.join(", ") || (s.dependencies ? "None" : "Could not check")}</td>
+                <td className="small wrap">{s.dependentServices?.join(", ") || (s.dependentServices ? "None" : "Could not check")}</td>
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
                   {s.recovery && [s.recovery.firstFailure, s.recovery.secondFailure, s.recovery.subsequentFailures].includes("reboot")
