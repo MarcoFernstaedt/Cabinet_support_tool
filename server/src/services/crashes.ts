@@ -4,8 +4,7 @@
 // error and service events, and heartbeats), so it still works when the cabinets that crashed can no longer boot.
 // Findings are correlations and are labelled so; nothing here claims a root cause. No regular expressions.
 import type { Pool, Queryable } from "../db/db.js";
-import { upsertAlert } from "./alerts.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { closeSignatureAlert, upsertAlert } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { ISSUE } from "./rules.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
@@ -64,8 +63,7 @@ export async function bootFromHeartbeat(db: Queryable, cabinetId: string, uptime
   const newBoot = previousBoot === null || Math.abs(bootAt - previousBoot) > SAME_BOOT_MINUTES * 60_000;
   if (newBoot) await recordBoot(db, cabinetId, new Date(bootAt), "heartbeat");
   if (crossedRecovery(uptimeSeconds, previous.uptimeSeconds, newBoot))
-    await closeAutomatically(db, "reboot-loop", `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'Running for 2 hours without restarting.'
-                     ${CLOSED_OUTPUT} WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`, [cabinetId]);
+    await closeSignatureAlert(db, "reboot-loop", cabinetId, "reboot_loop", "Running for 2 hours without restarting.");
 }
 
 /**
