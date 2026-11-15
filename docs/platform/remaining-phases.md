@@ -50,7 +50,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
-| The rest of the 2026-11-13 fleet audit: a rollout that ends with targets offline leaves them pending (finding 4, `rollouts.ts`); cancelling leaves the job page showing "Cancelled" over cabinets still being verified (finding 6, `FleetOperations.tsx`). The recovery (ship 3), the answer budget (finding 5) and the fleet list limit landed in #263 to #266; a site with more than 200 cabinets is paged by the server (D81). | fleet audit | about 2 |
+| The 2026-11-13 fleet audit is closed: the recovery (ship 3), the answer budget (finding 5) and the fleet list limit landed in #263 to #266, the rollout that left targets waiting (finding 4) in #268, the site page that showed only 200 cabinets in #269 (D81), and the job page that showed "Cancelled" over cabinets still being verified (finding 6) is D83. | fleet audit | none |
 
 That is about 18 to 26 PRs. The [build program](../build-program-2026-11-14.md) lists the agent-side items 4 to 20 one PR each. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 

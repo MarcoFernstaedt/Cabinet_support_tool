@@ -6,6 +6,42 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D83. A cancelled fleet job's page follows it until the batch already sent has finished (2026-11-14)
+
+**What the code did** (`console/src/pages/FleetOperations.tsx`, `FleetJob`, at `91d64d3`; finding 6 of the 2026-11-13 fleet audit):
+- **The page refreshed the job every 1.5 s only while it was `running`.**
+- **Cancelling set the state to `cancelled` at once** (`cancelJob`), but the batch already sent goes on: its commands are followed up and
+  verified, and only then does the runner end the job and set its finish time.
+- **So the page stopped refreshing at the moment it mattered.** It showed "Cancelled" over cabinets still marked "Sent" or "Done;
+  verifying", and stayed like that until someone reloaded it. That is the freeze the audit saw.
+- **The server was not the cause:** the cancel route is one short transaction, and the job's own answer already carries `finishedAt`.
+
+**The decision** (console only):
+- **`console/src/lib/fleet-job-status.ts` gives a job one of four phases:** running, cancelling (cancelled with no finish time),
+  cancelled, or finished.
+- **The page keeps refreshing while the job is running or cancelling.**
+- **The badge says what is happening:**
+  - "Cancelling: finishing the N cabinets already sent", counting the cabinets sent and not yet answered or verified;
+  - "Cancelling: ending the job" once none is left;
+  - "Cancelled" once the job has ended.
+- **"Cancel the rest" is shown only while the job runs,** as before.
+- **A count that is not a whole positive number counts as none,** so a bad answer cannot make up cabinets.
+
+**Proof:**
+- **`console/test/fleet-job-status.test.ts`, three tests:** the phases and their wording; running and finished jobs read as before; nine
+  bad counts read as none.
+- **`server/test/console-fleet-cancel-e2e.test.ts`, in a real browser:** a job in the state a cancel leaves (one cabinet sent, two
+  cancelled, no finish time).
+  - The page says "Cancelling: finishing the cabinet already sent", with no cancel button.
+  - When the cabinet is verified, the page shows "Verified" and "Cancelling: ending the job" without a reload.
+  - When the job ends, it shows "Cancelled" and the finish time.
+  - The runner's own part (following up, verifying, ending) is covered by `fleet-jobs.test.ts`; here it is two statements.
+- **Red check:** with the cancelling phase disabled in place (a cancelled job read as ended at once), the console test fails (2 pass,
+  1 fail) and the browser test fails waiting for "Cancelling: finishing the cabinet already sent". Restored and `cmp` identical, both
+  pass.
+
+---
+
 ## D81. A site's cabinets are paged by the server, from the route to the site page (2026-11-14)
 
 **What the code did** (finding 7 of the 2026-11-13 fleet audit, at `91d64d3`):
@@ -78,6 +114,9 @@ not pages; noted on the tracker.
 - **The staged-rollout test** now also asserts that its offline cabinet ends `skipped` / `offline`, and its comment says so. No
   existing assertion was changed.
 - `upgrades.test.ts` passes 11 of 11, with two real-agent tests skipped, and `audit-sweep.test.ts` passes 5 of 5.
+
+---
+
 
 ---
 
