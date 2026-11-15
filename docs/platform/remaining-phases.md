@@ -163,6 +163,30 @@ row that was listed as missing for months is fully built (26). With the three de
 **12 items of real work, seven of them whole** — and every one of the seven missing has a named file, a named operation
 and a stated reason, so a builder can start on any of them without another survey.
 
+## Marco's decisions, 2026-11-15 (evening)
+
+- **#28, new: reboot times, set by site or by individual cabinet.** `system.restart` restarts a cabinet now and the
+  fleet-job machinery can drive it at scale, so the missing half is the *schedule*: a time (or a window) attached to a
+  site, with an override per cabinet, honoured by the platform instead of by somebody clicking restart. Nothing
+  schedules a cabinet reboot today — the `HH:MM` in `maintenance.ts` is the *server's own* daily upkeep time
+  (`error-trends.ts`, the retention sweep), not a cabinet's. Build it as the scheduler plus the console surface, and
+  keep the reboot inside the write rules: allowlisted, role-gated, confirmed, logged, and never on a path that can also
+  issue something else.
+- **Demo mode is removed** (Marco: "the demo mode stuff can likely go away, just ensure you update ui as well").
+  Brief committed as `docs/codex-tasks/remove-demo-mode.md` and dispatched to Codex: the simulator, its routes,
+  contracts, console UI and five test files go, the console is repaired around the removal, and no migration touches
+  live data. The console also has a separate first-run welcome tour (`WelcomeTour.tsx`) — that is not the demo mode and
+  stays unless reading shows it exists only for it.
+- **A clean-and-modular audit follows the demo removal, in that order.** Two runs do not edit one tree at a time, and the
+  audit is read-only against its own worktree off `origin/main`. Its findings arrive unverified and get opened one by one
+  before any of them is reported as fact.
+- **Minecraft is off this host** (Marco: "get rid of the Minecraft stuff"). Removed 2026-11-15: five directories
+  (`mc-bedrock-relay`, `mc-java-relay`, `mcbots`, `mcpack`, `mc-playit`), three enabled user units
+  (`mc-bedrock-relay`, `mc-playit`, `mcpack-http`), the `mc-java-relay` container and `python:3.12-alpine`. Nothing in
+  the cabinet repository ever mentioned Minecraft — zero tracked files — so the repo itself needed no change, and none
+  was made. Left alone deliberately: this profile's Minecraft skills and any vault notes, which are procedural memory
+  rather than clutter on the machine.
+
 ## Marco's decisions, 2026-11-15 (late) — and the deadline
 
 **The correlation view is an item, and it is not the engine.** Marco's ask: "not 20 different alerts, but how many sites
