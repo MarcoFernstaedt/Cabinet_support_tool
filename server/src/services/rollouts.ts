@@ -206,12 +206,27 @@ export async function evaluate(db: Queryable, rolloutId: string): Promise<void> 
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.batch", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
       details: { rolloutId, finishedBatch: batch, succeeded, counted, nextBatch: next } });
     await evaluate(db, rolloutId); // an empty or already-upgraded batch moves on at once
-  } else if (offered === 0) {
+  } else if (offered === 0 && !(await offeredEarlier(db, rolloutId, batch))) {
+    // The rollout ends here, so nothing is left waiting (D80): every target still pending, in any batch the rollout reached, is closed
+    // as skipped, saying whether the cabinet was offline. An offer still open in an earlier batch is waited for first: it gets its
+    // outcome, or times out after OUTCOME_TIMEOUT_MINUTES (checkRollouts), before the rollout completes.
+    const closed = (await db.query<{ outcome: string | null }>(
+      `UPDATE t SET state = 'skipped',
+               outcome = CASE WHEN k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < DATEADD(second, -$2, SYSUTCDATETIME()) THEN 'offline' ELSE NULL END,
+               message = CASE WHEN k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < DATEADD(second, -$2, SYSUTCDATETIME())
+                              THEN 'Offline when the rollout completed: not upgraded.' ELSE 'The rollout completed before this cabinet took the version.' END,
+               finished_at = SYSUTCDATETIME()
+         OUTPUT inserted.outcome
+         FROM rollout_targets t JOIN cabinets k ON k.id = t.cabinet_id WHERE t.rollout_id = $1 AND t.state = 'pending'`, [rolloutId, OFFLINE_AFTER_MS / 1000])).rows;
     await db.query("UPDATE rollouts SET state = 'completed', finished_at = SYSUTCDATETIME() WHERE id = $1", [rolloutId]);
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.complete", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
-      details: { rolloutId, lastBatch: batch, succeeded, counted } });
+      details: { rolloutId, lastBatch: batch, succeeded, counted, closedOffline: closed.filter(c => c.outcome === "offline").length, closedNotReached: closed.filter(c => c.outcome === null).length } });
   }
 }
+
+/** Whether an offer made in an earlier batch than `batch` still has no outcome. */
+const offeredEarlier = async (db: Queryable, rolloutId: string, batch: number) =>
+  !!(await db.query("SELECT TOP (1) 1 FROM rollout_targets WHERE rollout_id = $1 AND batch < $2 AND state = 'offered'", [rolloutId, batch])).rows[0];
 
 /** Every minute: offers with no outcome after OUTCOME_TIMEOUT_MINUTES count as failed, and running rollouts are re-evaluated. */
 export async function checkRollouts(pool: Pool): Promise<void> {
