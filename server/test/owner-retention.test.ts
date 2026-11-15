@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { pruneOldBoots } from "../src/services/crashes.js";
 import { pruneOldConfigChanges } from "../src/services/config-ingest.js";
-import { pruneOldDiagnoses } from "../src/diagnose/cabinet.js";
+import { pruneOldDiagnoses } from "../src/diagnose/diagnoses.js";
 import { pruneOldHealthTransitions } from "../src/services/cabinet-health.js";
 import { pruneClosedIncidents } from "../src/services/incidents.js";
 import type { Queryable } from "../src/db/db.js";

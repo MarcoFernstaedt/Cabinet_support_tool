@@ -19,9 +19,8 @@ const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
 /** Not transitions of their own, each with why. `has` is text on the statement's line. */
 const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "services/commands.ts", has: "SET status = 'delivered'", why: "a delivery lease, renewed on every re-offer; the command's issue, result and expiry are audited" },
-  { file: "diagnose/cabinet.ts", has: "UPDATE diagnoses SET state = 'done'", why: "a read-only diagnosis's own progress; every read it issues is audited as command.issue" },
-  { file: "diagnose/network.ts", has: "UPDATE diagnoses SET state = 'failed'", why: "as above" },
-  { file: "diagnose/network.ts", has: "UPDATE diagnoses SET state = 'done'", why: "as above" },
+  { file: "diagnose/diagnoses.ts", has: "UPDATE diagnoses SET state = 'done'", why: "a read-only diagnosis's own progress; every read it issues is audited as command.issue" },
+  { file: "diagnose/diagnoses.ts", has: "UPDATE diagnoses SET state = 'failed'", why: "as above" },
   { file: "services/fleet-jobs.ts", has: "UPDATE fleet_job_targets SET state = $3", why: "one target's progress in a job whose start, cancel and finish are audited, as is every command it issues" },
   { file: "services/replacement-reapply.ts", has: "SET state = 'issued', command_id", why: "one step's progress in a re-apply whose finish is audited, as is every command it issues" },
   { file: "services/replacement-reapply.ts", has: "SET state = 'skipped'", why: "as above" },

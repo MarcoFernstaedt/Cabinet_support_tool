@@ -5,7 +5,7 @@
 // there is a safe one. The run is stored (30 days, the diagnoses retention) so the next person sees what was found. Nothing here changes a
 // cabinet; fixes are separate commands the person confirms, through the same path as any other change.
 import { randomUUID } from "node:crypto";
-import { audit, safeJson, type Pool, type Queryable } from "../db/db.js";
+import { audit, type Pool } from "../db/db.js";
 import { Refused } from "../services/errors.js";
 import { issueFromConsole, type Role } from "../services/console-commands.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
@@ -20,7 +20,7 @@ import { beginDiagnosis, NO_ANSWER, RUN_LIMIT_MS, waitFor, type Outcome } from "
 import { cabinetFindings, cabinetModules, clean, type BundleFinding, type CabinetEvidence, type CabinetFindings, type Read } from "./cabinet-findings.js";
 import { cabinetOutcomes, recordCheck } from "../services/diagnosis-incidents.js";
 import type { Finding as NetworkFinding } from "./network-findings.js";
-import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
+import { failDiagnosis, finishDiagnosis, startDiagnosis } from "./diagnoses.js";
 
 const POLL_MS = 300;
 const MAX_RUNNING_PER_USER = 2;
@@ -68,7 +68,7 @@ export async function startCabinetDiagnosis(pool: Pool, user: { userId: string; 
   const issued: Issued[] = [];
   const scannerUsed = await scannerUsedFor(pool, cabinetId);
   for (const r of bundleReads(Date.now(), scannerUsed)) issued.push({ key: r.key, operation: r.operation, commandId: (await issueFromConsole(pool, user, cabinetId, r.operation, r.params)).commandId });
-  await pool.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands) VALUES ($1, $2, 'cabinet', $3, 'running', $4)", [id, cabinetId, user.userId, safeJson(issued)]);
+  await startDiagnosis(pool, { id, cabinetId, kind: "cabinet", runBy: user.userId, commands: issued, batchId: null });
   await audit(pool, { actorKind: "user", actorId: user.userId, action: "diagnosis.start", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded", details: { diagnosisId: id, kind: "cabinet", reads: issued.length } });
   // The network diagnosis runs alongside, as its own stored diagnosis, and is folded in when it is done.
   let network: { id: string; done: Promise<void> } | null = null;
@@ -83,7 +83,7 @@ export async function startCabinetDiagnosis(pool: Pool, user: { userId: string; 
         .catch(e => log(`the cabinet diagnosis could not be recorded on the ${module.id} incident: ${(e as Error).message}`));
   }, async e => {
     log(`cabinet diagnosis failed: ${(e as Error).message}`);
-    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
+    await failDiagnosis(pool, id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail.").catch(() => undefined);
   });
   return id;
 }
@@ -117,7 +117,7 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   const result = cabinetFindings(evidence, net);
   const readings = { takenAt: new Date().toISOString(), headline: result.headline, areas: result.areas, networkDiagnosisId: network?.id ?? null,
     skipped: issued.filter(i => { const r = read<unknown>(i.key); return r && !r.ok; }).map(i => ({ read: i.key, operation: i.operation, why: clean((read<unknown>(i.key) as { failure: string }).failure, 200) })) };
-  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(result.findings), safeJson(readings)]);
+  await finishDiagnosis(pool, id, result.findings, readings);
   return result;
 }
 
@@ -163,10 +163,4 @@ export async function latestCabinetDiagnosis(db: Pool, cabinetId: string) {
 
 /** The runbook for one finding or issue type, with its steps (the console opens it from a finding or an alert). */
 export { effectiveRunbook };
-
-/** Removes diagnoses started before `cutoff`, in batches, each batch audited (retention, decision-log D74). A cut-off that is not a past time is refused; a repeat removes nothing more. */
-export async function pruneOldDiagnoses(db: Queryable, cutoff: Date, o: BatchOptions = RETENTION_BATCH): Promise<number> {
-  checkRetentionCutoff(cutoff);
-  return inBatches(db, "DELETE TOP ($1) FROM diagnoses WHERE started_at < $2", [cutoff], o, { table: "diagnoses", cutoff });
-}
 

@@ -15,7 +15,7 @@ import { pruneResolvedAlerts } from "./alerts.js";
 import { pruneOldNotifications } from "../db/db.js";
 import { pruneOldBoots } from "./crashes.js";
 import { pruneOldConfigChanges } from "./config-ingest.js";
-import { pruneOldDiagnoses } from "../diagnose/cabinet.js";
+import { pruneOldDiagnoses } from "../diagnose/diagnoses.js";
 import { pruneOldHealthTransitions } from "./cabinet-health.js";
 import { pruneClosedIncidents } from "./incidents.js";
 import { pruneOldDriveSamples } from "./drives.js";
