@@ -6,6 +6,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D87. Enrollment and replacement record and revoke certificates through cabinets.ts, their owner (2026-11-15)
+
+**What the code did** (at `28b2cd1`; two entries on the ownership debt list, F21.R2):
+- **`services/enrollment.ts:282`** inserted the certificate it had just issued into `cabinet_certificates`, in the transaction that
+  approves the cabinet.
+- **`services/replacement.ts:82`** revoked every certificate of the cabinet being replaced. It used the same statement as `revokeCabinet`
+  in `services/cabinets.ts`, the table's owner.
+
+**The decision:**
+- **Two writers in `cabinets.ts`:** `recordIssuedCertificate(c, cabinetId, serialHex, notAfter)` and `revokeCabinetCertificates(c,
+  cabinetId)`. They hold those statements, and the callers use them in the same transactions as before.
+- **One revoke statement:** `revokeCabinet` uses `revokeCabinetCertificates` too, so the statement is written once.
+- **Input check:**
+  - the cabinet id must be an id;
+  - the serial must be upper-case hex of at most 40 digits, which is 20 bytes (RFC 5280), as `x509.ts` gives it;
+  - the expiry must be a real date.
+  - Anything else is refused before the database is touched.
+- **Unchanged:** the REVOCATION_CHANNEL notification and the audit, which stay with each caller, and what each flow does.
+- **No import cycle:** `enrollment.ts` and `replacement.ts` now import `cabinets.ts`, and nothing it imports reaches either.
+  `import-cycles.test.ts` passes.
+- **Debt list:** the `cabinet_certificates` entries come off it, which leaves 93.
+
+**Proof** (`server/test/certificate-writes.test.ts`, three tests):
+- **Recording:** the certificate issued at enrollment is recorded with its serial and expiry.
+- **Revoking:** it revokes all three of a cabinet's certificates and not another cabinet's. A repeat revokes none.
+- **Bad input:** 8 bad cabinet ids, 9 bad serials and 5 bad expiries are refused with nothing recorded. The bad serials include
+  lower-case hex, a space, 41 digits, an injection string and a number.
+- **Red checks:**
+  - With the serial and expiry checks disabled (`false && …`), the bad-input test fails.
+  - With `enrollment.ts` and `replacement.ts` as on main, `table-ownership.test.ts` fails.
+  - Restored and `cmp` identical, these and the enrollment, replacement and agent-API tests pass, 70 of 70.
+
+---
+
 ## D86. The console routes' two writes to sessions go through auth/sessions.ts, its owner (2026-11-15)
 
 **What the code did** (at `e5465f7`; two entries on the ownership debt list, F21.R2):
