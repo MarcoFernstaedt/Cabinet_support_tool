@@ -277,18 +277,25 @@ test("a diagnosis is shown as done only once its baseline alert is settled: a re
   const holder = await createPool(db.ownerUrl, { max: 1, requestTimeoutMs: 30_000 });
   try {
     const since = new Date(Date.now() - 1000);
-    const held = holder.query<{ done_while_held: number }>(`BEGIN TRAN;
+    const held = holder.query<{ done_while_held: number; held: string | null }>(`BEGIN TRAN;
         DECLARE @held uniqueidentifier;
         SELECT @held = id FROM alerts WITH (UPDLOCK, ROWLOCK) WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved';
         DECLARE @until datetime2 = DATEADD(second, 7, SYSUTCDATETIME());
         WHILE SYSUTCDATETIME() < @until AND NOT EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done')
           WAITFOR DELAY '00:00:00.100';
-        SELECT CASE WHEN EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done') THEN 1 ELSE 0 END AS done_while_held;
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done') THEN 1 ELSE 0 END AS done_while_held, @held AS held;
         COMMIT;`, [k.id, ISSUE.networkBaseline, since]);
-    await new Promise(r => setTimeout(r, 300));
+    // Start the diagnosis only once the holder holds the row. A fixed wait was not enough under load: when the holder's login took
+    // longer, the diagnosis closed the alert and said done first, the holder then held nothing and reported done_while_held = 1.
+    // An update-lock read that skips locked rows finds the alert only while nobody holds it.
+    const stillFree = async () => (await db.app.query("SELECT id FROM alerts WITH (UPDLOCK, READPAST) WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'",
+      [k.id, ISSUE.networkBaseline])).rows.length > 0;
+    for (const end = Date.now() + 10_000; await stillFree(); await new Promise(r => setTimeout(r, 50)))
+      if (Date.now() > end) assert.fail("the holder never took the alert row");
     const started = await call("POST", `/api/cabinets/${k.id}/diagnose/network`, {}, t1);
     assert.equal(started.status, 202, JSON.stringify(started.body));
     const heldRows = (await held).rows;
+    assert.ok(heldRows[0]?.held, "the holder held the alert row");
     assert.equal(heldRows[0]?.done_while_held, 0, "the diagnosis said done while its alert was still being settled");
     for (const end = Date.now() + 30_000; Date.now() < end; await new Promise(r => setTimeout(r, 100))) {
       const d = (await call("GET", `/api/diagnoses/${started.body.diagnosisId}`, undefined, t1)).body;
