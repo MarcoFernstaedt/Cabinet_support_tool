@@ -35,7 +35,8 @@ event it had just stored:
 - **Hostile input:** 8 bad cabinet ids and 13 bad events are refused with nothing recorded. The bad events include an injection string
   in the event id, a bad command id, a bad time, an unknown field, a message over its length and a missing field. So is an event of
   another kind.
-- **Red check:** with the old `events.ts` back, `table-ownership.test.ts` fails with "services/events.ts writes firewall_changes (owned by
+- **Red check:** with the contract check disabled in place (`false && envelopes.event.parse(event)`), the hostile-input test fails
+  (8 tests, 7 pass, 1 fail). With the old `events.ts` back, `table-ownership.test.ts` fails with "services/events.ts writes firewall_changes (owned by
   services/commands.ts)".
 
 ---
