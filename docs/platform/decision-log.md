@@ -71,6 +71,57 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D85. A screen that picks one of a site's cabinets offers every cabinet of the site (2026-11-15)
+
+**What the code did** (at `e5465f7`; left out of scope in #269, D81):
+- **Two pickers were built from one answer of `GET /api/fleet/sites/:id`.** Asked without a page, the route sends the site's first 200
+  cabinets (D81).
+  - `console/src/pages/admin/ApprovedApps.tsx:22`: the approved-programs cabinet picker.
+  - `console/src/pages/admin/Admin.tsx:161`: the cabinet an enrollment replaces.
+- **So on a site of more than 200 cabinets, cabinet 201 and later could not be chosen** in either.
+
+**The decision:**
+- **One full read.** `console/src/lib/site-cabinets.ts`, `everySiteCabinet`, reads the first page exactly as before, with no query
+  string, then the rest 500 at a time (`?limit=500&offset=…`) until the server says there are no more. It returns the first answer
+  with `cabinets` holding all of them.
+- **A partial list is never offered.**
+  - It stops with "The site's cabinets could not be read in full" when a page that says there is more comes back empty, or after 200
+    pages.
+  - A page that fails fails the whole read.
+- **Both screens use it.** The approved-programs picker goes through `useEverySiteCabinet`, which has `useLoad`'s shape, so its
+  existing "Try again" path is unchanged.
+- **A site of 200 or fewer is still one request.**
+- **A failed read says so on the enrollment approval** (review of #275). `Admin.tsx` used to discard the read's failure. The cabinets
+  for "Replaces" and the sync cabinets both come from that read, so on a large site a failed second page would leave both lists empty
+  with nothing on screen, which reads as "this site has nothing to replace". It now shows "This site's cabinets could not be read, so
+  the cabinet this replaces and the sync cabinet cannot be offered", with "Try again".
+- **Not a snapshot of one moment.** The pages are read by offset, so a cabinet added or removed between two pages can shift the list
+  under the read. A picker is a snapshot, and the route has no cursor, so this is left as is.
+
+**Alternative.** A search box in the pickers. Rejected for now: the site route has no search, and a picker that offers every cabinet
+of one site is what these two screens were written to do. A site of thousands of cabinets would want one.
+
+**Proof:**
+- **`console/test/site-cabinets.test.ts`, five tests:**
+  - a site of 1,234 is read in four requests, every cabinet once and in order;
+  - a site of 200 or fewer is one request;
+  - a server that never stops saying "more", or an empty "more" page, ends in the error;
+  - a failed page fails the read;
+  - the site id goes into the path encoded.
+  - With the paging loop disabled (`false && page.cabinetsPage.hasMore`), three of the five fail.
+- **`server/test/console-site-picker-e2e.test.ts`, in a real browser:** on a site of 230, the approved-programs cabinet picker offers
+  all 230 in name order, and the requests are the bare first page and then `?limit=500&offset=200`.
+  - With `ApprovedApps.tsx` as on main, the test fails waiting for "Cab 230".
+- **`console-approved-apps-e2e`**, whose "Try again" check intercepts the bare site URL, still passes.
+- **A second browser test, the enrollment approval on a site of 230 with the second page failing once:** the alert appears and no
+  "Replaces" list is offered. After "Try again", all 230 are offered and the alert is gone.
+  - With `Admin.tsx` as it was before the review, the test fails waiting for the alert.
+
+---
+
+
+---
+
 ## D84. An agent's firewall event is recorded by commands.ts, the firewall history's owner (2026-11-15)
 
 **What the code did:** `storeEvents` in `services/events.ts` wrote `firewall_changes` (owner `commands.ts`) for each `firewall_changed`
