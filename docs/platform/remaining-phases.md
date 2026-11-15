@@ -113,6 +113,185 @@ read where something matched. A match proves code exists, not that it works; the
 **Counts:** 56 operations in the catalogue (`contracts/schemas/operations/catalog.json`), 33 migrations, 173 server and 28 console test
 files, 7 agent projects.
 
+## The order Marco set, 2026-11-15
+
+This page is the count. The order of the work now follows what the fleet actually asks for, in Marco's words: alerts
+from the error logs with hardware first — hard drives especially — and from that, long term, an algorithm that says
+when a drive will fail so replacements ship before a cabinet goes down; fleet-wide similarity, so several
+blue-screened cabinets can be compared for what they share; agent updates drivable from the platform; drivers
+installed more easily; motherboard flashing hosted, since it is already done over remote access today. Networking is
+*an* issue, not the biggest one. Nothing gets built that the fleet does not need.
+
+Ahead of the phases below, then: **fleet incident correlation** (module 11's grouping and its affected-against-
+unaffected comparison — this is the "a few cabinets went blue screen, what do they have in common" ask), then **the
+drive risk class's remaining wiring** (correlation with crashes, NVMe counters — the class itself, its Admin-set
+thresholds and the fleet at-risk view are built), then the **daily health snapshot** (modules 12, 44), then WER mining,
+boot configuration and WinRE, process signer/parent with the service dependency graph, per-model scanner profiles,
+`updates.install` with fleet compliance, the agent's own update and health, the driver lifecycle, and hosting a
+BIOS/firmware flash as a Tier 2 write. Packet capture, DISM/SFC past `CheckHealth`, and the site readiness checklist
+follow.
+
+**Deferred as over-building:** machine variables, on-demand ETW, and AMT/vPro detection (detection only — Wake-on-LAN
+is excluded by the owner). Recorded here so the decision is visible rather than silent.
+
+## Verified against the source, 2026-11-15 (12 rows, four independent passes)
+
+Every row below was re-read out of the code by a pass that had to quote the line deciding the verdict and list the
+searches that found nothing. Seven of the first seven rows checked that night had been wrong in the same direction, so
+nothing here is taken on trust either.
+
+| Item | Verdict | The line that decides it |
+|---|---|---|
+| 26 Network quartet | **built** | `network.config` carries the network category (`NetworkExtras.cs:65-70`) and the machine WinHTTP proxy (`:109-124`); the hosts file is `network.hosts`; one `network.test` per DNS server (`diagnose/network.ts:73`); traceroute is `network.trace` (`SystemOperations.cs:292`) with per-hop findings; the diagnosis carries a certainty per finding (`network-findings.ts:10,23`) and is reachable at `POST /api/cabinets/:id/diagnose/network`. The roadmap's claim that these "need new agent operations (Windows code) and are not in this change" (`13-roadmap.md:167`, `09-open-decisions.md:591`) is false. Adjacent and still open: no "proxy is set", "hosts file overrides" or "category is public" findings. |
+| 21 Disk risk class | **built** | see the order section above: `trends.ts:81`, `drives.ts`, `/api/fleet/drives-at-risk`, `DriveTrends.tsx`. Missing around it: crash correlation, NVMe counters. |
+| 22 Fleet incident correlation | **built** | `crashes.ts:364-383` builds the affected set and compares it with `unaffectedCount`; `crash-clusters.ts` opens a fleet pattern when a kind of blue screen new to the fleet reaches `CLUSTER_CABINETS = 2`; `crashes.ts:5` states findings are correlations and never root causes. |
+| 6 Process signer and parent | **missing** | `processes.list` is `additionalProperties: false` with no signer and no parent (`processes.list.schema.json:24-37`); `ServicesAndProcesses.cs:221-226` reads neither; the processes table has no such column (`Services.tsx:211`). The signing primitive exists (`WinVerifyTrust`, `PackagePlatform.cs:114`) but signs packages, not processes. Careful: `filefacts-ingest.ts:41` has a `signatureStatus` for files on disk — not processes. |
+| 7 Service dependency graph | **missing** | the WMI query selects no dependency field (`ServicesAndProcesses.cs:26`); `ServiceController.DependentServices`/`ServicesDependedOn` are never called (`:48-68`); no dependency field in the schema or the services table. |
+| 9 Boot configuration + WinRE | **missing** | `boot.history` reads past starts only (`BootHistory.cs:7-19`); `bcdedit`, `BcdStore`, `WinRE`, `winre.wim`, `reagentc`, `BootNext`, boot order appear nowhere in code (docs only). `system.hardware` holds `LastBootUpTime` — the last start, not the next boot; `power.status` holds plan, Fast Startup, hibernation and USB. |
+| 14 WER crash mining | **missing** | `crash.list` reads `%SystemRoot%\Minidump` and `MEMORY.DMP` only (`CrashOperations.cs:20-22,33-34`); `ReportQueue`, `ReportArchive`, `Report.wer`, `Windows\WER` appear nowhere in code. The only "WER" is the event-log source name (event 1001) — i.e. the crash grouping that already exists. |
+| 19 Daily health snapshot + exception reports | **missing** | no `Health` member in `EventKind` (`Envelopes.cs:42`), so the daily health event cannot be sent; no one-snapshot-per-cabinet-per-day table (`cabinet_health`, `health_transitions`, `health_samples`, `error_daily` are different things); no daily or weekly report — the only report route is a person's own case notes (`report-routes.ts:8`) — and no delivery channel (no SMTP, no webhook). |
+| 20 Per-model scanner profiles | **missing** | the scanner is found by USB hardware ID or the Biometric class (`ScannerChecklist.cs:79-92`); a scanner choice is one service plus hardware IDs (`client-scanner.ts:20-23`); no model field, middleware list or port list anywhere; "middleware" appears only in docs (`13-roadmap.md:48` names three scanner types and their services). |
+| 15 `updates.install` | **missing** | the catalogue ends at `updates.uninstall` (`Catalog.cs:46`, `catalog.json:15,35`); no `updates.install.schema.json`; no `IUpdateDownloader`/`IUpdateInstaller` anywhere. The agent's own signed self-update (`Upgrades.cs`, the release channel) is a different feature and is not evidence for this row. |
+| 16 Fleet update compliance | **partial** | Built: the fleet reading search matches installed hotfix IDs (`readings.ts:88-92`), so "who has KB X" works, plus two-cabinet KB comparison (`compare.ts:82-86`). Missing: anything that says which cabinets are *behind*, or lack a named patch — no update-level comparison exists, and `updates.status` is not searchable. |
+| 18 Site readiness checklist | **partial** | Built: a per-cabinet on-demand checklist over the read operations with "X of N passed" (`checks.ts:21-76`, `LiveCheck.tsx:13`), and "unknown is never healthy" at cabinet level (`cabinet-health.ts:3,28-29`). Missing: the per-site assembly, an explicit readiness verdict, and any schedule. |
+| 23 Agent update and health | **partial** | Built: version per cabinet (`Fleet.tsx:157`), who is behind a release (`Upgrades.tsx:180-182`), who failed and at which check (`:270`), per-cabinet crash history (`Crashes.tsx:74`). Missing: an operator-invoked restart. The agent restarts itself only on a crash (SCM failure-recovery, `Install-CabinetAgent.ps1:318`) or during an upgrade (`Updater.cs`), and `service.control` refuses the agent's own services by design (`ServiceRules.cs:38-40`). |
+| 24 Driver lifecycle | **partial** | Built: `drivers.list` inventory with signer and version (`DeviceOperations.cs:110`, reachable at `Sections.tsx:29`), fleet drift keyed on `provider|originalName` (`compare.ts:73-74`), `driver.uninstall` via pnputil with confirm-by-code (`PackagePlatform.cs:62-66`), and signed package install. Missing: package repair (the MSI path runs `/i` only, no `/f`), an MSI/software uninstall, and canary rollouts for packages — the staged-rollout machinery is agent-version-only (`rollouts.ts:1-7`, `0001_baseline.sql:569-606`). |
+| 25 BIOS / firmware flash | **partial** | Built: BIOS vendor/version/date, TPM and Secure Boot — **in `system.hardware`, not `power.status`** (`system.hardware.schema.json:36-161`, `WindowsInfo.tsx:114-118`) — plus firmware-*drift* detection and alerting (`0029_firmware_drift.sql`, `baseline-drift.ts:92-118`). Missing: hosting a flash. That is a written exclusion rather than an oversight: `0029_firmware_drift.sql:3` and `15-baselines-and-config.md:85` both say "The platform never flashes firmware: detect, alert, hand to a human." Marco flashes firmware over remote access today, so reopening it is his decision to make. |
+
+**Count after verification:** 7 whole items missing (6, 7, 9, 14, 15, 19, 20), 5 partial (16, 18, 23, 24, 25), and one
+row that was listed as missing for months is fully built (26). With the three deferrals (10, 13, 17) set aside that is
+**12 items of real work, seven of them whole** — and every one of the seven missing has a named file, a named operation
+and a stated reason, so a builder can start on any of them without another survey.
+
+## Marco's decisions, 2026-11-15 (evening)
+
+- **#28 — reboot times, set by site or by individual cabinet: BLOCKED on the owner's own decision.** I wrote here that
+  "`system.restart` restarts a cabinet now and the fleet-job machinery can drive it at scale, so the missing half is the
+  schedule." **That is false, and it is the same class of mistake as the Windows-readers claim: I asserted a capability
+  without reading the file that decides it.** The code says the opposite, in three places, all of them the owner's
+  decision of **2026-10-29**:
+  - `docs/spec/09-open-decisions.md:375` — **"No bulk restarts"**: *"Restarts shouldn't have bulk restarts for security.
+    … A restart is sent to one cabinet at a time from its own page, never as a fleet job or a client/site bulk action.
+    `system.restart` stays out of the fleet job operations; `server/test/fleet-jobs-no-restart.test.ts` keeps it out."*
+  - `docs/spec/13-roadmap.md:146` — "Restarts are never a job operation (the owner's decision, 2026-10-29, for security)."
+  - `server/test/fleet-jobs-no-restart.test.ts:9` — asserts `JOB_OPERATIONS` excludes `system.restart` and that the
+    contract refuses it. A guard, not a comment.
+  What already exists is the *single-cabinet* case (`09-open-decisions.md:376`): restart now, or after a delay of up to
+  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist, and must not be
+  built without reversing that decision, is a recurring schedule and a fleet-wide run.
+  **The sync-cabinet order was also already answered** (`09-open-decisions.md:901`): *"Closed on 2026-10-29: restarts
+  never become job operations ('No bulk restarts' above), so there is no restart order for the platform to keep; **a
+  person restarting cabinets one at a time keeps this order**."* So the ordering half of Marco's 2026-11-15 ask
+  ("sync cabinets are first since they need to be on before satellites") is a consequence of the decision to keep
+  restarts manual, not a separate gap.
+  **Correct model of the sync relationship** (I had it wrong in the brief as well): a site may have **several** sync
+  cabinets (`server/src/services/sync-cabinets.ts:3`), and each satellite names its own via `sync_cabinet_id`
+  (`server/migrations/0011_sync_cabinets.sql:12`). Any future ordering works per satellite -> its own sync cabinet, never
+  "the site's one sync point".
+  **Open for Marco:** keep the decision (then #28 closes as *decided, not built*), or reverse it for a bounded case
+  (a per-site window with a cap, one lifecycle owner, a confirmation, and the ordering above) — in which case the spec
+  line and `fleet-jobs-no-restart.test.ts` change **on his word and in the same change**, never quietly.
+- **Service start order — half is buildable, half is an owner question.** Codex stopped before implementing, and it was
+  right twice over: `docs/spec/STANDING-INSTRUCTIONS.md:21` says *"if the spec does not answer something, stop and ask
+  rather than guessing"*, and the spec **plans the read** — `12-milestones-8-to-12.md:51` defines `services.list` as
+  "every Windows service, with:" a list that includes the dependencies, and `:84` names *"the dependencies of F14.R1"* as
+  work the agent owes — while defining **no operation for setting** a service's dependencies. There is a baseline
+  mechanism waiting for the read too: `15-baselines-and-config.md:16` lists a `services` baseline keyed `service:<name>`
+  (start type, state, account) fed by the `services.list` reader, which is where "declared order vs real order" belongs.
+  What it found already read: display name, start type including delayed-auto, running state, logon account, recovery
+  actions. Missing: **configured dependencies and reverse dependencies**.
+  So the brief was revised to revision 2 (read, display the effective order, report drift, survive malformed input) and
+  dispatched. **Open for Marco, after the #28 answer:** does the platform get a write that *sets* a service's
+  dependencies on a live cabinet? The spec has no operation for it, so it needs a decision before it needs a contract —
+  and it is the same shape of question as #28: a real need, a change to a live cabinet, and no spec answer.
+- **Marco's 2026-11-15 queue, second batch (verbatim): *"Get those pr closed from claude / I want the demo out unless
+  it's beneficial it wasn't suppose to be a aa big part of thee cos ole only for demoing get this fixed / Power managment
+  on all cabinets should be off aswell so us all ports don't sleep that's on all our cabinets and sometimes flips so this
+  pendpint agent should also have a baseline for that so it keeps it off / Ensure if the drivers don't show in device
+  manager or however it's best to see it then that can gets an alert / Narrow for schedualed reboots."*** Five items:
+  1. **The two Claude PRs resolved.** #269 (a site with more than 200 cabinets showed only the first 200) is a real
+     defect fix with its own gate run at `da2acfd`; it has had no independent review, so Aster reviews then merges.
+     **#268 is held by its own open console finding**: `console/src/pages/admin/Upgrades.tsx:36` labels *every* skipped
+     target "Skipped (offline)", and after D80 a cabinet can be skipped while it was never offline, so the screen tells
+     the support desk something false; the message D80 writes reaches nobody because `:269` renders a target explanation
+     only when `t.outcome` is set. **That is a misreport of fleet state and it holds the merge** (invariant). Fix the
+     console case, then merge. Both merges wait until no builder owns the tree.
+  2. **A defect found on main while reviewing #268, not of that PR:** *a batch in which every cabinet is offline never
+     completes.* `counted = total - waiting_offline - skipped` stays 0, so the rate is never reached; 24 hours later the
+     skip only moves those cabinets to `skipped` and `counted` is still 0. Measured against the branch: a rollout whose
+     batch 2 is two offline cabinets is still running at batch 2 twenty-five hours later, and **a second rollout is
+     refused with `rollout_active`** — the fleet cannot start another rollout. On main today. Needs its own item, and it
+     matters for the deployment this week.
+  3. **Demo out.** Marco: "it wasn't supposed to be a big part of the console, only for demoing." Agreed, and the reason
+     it looked bigger than a screen is the fixture coupling: 19 non-demo test files compile against the simulator, which
+     also seeds rows across the schema (`demo_scenario` on cabinets, a demo writer in `table-owners.ts`). Brief splits it:
+     **the surface (UI, routes, contracts, docs) is deleted; the simulator becomes an explicit test-support fixture.**
+  4. **Power management off on every cabinet, with a baseline.** Marco: ports must not sleep, it "sometimes flips", and
+     the agent should hold a baseline "so it keeps it off". `power.status` already reads the power plan, Fast Startup,
+     hibernation and USB settings — **verify whether it covers per-device power management (the "allow the computer to
+     turn off this device to save power" option) before promising anything**. Missing half: a baseline expectation so the
+     flip is visible. Drift surfaces on the Baseline tab and in health, **not** as an alert (D48) — do not invent one.
+  5. **A driver absent from Device Manager raises an alert.** The platform reads devices that *report a problem*; a device
+     that has **vanished** is different, and that is what Marco is asking about. This one wants an **alert**, which drift
+     does not provide (D48) — so establish first what already fires for a missing device, then bring the owner the alert
+     question with the `15-baselines-and-config.md:85` / D48 precedent. Do not build an alert policy on a guess.
+  6. **Scheduled reboots: "narrow".** The owner answered the question asked. The 2026-10-29 *"No bulk restarts"* decision
+     is reopened **narrowly**: a scheduled, per-site, bounded window with a cap, a confirmation, an audit trail, and
+     satellites ordered behind their own sync cabinet. **The spec decision and `server/test/fleet-jobs-no-restart.test.ts`
+     change in the same change, on the owner's word, and the test keeps asserting that ad-hoc bulk restarts stay
+     forbidden.**
+- **Brief-writing lesson, recorded because it has now cost two runs:** a brief that names an acceptance command must
+  check the repository's own runner (`server/package.json:12` is `npm run build && node --test`, not Vitest), and a brief
+  that asserts an existing capability ("fleet jobs already drive a restart") must quote the file that proves it. Codex
+  stopped both times because the brief's failure rule worked; the brief's *premises* were the defect.
+- **Demo mode is removed** (Marco: "the demo mode stuff can likely go away, just ensure you update ui as well").
+  Brief committed as `docs/codex-tasks/remove-demo-mode.md` and dispatched to Codex: the simulator, its routes,
+  contracts, console UI and five test files go, the console is repaired around the removal, and no migration touches
+  live data. The console also has a separate first-run welcome tour (`WelcomeTour.tsx`) — that is not the demo mode and
+  stays unless reading shows it exists only for it.
+- **A clean-and-modular audit follows the demo removal, in that order.** Two runs do not edit one tree at a time, and the
+  audit is read-only against its own worktree off `origin/main`. Its findings arrive unverified and get opened one by one
+  before any of them is reported as fact.
+- **Minecraft is off this host** (Marco: "get rid of the Minecraft stuff"). Removed 2026-11-15: five directories
+  (`mc-bedrock-relay`, `mc-java-relay`, `mcbots`, `mcpack`, `mc-playit`), three enabled user units
+  (`mc-bedrock-relay`, `mc-playit`, `mcpack-http`), the `mc-java-relay` container and `python:3.12-alpine`. Nothing in
+  the cabinet repository ever mentioned Minecraft — zero tracked files — so the repo itself needed no change, and none
+  was made. Left alone deliberately: this profile's Minecraft skills and any vault notes, which are procedural memory
+  rather than clutter on the machine.
+
+## Marco's decisions, 2026-11-15 (late) — and the deadline
+
+**The correlation view is an item, and it is not the engine.** Marco's ask: "not 20 different alerts, but how many sites
+and cabinets are affected, any commonalities, common errors, if an error occurs is it tied to anything — like a proper
+system." The engine underneath exists (`crashes.ts` affected-against-unaffected, `crash-clusters.ts`,
+`fleet-patterns.ts`), and what is missing is the aggregation on top of it: one incident, the number of sites and
+cabinets it touches, the attributes they share, the errors that accompany it, and what it is tied to — shown as one
+thing rather than a list of per-cabinet alerts that an operator has to join by hand. New item **#27**.
+
+**BIOS/firmware flashing: skipped for now, on the owner's instruction (2026-11-15).** An earlier note here recorded this
+as reopened because Marco flashes firmware over remote access today; he has since said to skip the motherboard flashing
+for now, so the written exclusion stands — `0029_firmware_drift.sql:3` and `15-baselines-and-config.md:85`: detect the
+drift, alert, hand it to a human. The reporting half stays built and reachable (BIOS vendor, version, date, TPM, Secure
+Boot, plus firmware-drift alerting). Item #25 is deferred, not deleted. Marco also mentioned re-imaging the operating
+system where needed; that is bigger than a flash and needs its own spec before it becomes an item.
+
+**A second branch, off main, for an agent tunnel.** Marco's words: after the whole project is complete, a branch that
+carries all of main plus one extra feature — the ability to use the agents as a tunnel onto the machine, so an operator
+can investigate a cabinet that is misbehaving (his example: working out how to read the DigitalPersona service
+properly). Recorded here as a planned branch, deliberately **not** on main: an agent tunnel is a remote execution path
+into a live cabinet, so it stays opt-in, audited, and out of the released agent.
+
+**The deadline that reorders everything: a satellite site and a sink cabinet this week.** Deployment comes before new
+features. So, ahead of everything above: the two audit ship items (#5, a rollout that ends while targets are offline
+leaves them pending forever, and #7, cancelling freezes the console) — **both already fixed in the code**, verified
+2026-11-15 (`fleet-jobs.ts:380` gives an offline target a terminal state reading "nothing was changed on it"; `:215-232`
+with `:455` reconciles a cancelled job and finishes it) — and then the full real-hardware test.
+
+Be precise about that history, because an earlier note here got it wrong. The agent **has** run on real Windows: it was
+onboarded on Marco's HP as cabinet `DEVICEB-Lab` and the read sweep and the write tests were exercised there on
+2026-11-02 and again on 2026-11-13. What is outstanding is a **fresh full test once the whole project is ready** —
+both architectures, reads and writes — which is Marco's instruction, not a first attempt.
+
 ## Roadmap phases (reviewed against the code on 2026-11-03)
 
 This review was made at `771267d`, after PRs #135 to #140, before the brief's findings, which the table at the bottom tracks. Every line

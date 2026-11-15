@@ -90,6 +90,7 @@ Agents refuse older versions by default. A rollback is published as a new signed
 - Batch 3: a small slice of the field, around 5 percent
 - Batch 4: everyone else
 - Each batch must reach a set success rate before the next starts. Any failure above the limit pauses the rollout automatically.
+- A rollout completes once its last batch reaches the rate and no offer in any batch is still open. Cabinets still waiting then are closed as skipped, so none is left pending ([open decisions](09-open-decisions.md), "Thresholds").
 
 ## Changing the signing key
 

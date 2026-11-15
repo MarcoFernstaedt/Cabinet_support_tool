@@ -15,6 +15,7 @@ import { useLoad } from "../../lib/useLoad";
 import { Pager, usePaged } from "../../components/Pager";
 import { DEFAULT_INSTALL_ARCHITECTURE, INSTALL_ARCHITECTURES, architectureInfo, type InstallArchitecture } from "../../lib/install-command";
 import { architectureLabel, architectureLine } from "../../lib/architecture";
+import { TARGET_FILTERS, targetBadge, targetNote } from "../../lib/rollout-target";
 
 interface Release { version: string; architecture: string | null; minimumVersion: string; sha256: string; sizeBytes: number; releasedAt: string; notes: string | null; state: string; refusal: string | null;
   keyId: string; addedBy: { id: string; name: string }; addedAt: string }
@@ -31,9 +32,6 @@ const ROLLOUT_TONE: Record<Rollout["state"], ["ok" | "warn" | "crit" | "info" | 
 };
 const RELEASE_TONE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
   awaiting_package: ["warn", "Waiting for its package"], ready: ["ok", "Ready"], refused: ["crit", "Refused"],
-};
-const TARGET_TONE: Record<string, ["ok" | "warn" | "crit" | "info" | "off", string]> = {
-  pending: ["off", "Waiting"], offered: ["info", "Offered"], succeeded: ["ok", "Upgraded"], failed: ["crit", "Failed"], skipped: ["off", "Skipped (offline)"],
 };
 const CHECK: Record<string, string> = {
   download: "download", manifest_signature: "manifest signature", manifest: "manifest", package_hash: "package hash", version: "version",
@@ -256,7 +254,7 @@ export function RolloutDetail({ id }: { id: string }) {
         <p><Badge tone={ROLLOUT_TONE[data.state][0]}>{ROLLOUT_TONE[data.state][1]}</Badge> <span className="muted">{architectureLine(data.architecture)} · started {fullTime(data.startedAt)} by {data.startedBy.name}; success rate {data.successRatePercent}%, failure limit {data.failureLimitPercent}%</span></p>
         {data.pausedReason && data.state === "paused" && <p className="notice warn">{data.pausedReason}</p>}
         <label className="field inline"><span>Show</span><select value={only} onChange={e => setOnly(e.target.value)}>
-          <option value="all">Every cabinet</option>{Object.entries(TARGET_TONE).map(([k, [, label]]) => <option key={k} value={k}>{label}</option>)}</select></label>
+          <option value="all">Every cabinet</option>{TARGET_FILTERS.map(([k, label]) => <option key={k} value={k}>{label}</option>)}</select></label>
         {rows.length === 0 ? <Empty>No cabinets.</Empty> : (
           <table className="table compact">
             <caption className="sr-only">Cabinets in this rollout</caption>
@@ -265,8 +263,8 @@ export function RolloutDetail({ id }: { id: string }) {
               <tr key={t.cabinetId}>
                 <th scope="row"><Link to={`/cabinets/${t.cabinetId}`}>{t.cabinet}</Link> <span className="muted small">{t.client} / {t.site}</span></th>
                 <td>{t.batch}: {BATCH[t.batch]}</td>
-                <td><Badge tone={(TARGET_TONE[t.state] ?? ["off", t.state])[0]}>{(TARGET_TONE[t.state] ?? ["off", t.state])[1]}</Badge>
-                  {t.outcome && t.outcome !== "succeeded" && <div className="small">{t.outcome.replace("_", " ")}{t.check ? ` at the ${CHECK[t.check] ?? t.check} check` : ""}: {t.message}</div>}</td>
+                <td><Badge tone={targetBadge(t)[0]}>{targetBadge(t)[1]}</Badge>
+                  {targetNote(t, c => CHECK[c] ?? c) && <div className="small">{targetNote(t, c => CHECK[c] ?? c)}</div>}</td>
                 <td>{t.fromVersion ?? "unknown"} → now {t.agentVersion ?? "unknown"}</td>
                 <td className="small">{t.finishedAt ? fullTime(t.finishedAt) : t.offeredAt ? `offered ${fullTime(t.offeredAt)}` : "—"}</td>
               </tr>))}
