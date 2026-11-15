@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/site-page-query.schema.json",
+  "title": "site-page-query",
+  "description": "Which page of a site's cabinets the site view asks for, from the query string: how many (1 to 500) and from where (0 to 999999). Either may be left out: 200 from the first.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "limit": {
+      "type": "string",
+      "pattern": "^([1-9]|[1-9][0-9]|[1-4][0-9][0-9]|500)$"
+    },
+    "offset": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,5})$"
+    }
+  }
+}

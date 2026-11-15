@@ -79,7 +79,7 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       state: !b ? "unset" : !a4 ? "unknown" : differs ? "differs" : "matches",
       detail: <>
         <p>The expected network for this site's cabinets. Network diagnosis compares against it; it changes no cabinet.</p>
-        <SiteNetwork siteId={s.id} name={s.name} baseline={b} cabinets={s.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
+        <SiteNetwork siteId={s.id} name={s.name} baseline={b} cabinets={s.cabinetCount} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/network`}>Open this cabinet's network</Link></p></>,
     });
     const zone = time.data;

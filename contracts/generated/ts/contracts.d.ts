@@ -2105,6 +2105,14 @@ export interface SiteNetworkBaseline {
 }
 
 /**
+ * Which page of a site's cabinets the site view asks for, from the query string: how many (1 to 500) and from where (0 to 999999). Either may be left out: 200 from the first.
+ */
+export interface SitePageQuery {
+  limit?: string;
+  offset?: string;
+}
+
+/**
  * Applies a site's standards in one action (finding F6.R3): the chosen parts, from what the site's own cabinets report (`suggested`) or from another site's own settings. Admin, with an authenticator code bound to this body.
  */
 export interface SiteStandardsApply {
