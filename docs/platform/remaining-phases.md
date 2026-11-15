@@ -165,13 +165,36 @@ and a stated reason, so a builder can start on any of them without another surve
 
 ## Marco's decisions, 2026-11-15 (evening)
 
-- **#28, new: reboot times, set by site or by individual cabinet.** `system.restart` restarts a cabinet now and the
-  fleet-job machinery can drive it at scale, so the missing half is the *schedule*: a time (or a window) attached to a
-  site, with an override per cabinet, honoured by the platform instead of by somebody clicking restart. Nothing
-  schedules a cabinet reboot today — the `HH:MM` in `maintenance.ts` is the *server's own* daily upkeep time
-  (`error-trends.ts`, the retention sweep), not a cabinet's. Build it as the scheduler plus the console surface, and
-  keep the reboot inside the write rules: allowlisted, role-gated, confirmed, logged, and never on a path that can also
-  issue something else.
+- **#28 — reboot times, set by site or by individual cabinet: BLOCKED on the owner's own decision.** I wrote here that
+  "`system.restart` restarts a cabinet now and the fleet-job machinery can drive it at scale, so the missing half is the
+  schedule." **That is false, and it is the same class of mistake as the Windows-readers claim: I asserted a capability
+  without reading the file that decides it.** The code says the opposite, in three places, all of them the owner's
+  decision of **2026-10-29**:
+  - `docs/spec/09-open-decisions.md:375` — **"No bulk restarts"**: *"Restarts shouldn't have bulk restarts for security.
+    … A restart is sent to one cabinet at a time from its own page, never as a fleet job or a client/site bulk action.
+    `system.restart` stays out of the fleet job operations; `server/test/fleet-jobs-no-restart.test.ts` keeps it out."*
+  - `docs/spec/13-roadmap.md:146` — "Restarts are never a job operation (the owner's decision, 2026-10-29, for security)."
+  - `server/test/fleet-jobs-no-restart.test.ts:9` — asserts `JOB_OPERATIONS` excludes `system.restart` and that the
+    contract refuses it. A guard, not a comment.
+  What already exists is the *single-cabinet* case (`09-open-decisions.md:376`): restart now, or after a delay of up to
+  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist, and must not be
+  built without reversing that decision, is a recurring schedule and a fleet-wide run.
+  **The sync-cabinet order was also already answered** (`09-open-decisions.md:901`): *"Closed on 2026-10-29: restarts
+  never become job operations ('No bulk restarts' above), so there is no restart order for the platform to keep; **a
+  person restarting cabinets one at a time keeps this order**."* So the ordering half of Marco's 2026-11-15 ask
+  ("sync cabinets are first since they need to be on before satellites") is a consequence of the decision to keep
+  restarts manual, not a separate gap.
+  **Correct model of the sync relationship** (I had it wrong in the brief as well): a site may have **several** sync
+  cabinets (`server/src/services/sync-cabinets.ts:3`), and each satellite names its own via `sync_cabinet_id`
+  (`server/migrations/0011_sync_cabinets.sql:12`). Any future ordering works per satellite -> its own sync cabinet, never
+  "the site's one sync point".
+  **Open for Marco:** keep the decision (then #28 closes as *decided, not built*), or reverse it for a bounded case
+  (a per-site window with a cap, one lifecycle owner, a confirmation, and the ordering above) — in which case the spec
+  line and `fleet-jobs-no-restart.test.ts` change **on his word and in the same change**, never quietly.
+- **Brief-writing lesson, recorded because it has now cost two runs:** a brief that names an acceptance command must
+  check the repository's own runner (`server/package.json:12` is `npm run build && node --test`, not Vitest), and a brief
+  that asserts an existing capability ("fleet jobs already drive a restart") must quote the file that proves it. Codex
+  stopped both times because the brief's failure rule worked; the brief's *premises* were the defect.
 - **Demo mode is removed** (Marco: "the demo mode stuff can likely go away, just ensure you update ui as well").
   Brief committed as `docs/codex-tasks/remove-demo-mode.md` and dispatched to Codex: the simulator, its routes,
   contracts, console UI and five test files go, the console is repaired around the removal, and no migration touches
