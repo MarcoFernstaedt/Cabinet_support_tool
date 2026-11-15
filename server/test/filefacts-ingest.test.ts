@@ -239,7 +239,8 @@ test("an agreement clears the alert the platform raised", async () => {
   assert.equal(await reconcileVersionAlert(db, CABINET, []), "cleared");
   const clear = calls.find(c => c.text.includes("state = 'resolved'"));
   assert.ok(clear, "the alert is resolved when nothing differs");
-  assert.deepEqual(clear.params, [CABINET, APP_VERSION_ISSUE]);
+  // D92: the close goes through alerts.ts closeIssueAlert, which passes the resolution sentence as a parameter rather than in the SQL.
+  assert.deepEqual(clear.params, [CABINET, APP_VERSION_ISSUE, "The versions read from the configured file paths match the baseline."]);
   assert.equal(calls.some(c => c.text.includes("UPDATE alerts SET occurrences")), false);
 });
 

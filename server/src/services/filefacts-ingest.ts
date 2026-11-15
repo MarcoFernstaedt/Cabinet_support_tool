@@ -17,8 +17,7 @@
 import { createAjv, ref } from "@mashura/cabinet-contracts/load";
 import { type Queryable } from "../db/db.js";
 import { clean } from "../diagnose/cabinet-findings.js";
-import { upsertAlert } from "./alerts.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { closeIssueAlert, upsertAlert } from "./alerts.js";
 import { computeDrift, type DriftRow } from "./baseline-drift.js";
 import { resolveForCabinet, type ResolvedItem } from "./baselines.js";
 import type { Item } from "./config-canonical.js";
@@ -230,8 +229,7 @@ export async function reconcileVersionAlert(db: Queryable, cabinetId: string, ro
     }
     return "cleared"; // the issue type is not registered: nothing to raise, and no alert is invented for it
   }
-  await closeAutomatically(db, "file-versions", `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The versions read from the configured file paths match the baseline.'
-                   ${CLOSED_OUTPUT} WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'`, [cabinetId, APP_VERSION_ISSUE]);
+  await closeIssueAlert(db, "file-versions", cabinetId, APP_VERSION_ISSUE, "The versions read from the configured file paths match the baseline.");
   return "cleared";
 }
 
