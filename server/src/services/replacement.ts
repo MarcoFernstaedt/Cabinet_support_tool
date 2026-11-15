@@ -14,6 +14,7 @@ import { copyCabinetBaseline } from "./baselines.js";
 import { Refused } from "./errors.js";
 import { upsertSetting } from "./settings.js";
 import { LIVE_LINK } from "./sync-cabinets.js";
+import { revokeCabinetCertificates } from "./cabinets.js";
 import { checkStoredUsbPolicy, usbPolicyAuditEntry, usbPolicySettingKey } from "./usb-policy.js";
 import { readUsbPolicyRow } from "./usb-store.js";
 import { queueReapply } from "./replacement-reapply.js";
@@ -79,7 +80,7 @@ export async function completeReplacement(c: Queryable, userId: string, old: Old
 
   // The old cabinet is retired: no certificate, no open alerts, its history kept.
   await c.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [old.id]);
-  await c.query("UPDATE cabinet_certificates SET revoked_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND revoked_at IS NULL", [old.id]);
+  await revokeCabinetCertificates(c, old.id);
   await notify(c, REVOCATION_CHANNEL, old.id);
   const resolution = `Replaced by ${newName}.`;
   const closed = (await c.query<{ id: string; issue: string }>(

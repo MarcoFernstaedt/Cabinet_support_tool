@@ -8,6 +8,7 @@ import type { IssuingKey } from "../pki/x509.js";
 import { CsrError, verifyCsr } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
+import { recordIssuedCertificate } from "./cabinets.js";
 import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
 import { approvedFor, attachChoices, attachToSite, recordEnrollmentDecision, type Scope } from "./baselines.js";
@@ -279,7 +280,7 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         attachedVersionId: decision.use === "attach" ? decision.versionId : null });
     }
     const certificate = await issueAgentCertificate(key, request.csr, cabinetId);
-    await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [certificate.serialHex, cabinetId, certificate.notAfter]);
+    await recordIssuedCertificate(c, cabinetId, certificate.serialHex, certificate.notAfter);
     await c.query(`UPDATE enrollment_requests SET status = 'issued', cabinet_id = $2, certificate_serial = $3, certificate_pem = $4, decided_by = $5, decided_at = SYSUTCDATETIME()
                    WHERE id = $1`, [requestId, cabinetId, certificate.serialHex, certificate.pem, userId]);
     await audit(c, { actorKind: "user", actorId: userId, action: "enrollment.approve", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded",
