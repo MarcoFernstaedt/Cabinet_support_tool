@@ -37,6 +37,41 @@ count against a batch, and a pause would still need an Admin to resume a rollout
 
 ---
 
+## D81. A site's cabinets are paged by the server, from the route to the site page (2026-11-14)
+
+**What the code did** (finding 7 of the 2026-11-13 fleet audit, at `91d64d3`):
+- **The service pages; the route never asked.** `fleet.site(db, id, page)` reads one page of a site's cabinets and the site's full
+  count. `GET /api/fleet/sites/:id` (`server/src/console-api/fleet-routes.ts:39`) never passed a page, so it always sent the first
+  `SITE_CABINET_PAGE` (200).
+- **The site page paged those 200 in the browser** (`console/src/pages/Fleet.tsx`, `SitePage`). For a site with more than 200
+  cabinets it showed "of 200", and the rest could not be reached.
+- **The network standard panels were told the wrong count:** they were given the length of that list as the site's cabinet count, on
+  the site page and on the cabinet's Standards tab.
+
+**The decision:**
+- **The route takes `limit` and `offset` from the query string,** checked against a new contract, `site-page-query`, before anything
+  else: `limit` 1 to 500, `offset` 0 to 999999, both as whole numbers in plain digits.
+- **Anything else is refused with 400.** That includes an unknown parameter, a repeated one and a leading zero. Left out, it is 200
+  from the first, as before, so every other caller is unchanged.
+- **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. While the next page loads, the site
+  stays on screen, so the panels below it keep what is being typed in them.
+- **Both network standard panels are given `cabinetCount`.**
+
+**Not changed here** (each its own finding): two pickers still list only the first 200 cabinets of a site, the approved-programs
+cabinet picker (`ApprovedApps.tsx:22`) and the site-cabinet list on the Admin page (`Admin.tsx:161`). A list that long wants a search,
+not pages; noted on the tracker.
+
+**Proof** (`server/test/console-site-paging-e2e.test.ts`, a site with 230 cabinets, in a real browser):
+- **The route:** the default page is 200 of 230 with `hasMore`. The last page, 25 from 225, holds the last five. Pages of 60 return
+  every cabinet once, in name order.
+- **Refused with 400:** 11 queries outside the contract, among them an injection string, `1e3`, a repeated `limit` and an unknown
+  `page`.
+- **The page:** it shows "1–25 of 230 · page 1 of 10", and nine clicks on Next reach "226–230 of 230" with the last five rows.
+- **Red checks** (each disabled in place, rebuilt, run, then restored and confirmed identical with `cmp`):
+  - The route's page replaced by `false ? page : {}`: the test fails at the API checks.
+  - The page's count replaced by `false ? cabinetCount : rows on hand`: it fails waiting for "1–25 of 230".
+  - Restored: it passes.
+- **Contracts:** 1,261 tests, 0 fail, with three valid and nine invalid examples for the new schema.
 ## D80. A rollout completes only with every offer answered, and closes every target still waiting (2026-11-14)
 
 **What the code did** (`server/src/services/rollouts.ts`, `evaluate`, at `91d64d3`; finding 4 of the 2026-11-13 fleet audit):

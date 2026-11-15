@@ -1,7 +1,7 @@
-import { Pager, usePaged } from "../components/Pager";
+import { PAGE_SIZE, Pager, usePaged } from "../components/Pager";
 import { DrivesAtRisk } from "../components/DriveTrends";
 import { WindowsInFleet } from "../components/WindowsInFleet";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
 import { PortsEditor, ScannerIdsEditor } from "../components/DeviceSettings";
 import { SiteSync, type SiteSyncInfo } from "../components/SyncCabinets";
@@ -131,15 +131,26 @@ export interface SiteDetail { id: string; name: string; client: { id: string; na
   timeZoneApplies?: { zone: string | null; source: "site" | "client" | "fleet" | null };
   sync: SiteSyncInfo;
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
-  cabinets: CabinetRow[]; }
+  /** One page of the site's cabinets (the server pages them, D81); `cabinetCount` is all of them. */
+  cabinets: CabinetRow[]; cabinetCount: number; cabinetsPage: { limit: number; offset: number; hasMore: boolean }; }
 
 export const roleLabel = (r: string) => ({ sync: "Sync", satellite: "Satellite", standalone: "Standalone" } as Record<string, string>)[r] ?? r;
 
 export function SitePage({ id }: { id: string }) {
   const { me } = useSession();
-  const { data, problem, reload } = useLoad<SiteDetail>(`/api/fleet/sites/${id}`);
+  // The server sends one page of the site's cabinets at a time (D81): a site can have more than one response holds.
+  const [page, setPage] = useState(0);
+  useEffect(() => { setPage(0); }, [id]);
+  const loaded = useLoad<SiteDetail>(`/api/fleet/sites/${id}?limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}`);
+  // While the next page loads, the site stays on screen, so the panels below it keep what is being typed in them.
+  const last = useRef<SiteDetail | null>(null);
+  if (loaded.data) last.current = loaded.data;
+  const data = loaded.data ?? (last.current?.id === id ? last.current : null);
+  const { problem, reload } = loaded;
   useAlertNews(reload);
-  const cabinetsPaged = usePaged(data?.cabinets ?? []);
+  const count = data?.cabinetCount ?? 0;
+  const pages = Math.max(1, Math.ceil(count / PAGE_SIZE));
+  const cabinetsPaged = { rows: data?.cabinets ?? [], page: Math.min(page, pages - 1), pages, total: count, size: PAGE_SIZE, setPage };
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, ...(data ? [{ label: data.client.name, to: `/clients/${data.client.id}` }] : []), { label: data?.name ?? "Site" }]} />
@@ -163,7 +174,7 @@ export function SitePage({ id }: { id: string }) {
         </table></div>
         <Pager {...cabinetsPaged} label="cabinets" />
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
-        <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinets.length} editable={atLeast(me, "tier2")} onSaved={reload} />
+        <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinetCount} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} applies={data.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteFirewallPolicy key={`fw-${data.id}`} siteId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <SiteSync key={data.id} siteId={data.id} name={data.name} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
