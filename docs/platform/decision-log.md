@@ -6,6 +6,32 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D93. The baseline-alert ordering test starts the diagnosis only once its holder holds the alert (2026-11-15)
+
+**What the test did** (`server/test/network-troubleshooting.test.ts:267`, at `6d2d73a`):
+- **What it proves.** D64: a diagnosis is shown as done only once its baseline alert is settled. Another connection, from a new pool,
+  takes an `UPDLOCK` on the alert row and reports whether the diagnosis said done while the row was held.
+- **The race.** The test waited a fixed 300 ms after starting that connection, then started the diagnosis. Under load, the new pool's
+  login can take longer. The diagnosis then closed the alert and said done before the holder ran. The holder locked no row, saw done and
+  reported `done_while_held = 1`, which failed the test although the code's order was right.
+- **Seen.** Once in the gate for #282 (non-browser files at concurrency 2). In a scratch copy with the holder started 4 s late, it failed
+  the same way and printed `held = null`.
+
+**The decision:**
+- **Wait for the lock, not for a time.** Before starting the diagnosis, the test polls the alert with `UPDLOCK, READPAST`, which skips
+  a row someone holds. It goes on only once the row is skipped, and fails after 10 s with "the holder never took the alert row".
+- **Say what was held.** The holder returns the id it locked, and the test asserts it held one.
+- **Unchanged.** The order it proves, the 7 s hold and every other assertion.
+
+**Proof** (that one test, run alone):
+- **Fixed test:** 3 of 3 pass.
+- **Holder started 4 s late:** passes, where the old test failed.
+- **Red check:** with `finishDiagnosis` moved before `reconcileBaselineAlert` in `network.ts`, it fails with "the diagnosis said done while
+  its alert was still being settled". Restored and `cmp` identical, it passes.
+- **The whole file:** passes.
+
+---
+
 ## D91. A diagnosis that has finished stays as it finished (2026-11-15)
 
 **What the code did** (at `fdee60e`):
