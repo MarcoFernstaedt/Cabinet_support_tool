@@ -6,6 +6,33 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D91. A diagnosis that has finished stays as it finished (2026-11-15)
+
+**What the code did** (at `fdee60e`):
+- **The path.** `run` in `server/src/diagnose/network.ts` marks the diagnosis done (`:185`), then counts the known fixes it showed
+  (`fixesForFindings` and `markSeen`, `:187-188`).
+- **What a failure there did.** An error in that count rejects `run`, and the handler at `:120-122` calls `failDiagnosis`. That rewrote
+  the done row as failed, with "The diagnosis stopped because of a server error", while its findings and readings stayed stored.
+- **The misreport.** The console showed a failure for a run that had finished and found what it found.
+
+**The decision:**
+- **At the store.** `failDiagnosis` in `server/src/diagnose/diagnoses.ts` changes only a diagnosis that is still running
+  (`AND state = 'running'`), and returns whether it did. A done, failed or offline diagnosis keeps what it finished with.
+- **Why there, not in `network.ts`:** the rule holds for both callers and for any later one. It needs no second handler.
+- **Unchanged:** a run that never finished is still marked failed, as before. The cabinet diagnosis's own path cannot reach this, because
+  marking it done is the last thing its `run` does.
+- **Left as is:** when the known-fix count fails, the network incident is not recorded for that run, as before. The error is logged.
+- **Spec:** `docs/spec/16-network-troubleshooting.md` says a finished diagnosis stays as it finished.
+
+**Proof** (`server/test/diagnosis-writes.test.ts`, a fifth test):
+- A done diagnosis stays done with its findings and no failure when `failDiagnosis` is called, which returns false.
+- A running one is marked failed. A second failure does not rewrite the first, and an offline batch member stays offline.
+- **Red check:** with the `state = 'running'` condition removed, this test fails. Restored and `cmp` identical, `diagnosis-writes`,
+  `table-ownership` and `audit-sweep` pass, 15 of 15.
+- **Neighbours:** `network-troubleshooting`, `troubleshooting`, `diagnosis-incidents` and `owner-retention` pass, 36 of 36.
+
+---
+
 ## D90. Every write to diagnoses goes through diagnose/diagnoses.ts, the table's new owner (2026-11-15)
 
 **What the code did** (at `74ac54f`; an entry on the ownership debt list, F21.R2):
@@ -35,7 +62,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Debt list:** the `diagnose/network.ts` entry for `diagnoses` comes off, which leaves 91.
 - **Not changed here:** `failDiagnosis` can still overwrite a diagnosis that is already done, because `run` marks it done and then counts
   known fixes, and a failure in that count reaches the failure handler. Whether a done diagnosis may become failed is a behaviour question,
-  not part of moving the writes.
+  not part of moving the writes. D91 settles it.
 
 **Proof** (`server/test/diagnosis-writes.test.ts`, four tests):
 - **A run:** started with its first commands and batch, then all its commands, then done with findings and readings. A cabinet run with no

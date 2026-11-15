@@ -63,10 +63,14 @@ export async function finishDiagnosis(c: Queryable, diagnosisId: string, finding
   await c.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [rowId, f, r]);
 }
 
-/** Marks a diagnosis failed, with the sentence the console shows. */
-export async function failDiagnosis(c: Queryable, diagnosisId: string, failure: string): Promise<void> {
+/**
+ * Marks a running diagnosis failed, with the sentence the console shows. A diagnosis that has already finished keeps what it finished
+ * with (decision-log D91): the network run counts known fixes after it is done, and an error there reaches the same failure handler.
+ * Returns whether the diagnosis was still running.
+ */
+export async function failDiagnosis(c: Queryable, diagnosisId: string, failure: string): Promise<boolean> {
   const rowId = id(diagnosisId, "the diagnosis"), text = failureText(failure);
-  await c.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [rowId, text]);
+  return ((await c.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1 AND state = 'running'", [rowId, text])).rowCount ?? 0) > 0;
 }
 
 /**
