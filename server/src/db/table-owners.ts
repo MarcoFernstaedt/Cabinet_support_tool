@@ -97,7 +97,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   rollout_targets: { owner: "services/rollouts.ts", also: [] },
   rollouts: { owner: "services/rollouts.ts", also: [] },
   runbooks: { owner: "services/runbooks.ts", also: [] },
-  security_alerts: { owner: "services/security.ts", also: ["db/migrate.ts", "demo/demo.ts", "services/ops-health.ts"] },
+  security_alerts: { owner: "services/security.ts", also: ["db/migrate.ts", "demo/demo.ts"] },
   sessions: { owner: "auth/sessions.ts", also: [] },
   settings: { owner: "services/settings.ts", also: ["demo/demo.ts", "services/approved-apps.ts", "services/device-settings.ts", "services/filefacts-allowlist.ts", "services/firewall-policy.ts", "services/time.ts", "services/usb-sql.ts", "services/watched-services.ts", "services/writes.ts"] },
   sign_ins: { owner: "auth/sessions.ts", also: [] },

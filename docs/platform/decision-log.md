@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D88. The operations checks resolve their alerts through security.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (`server/src/services/ops-health.ts`, `settle`, at `430cf57`; an entry on the ownership debt list, F21.R2):
+- **What `settle` did itself:** when an operations check passed again, it resolved the open alert of that kind with its own
+  `UPDATE security_alerts`. It audited each resolved row as `security_alert.auto_resolve`.
+- **Who owns that table:** `security_alerts` belongs to `services/security.ts`.
+
+**The decision:**
+- **The statement and its audit move.** `security.ts` exports `autoResolveSecurityAlert(c, signature, { actorId, details })`, which
+  holds the same statement and the same audit per row. It works in the caller's transaction and returns the ids it resolved.
+- **`settle` calls it** with actor `ops-check` and `{ kind }`, as before.
+- **Input check:** the signature must be 1 to 256 characters with no control characters, and the actor 1 to 64 characters. Anything else
+  is refused before the database is touched.
+- **Left on the list:** `db/migrate.ts` still writes `security_alerts` directly. It raises the migration-failed alert through the raw
+  owner connection, at a point where the schema may be half built. Moving it into a service would make the database layer depend on that
+  service, so it stays.
+- **Debt count:** the `ops-health.ts` entry comes off, which leaves 94 on this branch.
+
+**Proof** (`server/test/security-auto-resolve.test.ts`, three tests):
+- **Resolving:** the open alert of a signature is resolved and audited once with the actor and details given. Another signature stays
+  open, and a repeat resolves and audits nothing.
+- **Rollback:** a resolve in a transaction that rolls back leaves the alert open and unaudited.
+- **Bad input:** 8 bad signatures and 6 bad actors are refused with nothing resolved. The bad signatures include one of 257 characters,
+  a NUL, a line feed and a number.
+- **Red checks:**
+  - With the signature check disabled (`false && …`), the bad-input test fails.
+  - With `ops-health.ts` as on main, `table-ownership.test.ts` fails.
+  - Restored and `cmp` identical, these and `operations` and `security-stale` pass, 33 of 33.
+
+---
+
 ## D86. The console routes' two writes to sessions go through auth/sessions.ts, its owner (2026-11-15)
 
 **What the code did** (at `e5465f7`; two entries on the ownership debt list, F21.R2):

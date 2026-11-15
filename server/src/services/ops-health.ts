@@ -3,9 +3,9 @@
 // raise operations alerts through the security alert mechanism (one open alert per kind), and clear the state-based ones when the
 // condition is gone. No notification leaves the server: the alerts show in the console, and /health is for an external uptime check.
 import { X509Certificate } from "node:crypto";
-import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
+import { transaction, type Pool, type Queryable } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
-import { raiseSecurityAlert } from "./security.js";
+import { autoResolveSecurityAlert, raiseSecurityAlert } from "./security.js";
 import { isGauge } from "./ops-meter.js";
 
 const GIB = 1024 ** 3;
@@ -125,12 +125,8 @@ type StateKind = "ops_database" | "ops_disk" | "ops_backup" | "ops_ca";
 /** Raises (or refreshes) the one open alert of a kind, or clears it when the condition is gone. */
 async function settle(pool: Pool, kind: StateKind, problem: { title: string; detail: Record<string, unknown> } | null): Promise<void> {
   if (problem) { await transaction(pool, c => raiseSecurityAlert(c, { kind, signature: kind, title: problem.title, detail: problem.detail })); return; }
-  await transaction(pool, async c => {
-    const r = await c.query<{ id: string }>(
-      "UPDATE security_alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = N'Cleared on its own: the condition is gone.' OUTPUT inserted.id WHERE signature = $1 AND state = 'open'", [kind]);
-    for (const row of r.rows)
-      await audit(c, { actorKind: "system", actorId: "ops-check", action: "security_alert.auto_resolve", targetKind: "security_alert", targetId: row.id, outcome: "succeeded", details: { kind } });
-  });
+  // Resolving is security.ts's (D88).
+  await transaction(pool, c => autoResolveSecurityAlert(c, kind, { actorId: "ops-check", details: { kind } }));
 }
 
 const gb = (b: number): string => (b / GIB).toFixed(1);

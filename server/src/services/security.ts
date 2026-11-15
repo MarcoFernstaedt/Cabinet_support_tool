@@ -93,6 +93,23 @@ export async function closeStaleSecurityAlerts(pool: Pool, days = STALE_SECURITY
   });
 }
 
+/**
+ * Resolves the open alert of a signature whose condition has gone, in the caller's transaction, auditing each one as
+ * security_alert.auto_resolve (F21.R2, decision-log D88). The operations checks call it when a check that raised an alert passes again.
+ * Returns the ids resolved. The signature and the actor are checked before the database is touched.
+ */
+export async function autoResolveSecurityAlert(c: Queryable, signature: string, by: { actorId: string; details?: Record<string, unknown> }): Promise<string[]> {
+  if (typeof signature !== "string" || signature.length === 0 || signature.length > 256 || /[\u0000-\u001f\u007f]/.test(signature))
+    throw new Error("a security alert signature (1 to 256 characters, no control characters) is required to resolve it");
+  if (typeof by?.actorId !== "string" || by.actorId.length === 0 || by.actorId.length > 64) throw new Error("the system actor that resolves the alert is required");
+  const r = await c.query<{ id: string }>(
+    "UPDATE security_alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = N'Cleared on its own: the condition is gone.' OUTPUT inserted.id WHERE signature = $1 AND state = 'open'", [signature]);
+  for (const row of r.rows)
+    await audit(c, { actorKind: "system", actorId: by.actorId, action: "security_alert.auto_resolve", targetKind: "security_alert", targetId: row.id, outcome: "succeeded",
+      details: by.details ?? {} });
+  return r.rows.map(row => row.id);
+}
+
 export async function openSecurityAlertCount(db: Queryable): Promise<number> {
   return Number((await db.query<{ n: string }>("SELECT COUNT(*) AS n FROM security_alerts WHERE state = 'open'")).rows[0]!.n);
 }
