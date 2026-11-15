@@ -30,9 +30,12 @@ configuration and WinRE (#9) → process signer/parent (#6) and the service depe
 profiles (#20) → `updates.install` and fleet compliance (#15, #16) → agent update and health in the console → driver
 lifecycle → BIOS/firmware flashing → packet capture (#11) and DISM/SFC (#12) → site readiness (#18).
 
-Two corrections to keep this file from repeating old claims: **traceroute already exists** (`network.trace`) and so do
-the BIOS, Secure Boot, TPM and last-boot reads with their settings (`power.status`, `power.set`), both recorded in the
-count file. What is *not* built there is hosting a BIOS/firmware flash as a Tier 2 write. **The drive risk class also
+Two corrections to keep this file from repeating old claims: **traceroute already exists** (`network.trace`), and so does
+the **whole network quartet** — network category and the machine WinHTTP proxy in `network.config`, the hosts file as
+`network.hosts`, one `network.test` per DNS server, and automatic network diagnosis that states a certainty per finding
+(`network-findings.ts:10,23`). The BIOS, TPM and Secure Boot reads also already exist, but in **`system.hardware`**
+(`system.hardware.schema.json:36-161`) — not in `power.status`, which carries the power plan, Fast Startup, hibernation
+and USB settings. Both are recorded in the count file. **And the drive risk class also
 already exists** — `server/src/services/trends.ts:81` defines Healthy/Attention/High risk/Critical/Unknown,
 `server/src/services/drives.ts` assesses every drive with the rules that fired and a projection from
 `slopePerDay`/`daysUntilEmpty`, `drives.ts:90` raises `disk-forecast` inside seven days, and `/api/fleet/drives-at-risk`
