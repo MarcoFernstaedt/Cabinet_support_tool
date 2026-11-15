@@ -8,7 +8,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ## D93. The baseline-alert ordering test starts the diagnosis only once its holder holds the alert (2026-11-15)
 
-**What the test did** (`server/test/network-troubleshooting.test.ts:267`, at `6d2d73a`):
+**What the test did** (`server/test/network-troubleshooting.test.ts:270`, at `6d2d73a`):
 - **What it proves.** D64: a diagnosis is shown as done only once its baseline alert is settled. Another connection, from a new pool,
   takes an `UPDLOCK` on the alert row and reports whether the diagnosis said done while the row was held.
 - **The race.** The test waited a fixed 300 ms after starting that connection, then started the diagnosis. Under load, the new pool's
