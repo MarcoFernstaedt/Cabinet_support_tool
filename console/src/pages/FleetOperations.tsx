@@ -14,6 +14,7 @@ import { Badge, Empty, OnlineBadge, PasswordDialog } from "../components/ui";
 import { DemoTag } from "../components/DemoBanner";
 import { ZONE_NAMES } from "./cabinet/Time";
 import { useStartDiagnosis } from "./NetworkDiagnosis";
+import { keepFollowing, phaseText } from "../lib/fleet-job-status";
 
 type Operation = "time.setZone" | "time.sync" | "firewall.applyPolicy";
 const OPERATIONS: [Operation, string, string][] = [
@@ -205,11 +206,13 @@ export function FleetJob({ id }: { id: string }) {
   const { data, problem, reload } = useLoad<Job>(`/api/fleet-operations/jobs/${id}`);
   const [error, setError] = useState<string | null>(null);
   const cabinetsPaged = usePaged(data?.cabinets ?? []);
+  // Followed while it runs, and while a cancelled job finishes the batch it had already sent (D83).
+  const following = keepFollowing(data);
   useEffect(() => {
-    if (data?.state !== "running") return;
+    if (!following) return;
     const t = setInterval(reload, 1500);
     return () => clearInterval(t);
-  }, [data?.state]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [following]); // eslint-disable-line react-hooks/exhaustive-deps
   const cancel = async () => { setError(null); try { await api("POST", `/api/fleet-operations/jobs/${id}/cancel`, {}); reload(); } catch (e) { setError(describeError(e)); } };
   const label = data ? OPERATIONS.find(o => o[0] === data.operation)?.[1] ?? JOB_NAMES[data.operation] ?? data.operation : "Fleet operation";
   return (
@@ -221,7 +224,7 @@ export function FleetJob({ id }: { id: string }) {
         <p className="muted">Started by {data.startedBy} at {fullTime(data.startedAt)}, {data.batchSize} at a time.
           {data.finishedAt && <> Finished at {fullTime(data.finishedAt)}.</>}</p>
         <p className="row gap wrap" role="status" aria-live="polite">
-          <Badge tone={data.state === "running" ? "info" : "off"}>{data.state === "running" ? "Running" : data.state === "cancelled" ? "Cancelled" : "Finished"}</Badge>
+          <Badge tone={following ? "info" : "off"}>{phaseText(data)}</Badge>
           {Object.entries(data.counts).map(([k, n]) => <Badge key={k} tone={STATE[k]?.[0] ?? "off"}>{n} {STATE[k]?.[1].toLowerCase() ?? k}</Badge>)}
           {data.state === "running" && <button className="btn small danger" onClick={() => void cancel()}>Cancel the rest</button>}
         </p>
