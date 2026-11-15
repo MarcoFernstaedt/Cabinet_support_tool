@@ -4732,6 +4732,14 @@ export interface ServicesListOutput {
       subsequentFailures: "none" | "restart" | "reboot" | "run_program";
       resetPeriodSeconds: number;
     } | null;
+    /**
+     * Configured Windows dependency names (+ prefixes a load-order group).
+     */
+    dependencies?: string[] | null;
+    /**
+     * Reverse dependencies reported by Windows. Null means the read failed; absent on older agents.
+     */
+    dependentServices?: string[] | null;
   }[];
   /**
    * @maxItems 16
