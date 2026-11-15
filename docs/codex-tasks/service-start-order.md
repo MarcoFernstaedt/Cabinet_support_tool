@@ -1,12 +1,12 @@
 # Task: see a cabinet's service start order, and catch it drifting
 
-**Status: ready to run. Revision 3 (2026-11-15).** Revision 1 asked for the write half as well; a run stopped on
-`docs/spec/STANDING-INSTRUCTIONS.md:21` — "if the spec does not answer something, stop and ask rather than guessing" —
-because the spec plans dependency **reads** but defines no operation for **setting** service dependencies. Revision 2
-dropped the write but cited the wrong spec lines and named a drift mechanism that does not exist; a run stopped on both.
-Revision 3 fixes the citation (`:51`-`:57` versus `:84`) and grounds step 3 in `server/src/services/baseline-drift.ts`,
-the file that actually decides how drift is raised. The write half is still out of scope: it is a question for the
-owner, not for you. Build the read half, which the spec does plan.
+**Status: ready to run. Revision 4 (2026-11-15).** Three runs stopped on this brief before any code was written, all three
+correctly: revisions 1 and 2 asked for a write the spec does not define, and revision 3 claimed a drift change would
+"let the existing drift → alert path do the rest", which is false — `server/src/services/baseline-drift.ts:111` is the
+only `upsertAlert` call in that file and it is `checkFirmware` alone, a documented exception for BIOS fields
+(decision-log **D48**: *"drift only feeds health … and nothing raised an alert"*). Revision 4 states the real scope:
+**baseline drift and health, no alert.** Do not add an alert policy; if the owner wants one later it is a spec decision,
+not an improvised policy inside this task.
 
 ## Why this exists
 
@@ -46,18 +46,18 @@ owes. It has not been built.
    here, and what waits for what" without opening `services.msc` on the cabinet. Where the order cannot be determined
    from what the agent reports, the console says **that** — "could not check" is a valid and required answer, never a
    guessed order and never healthy.
-3. **Make a drifted dependency show up the way drift already shows up.** Do **not** mint a new mechanism, and do not
-   attach the diagnose-findings certainty vocabulary to this — a previous brief of mine said "open the existing drift
-   finding with the same certainty vocabulary", which was wrong about both halves. Read
-   `server/src/services/baseline-drift.ts` before you write anything: it computes `DriftRow`s
-   (`{category, itemKey, field, mode, expected, actual, origin, severity: "minor"|"major", required}`) and raises them
-   through **`upsertAlert`**, with `cabinet_drift` rows owned by that same file. The certainty vocabulary
-   (confirmed / probable / possible / could not check) belongs to the *diagnose* findings
-   (`docs/spec/13-roadmap.md:163`), a different path. So the work is: **extend the `services` baseline item to carry the
-   dependency list**, and let the existing drift → alert path do the rest. The console's Baseline tab already reads
-   `/api/cabinets/:id/drift` (`15-baselines-and-config.md:95`, `:106`), so a support person sees a service that gained or
-   lost a dependency the same way they see any other configuration drift, with the same severity — no new lifecycle, no
-   new table, no new route.
+3. **Make a drifted dependency show up the way drift already shows up — and no further.** Read
+   `server/src/services/baseline-drift.ts` before writing anything. It computes `DriftRow`s
+   (`{category, itemKey, field, mode, expected, actual, origin, severity: "minor"|"major", required}`), stores them in
+   `cabinet_drift`, and feeds the Baseline tab and the health evaluation. **Drift does not raise alerts**: the file has
+   exactly one `upsertAlert` call, `checkFirmware` at `:111`, which is a deliberate, documented exception for BIOS fields
+   (decision-log **D48**). The certainty vocabulary (confirmed / probable / possible / could not check) belongs to the
+   *diagnose* findings (`docs/spec/13-roadmap.md:163`), a different path again.
+   So the work is narrow and it is this: **extend the `services` baseline item to carry the dependency list**, so a
+   service that gains or loses a dependency shows as drift on the Baseline tab and in the health judgement, exactly as
+   any other configuration drift does. **Do not add an alert, a finding, a table, a route or a lifecycle for it.** If you
+   believe a dependency change deserves an alert, that is a finding for your report — it is the owner's decision, and
+   `docs/spec/15-baselines-and-config.md:85` and D48 are the precedent it would have to follow.
 4. **Hostile and malformed input.** The agent reads whatever Windows hands back. Cover: dependency list absent; empty;
    naming a service that does not exist; a service naming itself; and a cycle. A cycle is reported as a cycle, never
    rendered as an order.
