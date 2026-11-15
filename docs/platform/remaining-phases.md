@@ -113,6 +113,27 @@ read where something matched. A match proves code exists, not that it works; the
 **Counts:** 56 operations in the catalogue (`contracts/schemas/operations/catalog.json`), 33 migrations, 173 server and 28 console test
 files, 7 agent projects.
 
+## The order Marco set, 2026-11-15
+
+This page is the count. The order of the work now follows what the fleet actually asks for, in Marco's words: alerts
+from the error logs with hardware first — hard drives especially — and from that, long term, an algorithm that says
+when a drive will fail so replacements ship before a cabinet goes down; fleet-wide similarity, so several
+blue-screened cabinets can be compared for what they share; agent updates drivable from the platform; drivers
+installed more easily; motherboard flashing hosted, since it is already done over remote access today. Networking is
+*an* issue, not the biggest one. Nothing gets built that the fleet does not need.
+
+Ahead of the phases below, then: **fleet incident correlation** (module 11's grouping and its affected-against-
+unaffected comparison — this is the "a few cabinets went blue screen, what do they have in common" ask), then **the
+drive risk class's remaining wiring** (correlation with crashes, NVMe counters — the class itself, its Admin-set
+thresholds and the fleet at-risk view are built), then the **daily health snapshot** (modules 12, 44), then WER mining,
+boot configuration and WinRE, process signer/parent with the service dependency graph, per-model scanner profiles,
+`updates.install` with fleet compliance, the agent's own update and health, the driver lifecycle, and hosting a
+BIOS/firmware flash as a Tier 2 write. Packet capture, DISM/SFC past `CheckHealth`, and the site readiness checklist
+follow.
+
+**Deferred as over-building:** machine variables, on-demand ETW, and AMT/vPro detection (detection only — Wake-on-LAN
+is excluded by the owner). Recorded here so the decision is visible rather than silent.
+
 ## Roadmap phases (reviewed against the code on 2026-11-03)
 
 This review was made at `771267d`, after PRs #135 to #140, before the brief's findings, which the table at the bottom tracks. Every line
