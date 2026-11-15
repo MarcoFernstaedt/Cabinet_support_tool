@@ -10,8 +10,7 @@ import { lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { valueText, type Item } from "./config-canonical.js";
 import { currentItems, type Category } from "./config-ingest.js";
 import { CABINET_ONLY, CAPTURE_SKIP, PER_CABINET, resolveForCabinet } from "./baselines.js";
-import { upsertAlert } from "./alerts.js";
-import { closeAutomatically, CLOSED_OUTPUT } from "./automatic-close.js";
+import { closeSignatureAlert, retitleAlert, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 
 export const PEER_DIFFERENCE_SIGNATURE = "peer-difference";
@@ -112,13 +111,11 @@ export async function checkPeerDifferences(pool: Pool, cabinetId: string): Promi
     if (diffs.length > 0) {
       const title = peerTitle(diffs, role, site);
       const { id } = await upsertAlert(c, { cabinetId, issueTypeId: ISSUE.peerDifference, severity: "minor", signature: PEER_DIFFERENCE_SIGNATURE, title, seenAt: new Date(), ruleId: null, eventId: null });
-      await c.query("UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2", [id, title]);
+      await retitleAlert(c, id, title);
       return diffs;
     }
-    await closeAutomatically(c, "peer-difference",
-      `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
-        WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`,
-      [cabinetId, "The cabinet matches the other cabinets of its role at its site again, or a baseline now declares the setting (seen in its configuration).", PEER_DIFFERENCE_SIGNATURE]);
+    await closeSignatureAlert(c, "peer-difference", cabinetId, PEER_DIFFERENCE_SIGNATURE,
+      "The cabinet matches the other cabinets of its role at its site again, or a baseline now declares the setting (seen in its configuration).");
     return diffs;
   });
 }

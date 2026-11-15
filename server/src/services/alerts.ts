@@ -706,6 +706,35 @@ export async function closeIssueAlert(db: Queryable, by: string, cabinetId: stri
 }
 
 /**
+ * Sets an open alert's title to the latest reading's (F21.R2, decision-log D94). The fold keeps an alert's first title; the checks that
+ * name what they found (service recovery, peer differences, firmware drift) call this right after upsertAlert so the title follows the
+ * latest reading. Changes nothing when the title is already that. The id and the title are checked before the database is touched; the
+ * title has no upper bound here because it is the one upsertAlert has just stored, which has none.
+ */
+export async function retitleAlert(db: Queryable, alertId: string, title: string): Promise<void> {
+  if (typeof alertId !== "string" || !ALERT_ID.test(alertId)) throw new Error("an alert id is required to retitle it");
+  if (typeof title !== "string" || title.trim().length === 0) throw new Error("an alert title is required");
+  await db.query("UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2", [alertId, title]);
+}
+
+/**
+ * Closes a cabinet's unresolved alert of one signature, because the check that raises it found the condition gone (F21.R2, D94): service
+ * recovery, peer differences and firmware drift. Audited as alert.resolve by `by` through closeAutomatically, in the caller's transaction
+ * or a new one. The closer, the cabinet, the signature and the resolution are checked before the database is touched. Returns the
+ * alerts closed.
+ */
+export async function closeSignatureAlert(db: Queryable, by: string, cabinetId: string, signature: string, resolution: string): Promise<{ id: string; cabinetId: string }[]> {
+  if (typeof by !== "string" || !CLOSER.test(by)) throw new Error("an alert closer is a lower-case name of 1 to 64 letters, digits and hyphens");
+  if (typeof cabinetId !== "string" || !ALERT_ID.test(cabinetId)) throw new Error("a cabinet id is required to close its alert");
+  if (typeof signature !== "string" || signature.trim().length === 0 || signature.length > 450 || /[\u0000-\u001f\u007f]/.test(signature))
+    throw new Error("an alert signature must be 1 to 450 characters with no control characters");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  return closeAutomatically(db, by, `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
+      WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`, [cabinetId, resolution, signature]);
+}
+
+/**
  * Resolves offline alerts for cabinets heard from again (one cabinet, or all when null). Two fixed statements, so the one-cabinet case
  * (every heartbeat after a silence) never runs with the plan made for the whole fleet; both use the open-alerts index.
  */

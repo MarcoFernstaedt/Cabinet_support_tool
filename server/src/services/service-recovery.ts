@@ -4,8 +4,7 @@
 // automatically and the close is audited (F4). The reading is the cabinet's own answer to services.list, checked against its schema
 // before this runs (commands.ts storeResult).
 import type { Queryable } from "../db/db.js";
-import { upsertAlert } from "./alerts.js";
-import { closeAutomatically, CLOSED_OUTPUT } from "./automatic-close.js";
+import { closeSignatureAlert, retitleAlert, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 
 type Action = "none" | "restart" | "reboot" | "run_program";
@@ -34,11 +33,9 @@ export async function checkServiceRecovery(db: Queryable, cabinetId: string, ser
     const { id } = await upsertAlert(db, { cabinetId, issueTypeId: ISSUE.serviceRebootRecovery, severity: "minor", signature: REBOOT_SIGNATURE, title,
       seenAt: new Date(), ruleId: null, eventId: null });
     // The fold keeps an open alert's first title; this one names the services, so it follows the latest reading.
-    await db.query("UPDATE alerts SET title = $2 WHERE id = $1 AND title <> $2", [id, title]);
+    await retitleAlert(db, id, title);
     return "opened";
   }
-  const closed = await closeAutomatically(db, "service-recovery",
-    `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
-      WHERE cabinet_id = $1 AND signature = $3 AND state <> 'resolved'`, [cabinetId, CLEARED, REBOOT_SIGNATURE]);
+  const closed = await closeSignatureAlert(db, "service-recovery", cabinetId, REBOOT_SIGNATURE, CLEARED);
   return closed.length > 0 ? "closed" : "none";
 }
