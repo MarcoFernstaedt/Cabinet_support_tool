@@ -4,7 +4,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomBytes, randomUUID } from "node:crypto";
-import { recordIssuedCertificate, revokeCabinetCertificates } from "../src/services/cabinets.js";
+import { authenticate, CERTIFICATE_SERIAL, recordIssuedCertificate, revokeCabinetCertificates } from "../src/services/cabinets.js";
+import type { Queryable } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 
 let db: TestDatabase;
@@ -48,9 +49,30 @@ test("anything but a cabinet id, an upper-case hex serial and a real expiry is r
     await assert.rejects(recordIssuedCertificate(db.app, id as never, serial(), inAYear()), /cabinet id/, String(id));
     await assert.rejects(revokeCabinetCertificates(db.app, id as never), /cabinet id/, String(id));
   }
-  for (const s of [undefined, null, "", "abcdef", "0G", "AB CD", "A".repeat(41), "AB'; DROP TABLE cabinet_certificates; --", 1234])
+  for (const s of [undefined, null, "", "A", "abcdef", "0G", "AB CD", "A".repeat(65), "AB'; DROP TABLE cabinet_certificates; --", 1234])
     await assert.rejects(recordIssuedCertificate(db.app, k, s as never, inAYear()), /serial/, String(s));
   for (const when of [undefined, null, "2030-01-01", Date.now(), new Date(Number.NaN)])
     await assert.rejects(recordIssuedCertificate(db.app, k, serial(), when as never), /expiry/, String(when));
   assert.deepEqual(await certs(k), [], "nothing was recorded");
+});
+
+test("recording and authenticating apply one serial rule: what one accepts the other does, at both ends of the range (D89)", async () => {
+  // recordIssuedCertificate allowed 1 to 40 digits while authenticate and the table's check allow 2 to 64: a 41-digit serial the rest of
+  // the platform accepts was refused, and a one-digit one reached the database. Both now use CERTIFICATE_SERIAL.
+  for (const digits of [2, 32, 41, 64]) {
+    const k = await cabinet(), s = "A".repeat(digits);
+    assert.equal(CERTIFICATE_SERIAL.test(s), true, String(digits));
+    await recordIssuedCertificate(db.app, k, s, inAYear());
+    assert.equal((await authenticate(db.app, s, k))?.id.toLowerCase(), k.toLowerCase(), `a ${digits}-digit serial that is recorded authenticates`);
+  }
+  // The refusal has to come from the rule, not from the table after a round trip: with the check disabled a one-digit serial
+  // reaches the INSERT and the constraint refuses it, so a rejection matched on the message alone passes without the fix.
+  const untouched: Queryable = { query: async () => { throw new Error("a serial the rule refuses reached the database"); } };
+  for (const s of ["A", "A".repeat(65)]) {
+    const k = await cabinet();
+    assert.equal(CERTIFICATE_SERIAL.test(s), false);
+    await assert.rejects(recordIssuedCertificate(db.app, k, s, inAYear()), /serial/, `${s.length} digits are not recorded`);
+    await assert.rejects(recordIssuedCertificate(untouched, k, s, inAYear()), (e: Error) => /serial/.test(e.message) && !/reached the database/.test(e.message), `${s.length} digits are refused before the database is touched`);
+    assert.equal(await authenticate(db.app, s, k), null, `${s.length} digits do not authenticate`);
+  }
 });

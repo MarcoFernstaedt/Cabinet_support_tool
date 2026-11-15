@@ -15,7 +15,7 @@ import Fastify, { type FastifyInstance, type FastifyReply, type FastifyRequest }
 import { ContractError, envelopes } from "../contracts.js";
 import { audit, errorInfo, isBusy, transaction, type Pool } from "../db/db.js";
 import { CsrError, type IssuingKey } from "../pki/x509.js";
-import { authenticate, recordHeartbeat, renewCertificate, type AuthenticatedCabinet } from "../services/cabinets.js";
+import { authenticate, CERTIFICATE_SERIAL, recordHeartbeat, renewCertificate, type AuthenticatedCabinet } from "../services/cabinets.js";
 import { storeResult, takeLeasedCommands, LEASE_SECONDS, MAX_COMMANDS_PER_POLL } from "../services/commands.js";
 import { enrollmentStatus, submitEnrollment } from "../services/enrollment.js";
 import { Refused } from "../services/errors.js";
@@ -352,7 +352,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   };
   const peerSerial = (socket: TLSSocket): string => {
     const serial = socket.getPeerCertificate()?.serialNumber ?? "";
-    return /^[0-9A-Fa-f]{2,64}$/.test(serial) ? serial.toUpperCase() : "";
+    return CERTIFICATE_SERIAL.test(serial.toUpperCase()) ? serial.toUpperCase() : "";
   };
   const admitted = new WeakSet<object>();
   const connectionRetryAfter = (): number => randomInt(admission.connectionRetryAfterSeconds[0], admission.connectionRetryAfterSeconds[1] + 1);
@@ -492,7 +492,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     const socket = tlsSocketOf(request);
     // The certificate the caller presented, whether or not it chains to our CA (empty when none was presented).
     const peer = socket.getPeerCertificate();
-    const serial = /^[0-9A-Fa-f]{2,64}$/.test(peer?.serialNumber ?? "") ? peer.serialNumber.toUpperCase() : "";
+    const serial = CERTIFICATE_SERIAL.test((peer?.serialNumber ?? "").toUpperCase()) ? peer.serialNumber.toUpperCase() : "";
     const subject = typeof peer?.subject?.CN === "string" ? peer.subject.CN : "";
     const connection = connectionOf(request);
     const now = Date.now();

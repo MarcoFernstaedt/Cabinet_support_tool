@@ -22,13 +22,20 @@ const CLOCK_TOLERANCE = 120;
 export interface AuthenticatedCabinet { id: string; serial: string; }
 
 /**
+ * A certificate serial as the platform stores and compares it: upper-case hex, 2 to 64 digits. One rule for every place that checks one
+ * (decision-log D89): recording an issued certificate, authenticating a connection, and reading the serial a TLS peer presents. Our CA
+ * issues 32 digits.
+ */
+export const CERTIFICATE_SERIAL = /^[0-9A-F]{2,64}$/;
+
+/**
  * Accepts a connection only for a certificate this server issued, recorded
  * for an active cabinet, not revoked and not expired, whose subject names
  * that cabinet (docs/spec/05-server-spec.md: unknown or revoked serials are refused).
  * Also returns when the certificate expires, so a remembered acceptance never outlives it.
  */
 export async function authenticate(db: Queryable, serialHex: string, subjectCabinetId: string): Promise<(AuthenticatedCabinet & { notAfter: Date }) | null> {
-  if (!/^[0-9A-F]{2,64}$/.test(serialHex)) return null;
+  if (typeof serialHex !== "string" || !CERTIFICATE_SERIAL.test(serialHex)) return null;
   const row = (await db.query<{ cabinet_id: string; first_use: number; not_after: Date }>(
     `SELECT c.cabinet_id, CASE WHEN c.first_used_at IS NULL THEN 1 ELSE 0 END AS first_use, c.not_after FROM cabinet_certificates c JOIN cabinets k ON k.id = c.cabinet_id
       WHERE c.serial = $1 AND c.revoked_at IS NULL AND c.not_after > SYSUTCDATETIME() AND k.status = 'active'`, [serialHex], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
@@ -169,9 +176,6 @@ export async function renewCertificate(pool: Pool, key: IssuingKey, cabinet: Aut
     return issued;
   });
 }
-
-/** A certificate serial as x509.ts gives it: upper-case hex, at most 20 bytes (RFC 5280). */
-const CERTIFICATE_SERIAL = /^[0-9A-F]{1,40}$/;
 
 /**
  * Records the certificate just issued to a cabinet at enrollment (F21.R2, decision-log D87). Enrollment calls it in the transaction
