@@ -163,6 +163,33 @@ row that was listed as missing for months is fully built (26). With the three de
 **12 items of real work, seven of them whole** — and every one of the seven missing has a named file, a named operation
 and a stated reason, so a builder can start on any of them without another survey.
 
+## Marco's decisions, 2026-11-15 (late) — and the deadline
+
+**The correlation view is an item, and it is not the engine.** Marco's ask: "not 20 different alerts, but how many sites
+and cabinets are affected, any commonalities, common errors, if an error occurs is it tied to anything — like a proper
+system." The engine underneath exists (`crashes.ts` affected-against-unaffected, `crash-clusters.ts`,
+`fleet-patterns.ts`), and what is missing is the aggregation on top of it: one incident, the number of sites and
+cabinets it touches, the attributes they share, the errors that accompany it, and what it is tied to — shown as one
+thing rather than a list of per-cabinet alerts that an operator has to join by hand. New item **#27**.
+
+**BIOS/firmware flashing: reopened by the owner.** Marco flashes firmware over remote access today and wants it here,
+which overrides the written exclusion in `0029_firmware_drift.sql:3` and `15-baselines-and-config.md:85`. It gets built
+under the write rules, not beside them: signed package, allowlisted model, role-gated, an explicit confirmation naming
+the cabinet, one cabinet at a time, and verification by re-reading the version after the reboot. Item #25 moves from
+"missing, by design" to "approved to build". Marco also asked for re-imaging the operating system where needed; that is
+bigger than a flash and needs its own spec before it becomes an item.
+
+**A second branch, off main, for an agent tunnel.** Marco's words: after the whole project is complete, a branch that
+carries all of main plus one extra feature — the ability to use the agents as a tunnel onto the machine, so an operator
+can investigate a cabinet that is misbehaving (his example: working out how to read the DigitalPersona service
+properly). Recorded here as a planned branch, deliberately **not** on main: an agent tunnel is a remote execution path
+into a live cabinet, so it stays opt-in, audited, and out of the released agent.
+
+**The deadline that reorders everything: a satellite site and a sink cabinet this week.** Deployment comes before new
+features. So, ahead of everything above: the two audit ship items (#5, a rollout that ends while targets are offline
+leaves them pending forever, and #7, cancelling freezes the console), and the real-hardware run that proves the agent's
+reads and writes on Windows at both architectures. Everything else waits behind those.
+
 ## Roadmap phases (reviewed against the code on 2026-11-03)
 
 This review was made at `771267d`, after PRs #135 to #140, before the brief's findings, which the table at the bottom tracks. Every line
