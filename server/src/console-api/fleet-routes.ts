@@ -7,6 +7,7 @@ import { setNetworkBaseline } from "../services/network-baseline.js";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { audit, transaction } from "../db/db.js";
+import { setCurrentCabinet } from "../auth/sessions.js";
 import { commandRecord } from "../services/commands.js";
 import { issueFromConsole } from "../services/console-commands.js";
 import { Refused } from "../services/errors.js";
@@ -49,7 +50,7 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const detail = await fleet.cabinet(o.pool, cabinetId);
     if (!detail) throw new Refused("not_found", 404, "no such cabinet");
     await transaction(o.pool, async c => {
-      await c.query("UPDATE sessions SET current_cabinet = $2 WHERE id_hash = $1", [u.sessionHash, cabinetId]);
+      await setCurrentCabinet(c, u.sessionHash, cabinetId);
       await audit(c, { actorKind: "user", actorId: u.userId, action: "cabinet.view", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded" });
     });
     return detail;
