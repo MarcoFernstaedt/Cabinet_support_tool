@@ -56,7 +56,10 @@ That is about 16 to 24 PRs. The [build program](../build-program-2026-11-14.md) 
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
-- **The agent cannot be built in this environment** (NuGet's NU3018 behind the HTTPS-only proxy). This blocks:
+- **The agent's build is no longer what blocks this.** The NU3018 restore failure is gone, so
+  `dotnet build agent/Cabinet.Agent.sln -c Release -p:EnableWindowsTargeting=true` runs on this host and the gate does it, and
+  `Publish-CabinetAgent.ps1` published win-x64 and win-x86 here: `new-agent-release.py` signed and packaged release `0.1.1` for both on
+  2026-11-15. What is still missing is real Windows to verify against, which is what holds:
   - F2's agent side;
   - F9;
   - F10 to F12's samplers;
@@ -68,11 +71,12 @@ That is about 16 to 24 PRs. The [build program](../build-program-2026-11-14.md) 
   - F20's update source;
   - the crash fields decided in D30.
 
-  It is unblocked by building the agent where NuGet is reachable: the owner's Windows machine, or CI once GitHub Actions run again.
-  The owner's host built it at `91d64d3` on 2026-11-14 (`dotnet build agent/Cabinet.Agent.sln -c Release`: 0 warnings, 0 errors,
-  `net10.0-windows`), reported there; it was not run here.
+  Their Windows-only tests — the event log, services, WMI — cannot run on this host, and an upgrade can only be observed end to
+  end on a real cabinet.
 - **Outside the code:**
-  - F1.R1, the release-signing certificate (gate 1);
+  - F1.R1 is settled without a purchase: the pinned publisher root is our own internal CA, the installer installs it, and the release
+    key is the operator's (`docs/platform/agent-release-signing.md`). What is left is one observed upgrade on a real cabinet, and
+    Windows accepting the installed root;
   - F5, a real cabinet's driver signer;
   - F20's smoke test per build family, which needs real cabinets of each family;
   - gates 2 to 6 below.
@@ -495,7 +499,7 @@ platform-authored write attribution worked. Its findings:
 ## How many PRs were left at the 2026-11-03 review (superseded)
 
 **Superseded by the count at the top of this page.** The brief of 2026-11-07 re-cut this work into findings. Most of the phase lines
-below became findings, and most of those are agent-side and blocked here. The estimate is kept as it was made.
+below became findings, and most of those are agent-side, waiting on a real Windows cabinet. The estimate is kept as it was made.
 
 At that review: **about 55 to 60 PRs** at the size PRs have been so far (one feature or fix each, with its tests). This is **worked out** from the
 "not built" and "partly built" lines above, one PR per line and two to four for each engine half; it is not a measurement, and it
@@ -628,10 +632,10 @@ changes it with the behaviour.
 
 | # | Work | Findings | State |
 |---|---|---|---|
-| 0 | Production trust: publisher pinned, approved-list keys, a signing pipeline that cannot emit unsigned binaries, one observed upgrade | F1 | Open. R1, the pinned certificate, needs the release-signing purchase (gate 1). R3 and R4 are code. |
-| 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | F3 done (D31). F4: automatic transitions audited (#174); every other automatic close, the fleet job end, the command expiry off the poll, and the sweep test that no state change skips the audit (#176, D32). F2: the server side was already met; the agent side is blocked, as the agent cannot be built here |
-| 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33); the Differences view by role and by baseline level (R3); watched services from the role baseline (R4, D34). Open: process and task expectations, with expected processes and drivers. F9 is agent work, blocked here |
-| 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). A site installer as a fleet install script a remote management tool runs as SYSTEM (D57). Open: running it on a real cabinet, with the agent build |
+| 0 | Production trust: publisher pinned, approved-list keys, a signing pipeline that cannot emit unsigned binaries, one observed upgrade | F1 | R1 and R2 are met without a purchase: the pinned publisher root is ours and `agent/install/new-agent-release.py` signs and packages a release. R3 and R4 are code, both installers pinning the root before importing it. Open: one observed upgrade on a real cabinet, and Windows accepting the installed root. |
+| 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | F3 done (D31). F4: automatic transitions audited (#174); every other automatic close, the fleet job end, the command expiry off the poll, and the sweep test that no state change skips the audit (#176, D32). F2: the server side was already met; the agent side is unverified, waiting on a real Windows cabinet |
+| 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33); the Differences view by role and by baseline level (R3); watched services from the role baseline (R4, D34). Open: process and task expectations, with expected processes and drivers. F9 is agent work, waiting on a real Windows cabinet |
+| 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). A site installer as a fleet install script a remote management tool runs as SYSTEM (D57). Open: running it on a real cabinet |
 | 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled (audit-network item 7, server half). Open: the rest, most of it agent-side samplers |
 | 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42); R4 one route, ranked by closeness to the problem (D44); R5 nothing to compare always says why (D45). Done |
 | 6 | Service dependencies, start order, recovery actions | F14 | R3 a service set to restart the computer is shown and alerted (D43). Open: R1 dependencies and R3 in stored configuration, R2 the blocking dependency named (agent build) |

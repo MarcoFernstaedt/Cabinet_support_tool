@@ -161,6 +161,27 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell: right-click Windows PowerShell (or PowerShell 7) and choose Run as administrator, then run the same command again.' }
 
+# Offline publisher root, independently pinned before either machine store is opened.
+$publisherRoot = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList (,[Convert]::FromBase64String('MIIBrDCCAVKgAwIBAgIIaEd3FpmQnL0wCgYIKoZIzj0EAwIwOjEUMBIGA1UEChMLTWFzaHVyYSBMTEMxIjAgBgNVBAMTGU1hc2h1cmEgQ29kZSBTaWduaW5nIFJvb3QwHhcNMjYxMTA3MTcwODAwWhcNMzYxMTA3MTcwODAwWjA6MRQwEgYDVQQKEwtNYXNodXJhIExMQzEiMCAGA1UEAxMZTWFzaHVyYSBDb2RlIFNpZ25pbmcgUm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBWdrLIalTuwCjLcue3C8LTXFNRBBfdDwBcsMWI77yICUV3vn7FnpvCKp6Z8ALGx+VpG1P3bQbf7QpUQHi0g7yqjQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQN8OvKy8wSy4ikw9gpL7O55DxbiDAKBggqhkjOPQQDAgNIADBFAiAHHj7V24k++uWj18nGMQd8L9OS4sDqwh3H8euqBZBOhgIhAODH1r0xH3GeOBc3D1EQJj7LkhqPVf/kRAlpEgrXZvXQ'))
+$publisherHash = [Security.Cryptography.SHA256]::Create()
+try {
+    $publisherSha = ([BitConverter]::ToString($publisherHash.ComputeHash($publisherRoot.RawData))).Replace('-', '').ToLowerInvariant()
+} finally { $publisherHash.Dispose() }
+if ($publisherSha -ne '3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b') {
+    throw 'The publisher root does not match the pinned SHA-256. Obtain the original installer from support.'
+}
+try {
+    foreach ($storeName in 'Root', 'TrustedPublisher') {
+        $store = New-Object Security.Cryptography.X509Certificates.X509Store -ArgumentList $storeName, 'LocalMachine'
+        try {
+            $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            if (-not ($store.Certificates | Where-Object { [Convert]::ToBase64String($_.RawData) -eq [Convert]::ToBase64String($publisherRoot.RawData) })) {
+                $store.Add($publisherRoot)
+            }
+        } finally { $store.Close() }
+    }
+} finally { $publisherRoot.Dispose() }
+
 # The default source folder, resolved where $PSScriptRoot and $PSCommandPath are certainly set (see the note on the
 # parameter): the same command then works whether it is typed in a window, run with -File, or run with -Command, on
 # Windows PowerShell 5.1 and on PowerShell 7.
