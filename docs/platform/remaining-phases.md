@@ -1,6 +1,6 @@
 # What is left, and what each part contains
 
-## Where it stands (2026-11-09, after #233)
+## Where it stands (2026-11-14, at `6890466`, after #266)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
 [at the bottom of this page](#the-build-specs-findings-f1-to-f23-added-2026-11-07). That table is the count.
@@ -12,7 +12,21 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F17: all five requirements, D50 to D54.
 - F18.R1 and R2.
 - F19.R7.
-- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67), `notifications` (#226, D68), `issue_types` (#227, D69), `sign_ins` and `user_devices` (#228, D70) through their owners, the expired sessions and step-up tokens pruned by theirs (#229, D71), old command results and firewall history by commands.ts (#230, D72), finished fleet jobs by fleet-jobs.ts (#231, D73), five more sweeps by their owners (#232, D74), and events and alerts by theirs (#233, D75), and the ownership reader now sees writes with a row limit (#224).
+- F21.R1. F21.R2: table ownership written down and enforced as a ratchet (D56); the paydown so far: `fleet_patterns` (#223, D65), `config_changes` (#224, D66), `enrollment_baselines` (#225, D67), `notifications` (#226, D68), `issue_types` (#227, D69), `sign_ins` and `user_devices` (#228, D70) through their owners, the expired sessions and step-up tokens pruned by theirs (#229, D71), old command results and firewall history by commands.ts (#230, D72), finished fleet jobs by fleet-jobs.ts (#231, D73), five more sweeps by their owners (#232, D74), events and alerts by theirs (#233, D75), old notifications by db.ts (#234, D76), old drive and load samples by drives.ts and cabinets.ts (#235, D77), and an unused second load-sample writer removed (#236, D78); and the ownership reader now sees writes with a row limit (#224).
+- Fleet operations, from the 2026-11-13 fleet audit: a job stops when its starter loses the role it needs (#243); the confirmation is
+  bound to the plan it previewed, and a plan that changed is refused as `preview_changed` (#245); every job has one lifecycle owner
+  through its own lease (#246); unfinished jobs, cancelled ones included, keep being recovered, not only at startup (#263, #264);
+  every cabinet in a batch has its own answer budget, and a cabinet known to be offline settles at once with its command withdrawn
+  (#265); the fleet cabinet list keeps its limit on screen (#266).
+- From the 2026-11-13 real-machine run: the broker refused three reads it is registered to serve, which stopped every install since
+  2026-11-03 (#239); a process ID was refused when Windows spelled the name differently (#240); the 32-bit agent can be installed on a
+  64-bit machine on purpose, for testing (#241).
+- Accounts: the username rule at creation and rename (#244); the code gets you into the platform and is not asked for again on every
+  write (#242); the console explains `setup_required` (#247).
+- Deployment: a backup that runs on SQL Server Express, and an environment layer that can move (#238).
+- The intermittent cabinet System panel test: the browser tests' sign-in helper returned before sign-in finished (#237, D79).
+- Agent dependencies: `System.ServiceProcess.ServiceController`, `System.Management` and `System.Diagnostics.EventLog` 11.0.0, and
+  `Microsoft.NET.Test.Sdk` 18.12.0 (#248 to #262).
 - A network diagnosis settles its baseline alert before it says it is done, found in review of #219 (#222, D64).
 - F21.R3: the cabinets' ingest and the console run apart when asked to (SERVER_ROLES, #218, D60).
 - F21.R4, first view: the kinds of blue screen read through their alerts, 3,861 ms to 11 ms at 10,000 cabinets (#219, D61).
@@ -26,7 +40,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** the browser tests' sign-in helper waits for the code step, which fixes the intermittent cabinet System panel timeout (D79). 98 cross-module writes are left on the debt list.
+**In review:** see the open pull requests. 98 cross-module writes are left on the debt list (`server/src/db/table-owners.ts`).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
@@ -36,8 +50,9 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
+| The rest of the 2026-11-13 fleet audit: a rollout that ends with targets offline leaves them pending (finding 4, `rollouts.ts`); cancelling leaves the job page showing "Cancelled" over cabinets still being verified (finding 6, `FleetOperations.tsx`); a site with more than 200 cabinets shows only the first 200 on its page (`fleet-routes.ts:39`, `Fleet.tsx`). The recovery (ship 3), the answer budget (finding 5) and the fleet list limit landed in #263 to #266. | fleet audit | about 3 |
 
-That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 19 to 27 PRs. The [build program](../build-program-2026-11-14.md) lists the agent-side items 4 to 20 one PR each. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
@@ -54,16 +69,49 @@ That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop 
   - the crash fields decided in D30.
 
   It is unblocked by building the agent where NuGet is reachable: the owner's Windows machine, or CI once GitHub Actions run again.
+  The owner's host built it at `91d64d3` on 2026-11-14 (`dotnet build agent/Cabinet.Agent.sln -c Release`: 0 warnings, 0 errors,
+  `net10.0-windows`), reported there; it was not run here.
 - **Outside the code:**
   - F1.R1, the release-signing certificate (gate 1);
   - F5, a real cabinet's driver signer;
   - F20's smoke test per build family, which needs real cabinets of each family;
   - gates 2 to 6 below.
 - **The owner:** row 12, Windows Update, has to be cut into a finding before it can be built.
-- **CI:** GitHub Actions are on hold for billing. Every PR states the local full run that stands in for it.
+- **CI:** GitHub Actions are on hold for billing, so its checks are red on every PR and say nothing either way. Every PR states the
+  local full run that stands in for it.
+- **Real hardware:** the rest of the write sweep (the service and process writes wait for an approved-programs list on the test
+  machine), and the read and write sweeps on a real 32-bit machine with the 11.0.0 dependencies ([live test](live-test.md)).
 
-So the server-side work left is the scale-out readiness of F21, plus a little of F7. After that, every remaining item waits on an agent
+So the server-side work left is the scale-out readiness of F21, the rest of the fleet audit, plus a little of F7. After that, every remaining item waits on an agent
 build, real cabinets, a purchase or an owner decision. This page lists them so none is quietly dropped.
+
+### What the code has, checked on 2026-11-14
+
+The [roadmap](../spec/13-roadmap.md) is the plan, and its "to build" columns were not kept up as things were built. These were
+checked against the source at `91d64d3`: searched for by name in `agent/src`, `server/src`, `contracts/schemas` and `console/src`, then
+read where something matched. A match proves code exists, not that it works; the suites prove that.
+
+**Not built** (nothing in the source):
+- the boot configuration and WinRE status (module 6);
+- installing Windows updates (`updates.status` only searches, `updates.uninstall` exists), and fleet update compliance (module 7);
+- a process's signer and its parent process, and the service dependency graph (module 2);
+- reading Windows Error Reporting's own report folders (crashes are read from the event log and minidumps instead);
+- packet capture (module 31), on-demand ETW or `wpr` (modules 17, 33), AMT and vPro detection (module 27);
+- an SFC scan and any DISM repair (module 33);
+- the site readiness checklist (module 38), and the daily health snapshot and exception reports (modules 12, 44);
+- per-model fingerprint scanner profiles (the scanner is watched; the console tells a scanner apart by name only);
+- reading and changing machine environment variables (module 23).
+
+**Built, though easy to take for gaps:**
+- the route table and the ARP table: both in `network.config` (`routes`, `neighbors`; `agent/src/Cabinet.Agent.Windows/NetworkExtras.cs`),
+  and the network diagnosis reads the gateway's ARP entry (`server/src/diagnose/network-observations.ts`);
+- each volume's health: `storage.health` reads `MSFT_Volume` `HealthStatus` and the dirty bit;
+- the component store check: `system.checkHealth` runs `DISM /CheckHealth`, read only;
+- the trace: `network.trace`; scheduled tasks: read with the startup items in `startup.list`
+  (`MSFT_ScheduledTask`, `agent/src/Cabinet.Agent.Windows/InventoryOperations.cs`).
+
+**Counts:** 56 operations in the catalogue (`contracts/schemas/operations/catalog.json`), 33 migrations, 173 server and 28 console test
+files, 7 agent projects.
 
 ## Roadmap phases (reviewed against the code on 2026-11-03)
 

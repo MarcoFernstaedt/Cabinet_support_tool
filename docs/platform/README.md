@@ -6,7 +6,8 @@ how it is run, what was decided, and what is left.
 ## Read these first
 
 - [remaining-phases.md](remaining-phases.md): **what is left, counted.** The top of the page has the current count: what is done,
-  what can still be built here, and what is blocked and on what. This is the one place the count lives.
+  what can still be built here, and what is blocked and on what. This is the one place the count lives. The spec's
+  [roadmap](../spec/13-roadmap.md) is the plan, not the status: read the code or this page before taking a "to build" there as unbuilt.
 - [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost. Newest first, for
   the end-of-project review.
 - [fleet-install.md](fleet-install.md): installing the agent on a site's cabinets from a remote management tool.
@@ -26,7 +27,8 @@ how it is run, what was decided, and what is left.
 - [performance.md](performance.md): sizing and the load test.
 - [windows-coverage-review.md](windows-coverage-review.md): what the platform reads on Windows, and what is missing.
 - [cost.md](cost.md): what running this costs.
-- [live-test.md](live-test.md): the test to run on a real cabinet, and what the 2026-10-25 real-machine test found.
+- [live-test.md](live-test.md): the test to run on a real cabinet, and what the real-machine runs found: read-only on 2026-10-25,
+  the write sweep and the 32-bit package on a 64-bit machine on 2026-11-13.
 
 ## Research
 
