@@ -171,7 +171,8 @@ test("a staged rollout: one cabinet, then the office, then about 5 percent, then
   // Batch 3: both succeed; then batch 4.
   for (const t of (await rolloutTargets(db.app, id)).filter(t => t.batch === 3)) { await offerFor(db.app, t.cabinetId, "0.1.0"); await report(t.cabinetId, "0.3.0", "succeeded"); }
   assert.equal((await rolloutOf(id)).currentBatch, 4);
-  // Batch 4: 37 succeed and one stays offline for the whole batch. 37 of 37 counted is 100%: complete, the offline one skipped later.
+  // Batch 4: 37 succeed and one stays offline for the whole batch. 37 of 37 counted is 100%: complete, and the offline one is closed as
+  // skipped at completion (D80).
   const last = (await rolloutTargets(db.app, id)).filter(t => t.batch === 4);
   const offline = last.find(t => t.cabinet !== "unknown")!;
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -2, SYSUTCDATETIME()) WHERE id = $1", [offline.cabinetId]);
@@ -179,6 +180,7 @@ test("a staged rollout: one cabinet, then the office, then about 5 percent, then
   const done = await rolloutOf(id);
   assert.equal(done.state, "completed");
   assert.deepEqual(done.batches.map(b => [b.batch, b.total, b.succeeded]), [[1, 1, 1], [2, 2, 2], [3, 2, 2], [4, 38, 37]]);
+  assert.deepEqual([(await targetOf(id, offline.cabinetId)).state, (await targetOf(id, offline.cabinetId)).outcome], ["skipped", "offline"]);
   // A report for a version nobody offered is not taken.
   assert.equal(await report(ids.current!, "0.9.0", "succeeded"), false);
   const audited = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [id])).rows.map(r => r.action);
@@ -522,4 +524,50 @@ test("a rollout offers its release only to cabinets that can run it, counts the 
   assert.equal(await releaseForAgent(db.app, ids["x86-office"]!, "0.9.7"), null);
   assert.equal(await releasePackageForAgent(db.app, store, ids["x86-office"]!, "0.9.7"), null);
   await changeRollout(db.app, admin, x64Run, "stop", null);
+});
+
+test("a rollout completes only once the offers of every batch it reached have an outcome, and closes every target still pending, offline or not", async () => {
+  // Fleet audit finding 4, decision-log D80: completion looked only at the last batch, so an earlier batch's open offer and every pending
+  // target, offline or not, were left pending or offered for good once the rollout had completed.
+  const r = makeRelease(key, "0.9.8");
+  await ready(r);
+  const ids = await fleet([{ name: "pilot", version: "0.1.0" }, { name: "office-1", version: "0.1.0", inOffice: true }, { name: "office-2", version: "0.1.0", inOffice: true },
+    { name: "office-3", version: "0.1.0", inOffice: true, online: false }, ...Array.from({ length: 4 }, (_, i) => ({ name: `field-${i}`, version: "0.1.0" }))]);
+  const id = await startRollout(db.app, admin, { version: "0.9.8", architecture: X64, pilotCabinetId: ids.pilot!, successRatePercent: 50, failureLimitPercent: 50 }, null);
+  const upgrade = async (cabinet: string) => { assert.equal(await offerFor(db.app, cabinet, "0.1.0"), "0.9.8"); assert.equal(await report(cabinet, "0.9.8", "succeeded"), true); };
+  await upgrade(ids.pilot!);
+  // Batch 2: one upgrades, one takes the offer and has not reported yet, one is offline. 1 of the 2 counted is the 50% rate: batch 3 starts.
+  await upgrade(ids["office-1"]!);
+  assert.equal(await offerFor(db.app, ids["office-2"]!, "0.1.0"), "0.9.8");
+  assert.equal((await rolloutOf(id)).currentBatch, 3);
+  const inBatch = async (b: number) => (await rolloutTargets(db.app, id)).filter(t => t.batch === b);
+  for (const t of await inBatch(3)) await upgrade(t.cabinetId);
+  assert.equal((await rolloutOf(id)).currentBatch, 4);
+  // The last batch: one offline, one online that never takes the offer, the rest upgrade; every one counted succeeds.
+  const last = await inBatch(4);
+  assert.equal(last.length, 3);
+  const [quiet, idle, ...rest] = last;
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = DATEADD(hour, -2, SYSUTCDATETIME()) WHERE id = $1", [quiet!.cabinetId]);
+  for (const t of rest) await upgrade(t.cabinetId);
+  await checkRollouts(db.app);
+  void idle;
+  assert.equal((await rolloutOf(id)).state, "running", "batch 2's open offer is waited for");
+  // That offer times out after 30 minutes (a failure in batch 2): now the rollout completes.
+  await db.app.query("UPDATE rollout_targets SET offered_at = DATEADD(minute, -31, SYSUTCDATETIME()) WHERE rollout_id = $1 AND cabinet_id = $2", [id, ids["office-2"]]);
+  await checkRollouts(db.app);
+  const done = await rolloutOf(id);
+  assert.equal(done.state, "completed");
+  const targets = await rolloutTargets(db.app, id);
+  assert.deepEqual(targets.filter(t => t.state === "pending" || t.state === "offered"), [], "nothing is left waiting");
+  const of = (cabinet: string) => targets.find(t => t.cabinetId === cabinet)!;
+  assert.deepEqual([of(ids["office-2"]!).state, of(ids["office-2"]!).outcome], ["failed", "timed_out"]);
+  for (const cabinet of [ids["office-3"]!, quiet!.cabinetId]) assert.deepEqual([of(cabinet).state, of(cabinet).outcome], ["skipped", "offline"]);
+  assert.deepEqual([of(idle!.cabinetId).state, of(idle!.cabinetId).outcome], ["skipped", null]);
+  assert.ok(of(idle!.cabinetId).message, "a cabinet skipped with no outcome still says why");
+  const complete = (await db.app.query<{ details: { closedOffline: number; closedNotReached: number } }>(
+    "SELECT details FROM audit_log WHERE target_id = $1 AND action = 'rollout.complete'", [id])).rows;
+  assert.deepEqual(complete.map(c => [c.details.closedOffline, c.details.closedNotReached]), [[2, 1]], "completed once, saying what it closed");
+  // Completed is final: a cabinet that comes back is not offered the version.
+  await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME() WHERE id = $1", [ids["office-3"]]);
+  assert.equal(await offerFor(db.app, ids["office-3"]!, "0.1.0"), null);
 });

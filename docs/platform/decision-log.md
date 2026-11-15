@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D80. A rollout completes only with every offer answered, and closes every target still waiting (2026-11-14)
+
+**What the code did** (`server/src/services/rollouts.ts`, `evaluate`, at `91d64d3`; finding 4 of the 2026-11-13 fleet audit):
+- **A batch advances on its success rate.** Offline cabinets are not counted, so a batch can move on with targets still `pending`
+  (offline, or online but not yet offered) and with offers still open.
+- **Completion looked at the last batch only:** its rate, and `offered === 0` in that batch.
+- **Nothing reached the earlier batches afterwards.** The 24-hour offline skip applies to the current batch only, and the 30-minute
+  timeout in `checkRollouts` only to running or paused rollouts.
+- **The result:** once a rollout completed, every earlier-batch target still `pending` or `offered`, and every offline target in the
+  last batch, kept that state for good. A completed rollout offers nothing, so they could never move. The existing staged-rollout test
+  said as much: "complete, the offline one skipped later".
+
+**The decision** (no migration: `skipped` and the `offline` outcome already exist):
+- **Completion also waits for any offer still open in an earlier batch.** It gets its outcome, or times out after 30 minutes as before.
+- **At completion, in the same transaction, every target still `pending`, in any batch, is closed as `skipped`.** The outcome is
+  `offline` with "Offline when the rollout completed: not upgraded." when the cabinet was out of contact. Otherwise there is no outcome,
+  with "The rollout completed before this cabinet took the version."
+- **The `rollout.complete` audit entry counts both** (`closedOffline`, `closedNotReached`).
+- **The Upgrades screen tells the two kinds apart** (review of #268). It called every skipped cabinet "Skipped (offline)", true until
+  now, and showed a target's message only when it had an outcome. `console/src/lib/rollout-target.ts` now gives "Skipped (offline)"
+  for outcome `offline` and "Skipped (not reached)" otherwise, and shows the message of a cabinet skipped with no outcome. The
+  screen's state filter calls the option "Skipped".
+- **Unchanged:** stopping a rollout, which an Admin does on purpose and which leaves its targets as they were; the batch rules; the
+  thresholds; and the offer to a cabinet that comes back while the rollout still runs.
+
+**Proof** (`server/test/upgrades.test.ts`):
+- **New test.** It runs at a 50% rate, so batch 2 advances with one target offered and one offline. The last batch has one offline, one
+  online that never takes the offer, and one that upgrades. Then:
+  - the rollout stays running until batch 2's offer times out;
+  - it completes, with nothing pending or offered;
+  - the two offline cabinets are skipped as `offline`, and the idle one is skipped with no outcome;
+  - `rollout.complete` is written once with 2 and 1;
+  - a cabinet that comes back afterwards is offered nothing.
+- **Red check:** with `rollouts.ts` as on main, the new test fails.
+- **The staged-rollout test** now also asserts that its offline cabinet ends `skipped` / `offline`, and its comment says so. No
+  existing assertion was changed.
+- `upgrades.test.ts` passes 11 of 11, with two real-agent tests skipped, and `audit-sweep.test.ts` passes 5 of 5.
+
+---
+
 ## D79. The browser tests' sign-in helper returns only once the sign-in is complete (2026-11-10)
 
 **What the code did:** `signInAs` in `server/test/browser-console.ts` filled in the code step, clicked Continue and returned. It did not
