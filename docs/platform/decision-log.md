@@ -6,6 +6,51 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D90. Every write to diagnoses goes through diagnose/diagnoses.ts, the table's new owner (2026-11-15)
+
+**What the code did** (at `74ac54f`; an entry on the ownership debt list, F21.R2):
+- **Two writers of one table.** `diagnose/cabinet.ts` owned `diagnoses` and wrote its own runs, and kept the retention delete.
+  `diagnose/network.ts` wrote its own runs with six statements of its own: the start, the full command list, done, failed, and two
+  inserts for batch members that never ran (offline, or could not start).
+- **Why it stayed on the list.** `cabinet.ts` imports `network.ts` (`beginDiagnosis`, `waitFor`). Moving network's writes into `cabinet.ts`
+  would make `network.ts` import it back, a cycle.
+
+**The decision:**
+- **A store below both.** `server/src/diagnose/diagnoses.ts` holds every write to the table and becomes its owner in `table-owners.ts`:
+  - `startDiagnosis`: a running diagnosis of either kind, with its first commands and its batch, if any.
+  - `recordDiagnosisCommands`: the full command list once all are issued.
+  - `finishDiagnosis` and `failDiagnosis`: done with findings and readings, or failed with the sentence the console shows.
+  - `recordUnstartedDiagnosis`: a batch member that never ran, stored finished as offline or failed.
+  - `pruneOldDiagnoses`: the retention delete, moved unchanged from `cabinet.ts`. `maintenance.ts` and `owner-retention.test.ts` import it
+    from the new file.
+- **The statements are the ones the callers ran.** No `WHERE` clause changed, and each caller keeps its `.catch(() => undefined)` where it
+  had one. A command's label and params are still not stored: only key, operation and command id, as both callers wrote them.
+- **Input check, before the database is touched:**
+  - every id must be an id, the kind network or cabinet, and an unstarted state offline or failed;
+  - a command list holds at most 200 commands, each with a key and an operation of 1 to 64 characters and a command id;
+  - findings must be a list, and readings must be given;
+  - a failure is 1 to 1,000 characters, not blank, with no control characters other than tab and line feed.
+- **The audit sweep** lists the done and failed updates under the new file with the same reason as before: a read-only diagnosis's
+  progress, whose every read is audited as `command.issue`.
+- **Debt list:** the `diagnose/network.ts` entry for `diagnoses` comes off, which leaves 91.
+- **Not changed here:** `failDiagnosis` can still overwrite a diagnosis that is already done, because `run` marks it done and then counts
+  known fixes, and a failure in that count reaches the failure handler. Whether a done diagnosis may become failed is a behaviour question,
+  not part of moving the writes.
+
+**Proof** (`server/test/diagnosis-writes.test.ts`, four tests):
+- **A run:** started with its first commands and batch, then all its commands, then done with findings and readings. A cabinet run with no
+  batch fails with its sentence.
+- **Unstarted members:** offline and failed members are stored finished in their batch.
+- **Rollback:** a start in a transaction that rolls back leaves nothing.
+- **Bad input:** bad ids, kinds, command lists, findings, failures and states are refused through a connection that fails the test if it
+  is used, so each refusal comes from the check. Nothing is stored.
+- **Red checks** (`diagnosis-writes`, `table-ownership`, `audit-sweep`, `import-cycles`; 16 tests):
+  - With `network.ts` as on main, `table-ownership.test.ts` and `audit-sweep.test.ts` fail.
+  - With the failure check disabled (`false && …`), the bad-input test fails.
+  - Restored and `cmp` identical, 16 of 16 pass.
+
+---
+
 ## D89. Every place that checks a certificate serial uses one rule, the table's: upper-case hex, 2 to 64 digits (2026-11-15)
 
 **What the code did** (at `41e30e7`):

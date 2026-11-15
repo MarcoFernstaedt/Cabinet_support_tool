@@ -4,7 +4,7 @@
 import { randomUUID } from "node:crypto";
 import type { DatabaseConnectivityOutput, FirewallStateOutput, NetworkConfigOutput, NetworkTestOutput, NetworkTraceOutput } from "@mashura/cabinet-contracts/types";
 import type { Role } from "../services/console-commands.js";
-import { safeJson, type Pool } from "../db/db.js";
+import type { Pool } from "../db/db.js";
 import { issueFromConsole } from "../services/console-commands.js";
 import { cabinetPolicy, switchesFor } from "../services/firewall-policy.js";
 import { syncForCabinet } from "../services/device-settings.js";
@@ -19,6 +19,7 @@ import type { TraceRun } from "./network-observations.js";
 import { networkModule, runNetworkModule } from "./network-module.js";
 import { networkOutcome, recordCheck } from "../services/diagnosis-incidents.js";
 import { SQL_SERVER_PORT, type DatabaseRun } from "./sql-findings.js";
+import { failDiagnosis, finishDiagnosis, recordDiagnosisCommands, recordUnstartedDiagnosis, startDiagnosis } from "./diagnoses.js";
 
 /**
  * How long a diagnosis waits for its reads (docs/platform/decision-log.md, D11). The wait ends as soon as every read has answered, so a
@@ -109,8 +110,7 @@ export async function beginDiagnosis(pool: Pool, user: { userId: string; role: R
   const issue = async (key: string, label: string, operation: string, params: Record<string, unknown>): Promise<Issued> =>
     ({ key, label, operation, params, commandId: (await issueFromConsole(pool, user, cabinetId, operation, params)).commandId });
   const first = [await issue("config", "Network settings", "network.config", {}), await issue("firewall", "Firewall", "firewall.state", {})];
-  await pool.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, commands, batch_id) VALUES ($1, $2, 'network', $3, 'running', $4, $5)",
-    [id, cabinetId, user.userId, safeJson(first.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId }))), batchId]);
+  await startDiagnosis(pool, { id, cabinetId, kind: "network", runBy: user.userId, commands: first, batchId });
   const done = run(pool, user, cabinetId, { name: k.name, role: k.role }, id, first, issue).then(async findings => {
     // A problem opens (or adds to) the cabinet's network incident and a clean run closes it (D16); never a reason to fail the diagnosis.
     try {
@@ -119,7 +119,7 @@ export async function beginDiagnosis(pool: Pool, user: { userId: string; role: R
     } catch (e) { log(`the network diagnosis could not be recorded on its incident: ${(e as Error).message}`); }
   }, async e => {
     log(`network diagnosis failed: ${(e as Error).message}`);
-    await pool.query("UPDATE diagnoses SET state = 'failed', finished_at = SYSUTCDATETIME(), failure = $2 WHERE id = $1", [id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail."]).catch(() => undefined);
+    await failDiagnosis(pool, id, "The diagnosis stopped because of a server error. Run it again; if it repeats, the server log has the detail.").catch(() => undefined);
   });
   return { id, done };
 }
@@ -142,7 +142,7 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   const databases: Issued[] = [];
   for (const t of plan.databases) databases.push(await issue(t.key, t.label, t.operation, t.params));
   const all = [...first, ...tests, ...traces, ...databases];
-  await pool.query("UPDATE diagnoses SET commands = $2 WHERE id = $1", [id, safeJson(all.map(c => ({ key: c.key, operation: c.operation, commandId: c.commandId })))]);
+  await recordDiagnosisCommands(pool, id, all);
   const results = await waitFor(pool, all.map(c => c.commandId), deadline);
   const outcome = (c: Issued): Outcome => results.get(c.commandId) ?? { status: "no_answer", failure: NO_ANSWER };
   const fw = outcome(first[1]!);
@@ -182,7 +182,7 @@ async function run(pool: Pool, user: { userId: string; role: Role }, cabinetId: 
   // The baseline alert is settled before the diagnosis says it is done, so whoever sees it done (the console, a batch, a test) sees the
   // alert as the diagnosis left it, never the moment between the two.
   await reconcileBaselineAlert(pool, cabinetId, findings, baseline !== null && configOut !== undefined);
-  await pool.query("UPDATE diagnoses SET state = 'done', finished_at = SYSUTCDATETIME(), findings = $2, readings = $3 WHERE id = $1", [id, safeJson(findings), safeJson(readings)]);
+  await finishDiagnosis(pool, id, findings, readings);
   // A problem somebody has already solved here: count that the fix was shown again (the console shows it beside the finding).
   const seen = await fixesForFindings(pool, findings.filter(f => f.severity !== "ok").map(f => f.id));
   await markSeen(pool, [...new Set(Object.values(seen).flat().map(f => f.id))]);
@@ -260,8 +260,7 @@ export async function startNetworkBatch(pool: Pool, user: { userId: string; role
     [batchId, user.userId, label.slice(0, 200), "siteId" in selection ? selection.siteId : null, rows.length, rows.map(r => r.id)]);
   const offline = rows.filter(r => !r.online);
   for (const r of offline)
-    await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'offline', SYSUTCDATETIME(), $4, $5)`,
-      [randomUUID(), r.id, user.userId, "Offline: not heard from in the last 5 minutes, so nothing could be checked.", batchId]);
+    await recordUnstartedDiagnosis(pool, { cabinetId: r.id, runBy: user.userId, state: "offline", failure: "Offline: not heard from in the last 5 minutes, so nothing could be checked.", batchId });
   const queue = rows.filter(r => r.online);
   // At most a few run at once; each is issued as the person who asked, so the audit log shows who looked at which cabinet.
   void (async () => {
@@ -273,8 +272,7 @@ export async function startNetworkBatch(pool: Pool, user: { userId: string; role
         try { await (await beginDiagnosis(pool, user, r.id, r, batchId, log)).done; }
         catch (e) {
           log(`network diagnosis of ${r.name} could not start: ${(e as Error).message}`);
-          await pool.query(`INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at, failure, batch_id) VALUES ($1, $2, 'network', $3, 'failed', SYSUTCDATETIME(), $4, $5)`,
-            [randomUUID(), r.id, user.userId, "The diagnosis could not be started.", batchId]).catch(() => undefined);
+          await recordUnstartedDiagnosis(pool, { cabinetId: r.id, runBy: user.userId, state: "failed", failure: "The diagnosis could not be started.", batchId }).catch(() => undefined);
         }
       }
     };
