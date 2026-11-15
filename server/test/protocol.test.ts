@@ -415,8 +415,17 @@ test("new connections beyond the admission rate get 503 with Retry-After; admitt
       assert.ok(Number(over.headers["retry-after"]) >= 30, "database or event-loop overload keeps 30-90 s");
     } finally { await overloadedApi.app.close(); }
   } finally { await limited.app.close(); }
-  const bucket = new TokenBucket(1000, 2);
-  assert.deepEqual([bucket.take(), bucket.take(), bucket.take()], [true, true, false]);
+  // The bucket on its own. At a refill of 1,000 tokens a second, one millisecond between two takes put a token back, so on a loaded
+  // machine the third take passed: the rate under test here is one token in about 17 minutes, so the 5 ms wait cannot refill it.
+  const bucket = new TokenBucket(0.001, 2);
+  const firstTwo = [bucket.take(), bucket.take()];
+  await new Promise(r => setTimeout(r, 5));
+  assert.deepEqual([...firstTwo, bucket.take()], [true, true, false], "a burst of two, then refused");
+  // And it does refill: a fast bucket that was emptied has a token again after the same 5 ms.
+  const fast = new TokenBucket(1000, 1);
+  assert.deepEqual([fast.take(), fast.take()], [true, false]);
+  await new Promise(r => setTimeout(r, 5));
+  assert.equal(fast.take(), true, "refilled at its rate");
 });
 
 test("a flood of requests without a client certificate does not shed enrolled cabinets, and is limited per source", async () => {
