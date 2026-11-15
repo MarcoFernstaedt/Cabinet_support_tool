@@ -34,9 +34,12 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     return (await fleet.client(o.pool, id(request))) ?? Promise.reject(new Refused("not_found", 404, "no such client"));
   });
 
+  /** A site and one page of its cabinets: `limit` (1 to 500, 200 if left out) from `offset` (D81). */
   app.get("/api/fleet/sites/:id", async request => {
     await o.guards.role(request, "tier1");
-    return (await fleet.site(o.pool, id(request))) ?? Promise.reject(new Refused("not_found", 404, "no such site"));
+    const q = consoleBodies.sitePageQuery.parse(request.query);
+    const page = { ...(q.limit === undefined ? {} : { limit: Number(q.limit) }), ...(q.offset === undefined ? {} : { offset: Number(q.offset) }) };
+    return (await fleet.site(o.pool, id(request), page)) ?? Promise.reject(new Refused("not_found", 404, "no such site"));
   });
 
   /** Opening a cabinet view is recorded in the audit log (docs/spec/06-console-spec.md). */
