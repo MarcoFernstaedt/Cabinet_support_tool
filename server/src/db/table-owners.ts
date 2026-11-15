@@ -56,7 +56,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   baselines: { owner: "services/baselines.ts", also: ["demo/demo.ts"] },
   bootstrap_tokens: { owner: "services/enrollment.ts", also: [] },
   cabinet_boots: { owner: "services/crashes.ts", also: ["demo/demo.ts"] },
-  cabinet_certificates: { owner: "services/cabinets.ts", also: ["services/enrollment.ts", "services/replacement.ts"] },
+  cabinet_certificates: { owner: "services/cabinets.ts", also: [] },
   cabinet_drift: { owner: "services/baseline-drift.ts", also: [] },
   cabinet_health: { owner: "services/cabinet-health.ts", also: [] },
   cabinets: { owner: "services/cabinets.ts", also: ["agent-api/presence.ts", "demo/demo.ts", "services/admin.ts", "services/approved-apps.ts", "services/commands.ts", "services/config-ingest.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/replacement.ts", "services/rollouts.ts", "services/settings.ts", "services/sync-cabinets.ts", "services/watched-services.ts"] },

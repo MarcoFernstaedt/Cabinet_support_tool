@@ -170,6 +170,30 @@ export async function renewCertificate(pool: Pool, key: IssuingKey, cabinet: Aut
   });
 }
 
+/** A certificate serial as x509.ts gives it: upper-case hex, at most 20 bytes (RFC 5280). */
+const CERTIFICATE_SERIAL = /^[0-9A-F]{1,40}$/;
+
+/**
+ * Records the certificate just issued to a cabinet at enrollment (F21.R2, decision-log D87). Enrollment calls it in the transaction
+ * that approves the cabinet. The cabinet id, the serial and the expiry are checked before the database is touched.
+ */
+export async function recordIssuedCertificate(c: Queryable, cabinetId: string, serialHex: string, notAfter: Date): Promise<void> {
+  if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("a cabinet id is required to record its certificate");
+  if (typeof serialHex !== "string" || !CERTIFICATE_SERIAL.test(serialHex)) throw new Error("a certificate serial in upper-case hex is required");
+  if (!(notAfter instanceof Date) || Number.isNaN(notAfter.getTime())) throw new Error("a certificate expiry is required");
+  await c.query("INSERT INTO cabinet_certificates (serial, cabinet_id, not_after) VALUES ($1, $2, $3)", [serialHex, cabinetId, notAfter]);
+}
+
+/**
+ * Revokes every certificate a cabinet still has, so its next connection is refused: when it is revoked, and when it is replaced
+ * (F21.R2, D87). The caller tells the other server processes (REVOCATION_CHANNEL) and audits, in the same transaction. Returns how many
+ * were revoked. The cabinet id is checked before the database is touched.
+ */
+export async function revokeCabinetCertificates(c: Queryable, cabinetId: string): Promise<number> {
+  if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("a cabinet id is required to revoke its certificates");
+  return (await c.query("UPDATE cabinet_certificates SET revoked_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND revoked_at IS NULL", [cabinetId])).rowCount ?? 0;
+}
+
 /** Revokes every certificate of a cabinet and marks it removed. Its next connection is refused. */
 export async function revokeCabinet(pool: Pool, cabinetId: string, userId: string): Promise<void> {
   await transaction(pool, async c => {
@@ -177,7 +201,7 @@ export async function revokeCabinet(pool: Pool, cabinetId: string, userId: strin
     if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active cabinet");
     // A removed sync cabinet's satellites go to the site's only remaining sync cabinet, if there is exactly one; otherwise they wait for an Admin.
     await linkUnassigned(c, r.rows[0]!.site_id);
-    await c.query("UPDATE cabinet_certificates SET revoked_at = SYSUTCDATETIME() WHERE cabinet_id = $1 AND revoked_at IS NULL", [cabinetId]);
+    await revokeCabinetCertificates(c, cabinetId);
     // Every server process forgets the connections it had accepted, so the cabinet's next request is refused at once.
     await notify(c, REVOCATION_CHANNEL, cabinetId);
     await audit(c, { actorKind: "user", actorId: userId, action: "cabinet.revoke", targetKind: "cabinet", targetId: cabinetId, outcome: "succeeded" });
