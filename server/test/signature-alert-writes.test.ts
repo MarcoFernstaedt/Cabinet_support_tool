@@ -35,8 +35,9 @@ test("a retitle sets that alert's title to the latest reading's and touches no o
   await retitleAlert(db.app, id, "Differs from the other 3 standalone cabinets at S: time zone");
   assert.equal((await row(id)).title, "Differs from the other 3 standalone cabinets at S: time zone");
   assert.equal((await row(other)).title, "First title");
+  // The same statement again, with the title the alert already has: its guard ("title <> $2") is in the statement, so a run of
+  // it cannot be told apart from the first one, and nothing is claimed here about it.
   await retitleAlert(db.app, id, "Differs from the other 3 standalone cabinets at S: time zone");
-  assert.equal((await row(id)).title, "Differs from the other 3 standalone cabinets at S: time zone", "the same title again changes nothing");
 });
 
 test("a close resolves the cabinet's unresolved alert of that signature, audited once by the closer, and nothing else", async () => {
