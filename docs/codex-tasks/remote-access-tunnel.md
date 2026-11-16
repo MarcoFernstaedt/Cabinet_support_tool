@@ -5,6 +5,12 @@
 network it is on, to find out why it failed and fix it — and installing an agent is what enables that access. This branch
 becomes the deployed build.
 
+**Revision 5 (2026-11-16).** Revision 4 ran and got further: the server build passed, the console build passed, and the
+console suite ran 32/32, but it stopped **before implementing** because `dotnet build agent/Cabinet.Agent.sln -c Release`
+answered `dotnet: command not found`. The SDK is at `/home/marco/.dotnet` and off the default PATH. The Environment
+section below now carries the exact export, verified by running that build here. No code was written and the tree was left
+clean, so nothing has to be un-done.
+
 **Revision 4 (2026-11-16).** Revision 3's rule "Do not create any file outside the ones the task names" was read —
 correctly — as banning `contracts/schemas/operations/session.open.schema.json`, which item 2 cannot be built without:
 `server/src/contracts.ts:326` builds every operation's validator from `operations/<name>.schema.json`, and
@@ -48,6 +54,16 @@ Everything else below was checked before revision 2 was committed: `docs/spec/02
 sentence; `server/src/agent-api/server.ts` serves `GET /agent/v1/commands` (lines 389, 616), `POST /agent/v1/results`
 (442, 656), `POST /agent/v1/heartbeat` (661) and `POST /agent/v1/events` (612); `console/src/pages/cabinet/` exists; the
 suite commands quoted under "Rules" are the repository's own (`server/package.json:12`, `console/package.json:11`).
+
+## Environment, verified before this revision (2026-11-16)
+
+- **`dotnet` is not on the default PATH on this machine.** It lives at `/home/marco/.dotnet`, so put it there first:
+  `export PATH=$HOME/.dotnet:$PATH`. With that export, `dotnet build agent/Cabinet.Agent.sln -c Release` succeeds on this
+  tree (run here: 0 warnings, 0 errors, 47s). Without it the command is `dotnet: command not found` (exit 127), and a run
+  that checks the build before implementing stops before writing anything.
+- SQL Server for the server suite listens on `127.0.0.1:11433`; export `TEST_DATABASE_ADMIN_URL` as the suite requires
+  before running it.
+- A missing binary is this section's PATH line, not the brief being wrong. Do not stop on it: export and carry on.
 
 ## What must be true of the design
 
