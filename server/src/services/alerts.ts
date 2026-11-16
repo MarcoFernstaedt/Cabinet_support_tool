@@ -798,6 +798,34 @@ export async function closeAlertById(db: Queryable, by: string, alertId: string,
     [alertId, resolution]);
 }
 
+/** At most this many alerts are closed by one site-outage statement, each id one parameter; the caller closes a larger set in slices. */
+export const SITE_OUTAGE_CLOSE_SLICE = 500;
+
+/**
+ * Closes site-outage alerts by id where the alert's site has an active cabinet heard from within `liveWithinSeconds` (F21.R2, decision-log
+ * D99). The statement is the one site-outage.ts ran. The site's liveness is checked again in the statement itself: between the caller's
+ * snapshot read and this close a heartbeat can have arrived or gone stale, and an alert about a site that is not live again stays open.
+ * Audited as alert.resolve by `by` through closeAutomatically, in the caller's transaction or a new one. The closer, every id, the window
+ * and the resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeSiteOutageAlerts(db: Queryable, by: string, alertIds: readonly string[], liveWithinSeconds: number, resolution: string): Promise<{ id: string; cabinetId: string }[]> {
+  if (typeof by !== "string" || !CLOSER.test(by)) throw new Error("an alert closer is a lower-case name of 1 to 64 letters, digits and hyphens");
+  if (!Array.isArray(alertIds) || alertIds.length === 0 || alertIds.length > SITE_OUTAGE_CLOSE_SLICE || !alertIds.every(id => typeof id === "string" && ALERT_ID.test(id)))
+    throw new Error(`1 to ${SITE_OUTAGE_CLOSE_SLICE} alert ids are required to close site-outage alerts`);
+  if (!Number.isInteger(liveWithinSeconds) || liveWithinSeconds < 1 || liveWithinSeconds > 86_400)
+    throw new Error("the window a site must have been heard from in is 1 to 86400 whole seconds");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  const n = alertIds.length;
+  // Only the placeholders are composed, from the count; every value is a parameter.
+  const ids = alertIds.map((_, i) => `$${i + 1}`).join(", ");
+  return closeAutomatically(db, by, `UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $${n + 2} ${CLOSED_OUTPUT}
+       FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
+      WHERE a.state <> 'resolved' AND a.id IN (${ids})
+        AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$${n + 1}, SYSUTCDATETIME()))`,
+    [...alertIds, liveWithinSeconds, resolution]);
+}
+
 /**
  * Closes the unresolved alerts of one issue type on every cabinet of a client, because the user who switched what raises them off for
  * that client left nothing to close them later (F21.R2, decision-log D100): the fingerprint scanner switched off. The statement is the

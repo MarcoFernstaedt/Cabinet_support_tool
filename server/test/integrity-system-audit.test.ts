@@ -35,7 +35,9 @@ class FakeDb implements Queryable {
     if (/FROM issue_types/.test(text)) return this.reply<R>([{ name: "Site outage", severity: "major" }]);
     if (/WITH sites_down AS/.test(text)) return this.reply<R>([]);
     if (/SELECT a\.id FROM alerts a JOIN cabinets k/.test(text)) return this.reply<R>([{ id: "11111111-1111-1111-1111-111111111111" }]);
-    if (/UPDATE a SET a\.state = 'resolved'/.test(text)) return this.reply<R>([{ id: "11111111-1111-1111-1111-111111111111" }]);
+    // The close's rows as closeAutomatically reads them back from its table variable (D99): the alert, its cabinet and the resolution.
+    if (/UPDATE a SET a\.state = 'resolved'/.test(text))
+      return this.reply<R>([{ id: "11111111-1111-1111-1111-111111111111", cabinet_id: "22222222-2222-2222-2222-222222222222", resolution: "A cabinet at the site is reporting again." }]);
     if (/UPDATE alerts SET state = 'resolved'/.test(text)) return this.reply<R>([], 1);
     if (/MERGE security_alerts/.test(text)) return this.reply<R>([{ id: "security-1", created: this.securityCreated }]);
     if (/DELETE TOP \(\$1\)/.test(text)) return this.reply<R>([], this.rowCounts.shift() ?? 0);

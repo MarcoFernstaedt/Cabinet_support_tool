@@ -28,8 +28,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   load in does not matter. `import-cycles.test.ts` guards `maintenance.ts` only, and still passes.
 - **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
   `client-scanner.ts` drops `auditMany`, which nothing else there used.
-- **Debt list:** the `services/client-scanner.ts` entry for `alerts` comes off, which leaves 83 on main after #292 (D98 and D99 each
-  take another off).
+- **Debt list:** the `services/client-scanner.ts` entry for `alerts` comes off, which leaves 81 on main after #294.
 
 **Proof:**
 - **Behaviour.** `server/test/client-scanner-sql.test.ts`, "switching off: … open scanner alerts resolved and audited", passes through the
@@ -47,6 +46,89 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - With the user id check disabled, the hostile-input test fails.
   - Restored and `cmp` identical, 24 of 24 pass.
 - **Neighbours.** The 17 non-browser files that reach `alerts.ts`, `client-scanner.ts` or `fleet.ts` pass: 141 of 141.
+
+---
+
+## D99. The site-outage check closes its alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** `checkSiteOutages` in `server/src/services/site-outage.ts:51-71` closed the site-outage alerts of sites heard from again
+  itself: up to 500 ids per statement, with its own `UPDATE a … FROM alerts a JOIN cabinets k`, and the site's liveness checked again in
+  that statement.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `site-outage`, with `issueTypeId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `site-outage.ts` raises the alert through `foldAlert` and wrote
+  `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** None of the existing closes re-checks a site's liveness, and that re-check is what keeps an alert about a
+  site that went quiet again open. `closeSiteOutageAlerts(db, by, alertIds, liveWithinSeconds, resolution)` in `alerts.ts` holds the
+  same statement. It closes only the ids given, at most `SITE_OUTAGE_CLOSE_SLICE` (500) at a time.
+- **Checked before the database.** The closer, every id (a uuid), the window (1 to 86,400 whole seconds) and the resolution (1 to 500
+  characters, no control characters) are checked before any query. Only the placeholders are composed, from the count; every value is a
+  parameter.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `site-outage`, with `automatic: true`,
+  in the caller's transaction.
+- **What `site-outage.ts` keeps.** The snapshot read of which alerts to close, and the slicing. It drops `auditMany`.
+- **One difference in what is recorded.** The audit details now carry `cabinetId` and `verifiedFix` (null: no platform write fixes a
+  site outage) instead of `issueTypeId`, as every automatic close does (`automatic-close.ts`). The alert the entry targets still holds
+  its issue type. Nothing reads `issueTypeId` from an `alert.resolve` entry.
+- **Unchanged:** which alerts close and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/site-outage.ts` entry for `alerts` comes off, which leaves 82 on main after #293.
+
+**Proof:**
+- **The owner function.** `server/test/site-outage-close.test.ts`, against the database:
+  - Given alerts at a live site close and are audited once each by `site-outage`. Those at a site not heard from in the window, at a
+    site where only a removed cabinet reports, or not given, stay open. One resolved already is not rewritten. A repeat closes nothing.
+  - The window is the one given: a cabinet heard from 400 seconds ago does not make its site live in a 300-second window, and does in
+    a 500-second one.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 36 hostile inputs (closers, ids including an injection string and 501 of them, windows, resolutions) are refused before a
+    connection that throws if used. A full slice of 500 is accepted.
+- **The check.** `server/test/integrity-system-audit.test.ts` still finds the close re-checking the site and one audited
+  `alert.resolve`. Its stand-in database now answers the close with the cabinet and resolution columns `closeAutomatically` reads back.
+  That is a change to the stand-in, not to an assertion.
+- **Red checks** (`site-outage-close`, `integrity-system-audit`, `table-ownership`, `audit-sweep`; 17 tests):
+  - With `site-outage.ts` as on main, `table-ownership.test.ts` fails.
+  - With the liveness re-check made always true, the first two tests above fail.
+  - With the id check disabled, and separately the window check, the hostile-input test fails.
+  - Restored and `cmp` identical, 17 of 17 pass.
+- **Neighbours.** The 14 non-browser files that reach `alerts.ts` or `site-outage.ts` (among them `alerts-sql`, `scale` and `demo`)
+  pass: 122 of 122.
+
+---
+
+## D98. The disk-filling forecast closes its alert through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** When the system drive stops filling, `checkDiskForecast` in `server/src/services/drives.ts:79-87` closed the cabinet's
+  unresolved `disk-forecast` alert itself, inside `inTransaction`, with its own
+  `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `drive-forecast`, with `cabinetId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `drives.ts` raises the alert through `upsertAlert` and writes
+  `alerts` nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is the close by signature that `closeSignatureAlert` holds. `drives.ts` now calls it
+  with closer `drive-forecast`, the cabinet, `disk-forecast` and the same sentence.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `drive-forecast`, with `automatic: true`,
+  in the caller's transaction or a new one.
+- **Imports.** `drives.ts` drops `auditMany` and `inTransaction`, which nothing else there used.
+- **One difference in what is recorded.** The audit details now also carry `verifiedFix`, as every automatic close does
+  (`automatic-close.ts`, F18.R1). It names the platform fix that explains the close, or null. Nothing reads its absence.
+- **Unchanged:** which alert closes and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 83 on main after #292.
+
+**Proof:**
+- **Behaviour.** `server/test/drives.test.ts`, "the disk-filling forecast resolves itself once the system drive stops filling", asserts
+  the alert closes and is audited once by the system with `automatic: true`. It passes through the new call.
+- **Red checks** (`drives`, `table-ownership`, `audit-sweep`, `import-cycles`; 20 tests):
+  - With `drives.ts` as on main, `table-ownership.test.ts` fails.
+  - With the signature passed as `disk_forecast`, the forecast test fails, so it watches this close.
+  - Restored and `cmp` identical, 20 of 20 pass.
+- **Neighbours.** The 25 files that test `drives.ts` and the modules that call it (`cabinets.ts`, `maintenance.ts`, the reading routes,
+  the demo) pass: 291 of 298, with 7 skipped that need `TEST_AGENT_DLL`.
 
 ---
 
