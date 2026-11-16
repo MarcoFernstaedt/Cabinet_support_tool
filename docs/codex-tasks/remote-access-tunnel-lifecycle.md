@@ -105,6 +105,27 @@ At minimum, and named in your report with the command that ran each one:
   is expected. Do not create reports, logs, scratch notes, or any file outside this repository: your final message is the
   report. **Do not commit** — leave the change in the working tree for review.
 
+## Revision 2 amendments, from the adversarial review of phase 1 (2026-11-15)
+
+The review's bottom line was that no path in `06a9754b` lets the server run anything outside the agent's compiled
+catalog and that the agent opens no listener - the inert claim holds. Three items change phase 2 before it builds on
+that interface.
+
+- **F1, and it changes the design: the frame is not a pipe.** `contracts/schemas/envelopes/session-frame.schema.json`
+  permits `data` to be any 0-16384 bytes, so the claim that a frame can never carry an operation holds by absence of a
+  consumer, not by construction, and `server/src/agent-api/session-relay.ts:5` states it in a comment rather than
+  enforcing it. Make the direction carry the meaning: **server to agent frames are control only** - open, close, keep
+  alive, with no free-text payload - and **agent to server frames carry the diagnostic output**. A capability arrives
+  as a catalogued operation with its own allowlist entry and its own audit row, never as bytes the agent interprets.
+  `docs/spec/02-security-model.md:11` ("the server cannot add operations; only a signed agent upgrade can") and `:13`
+  ("no shell, no script runner, no general file transfer and no way to run an arbitrary file") are the reason. Do not
+  add an escape hatch for convenience, and do not answer this by tightening a comment.
+- **F6, a defect in what already shipped: `authorize()` can throw.** It is a database call in the phase-2 path, and
+  `session-relay.ts:16` destroys the queue and the buffered frames only when it returns `false`. A throw must take the
+  same path, and a test must drive the throwing case, not only the `false` one.
+- **F7: no constant retry hint.** The relay answers `retry-after: 1` while the server's own backoff is randomised over
+  30-90 s. Use the server's figure or omit the header, and say which in a comment where it is set.
+
 ## If the brief is wrong
 
 Stop and report rather than guessing: name the file and line that contradicts the brief. A stop is a finding, not a failed
