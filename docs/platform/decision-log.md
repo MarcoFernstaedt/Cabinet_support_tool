@@ -6,6 +6,47 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D104. A rule's regroup moves the alert's events through events.ts, the events' owner (2026-11-16)
+
+**What the code did** (at `ca8e7c0`; an entry on the ownership debt list, F21.R2):
+- **The write.** When a rule goes live, `regroupOpen` in `server/src/services/rules.ts:354` folds each matching unrecognized alert into
+  its issue's alert and moved that alert's events with its own `UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1`.
+- **Who owns that table.** `events` belongs to `services/events.ts`. The regroup is audited by the rule's activation; the event move
+  itself writes no audit row, then or now.
+
+**The decision:**
+- **A new owner function.** `moveAlertEvents(c, fromAlertId, toAlertId, ruleId)` in `events.ts` holds the same statement, in the caller's
+  transaction, and returns how many events moved. The three ids must be uuids and the two alerts must differ, checked before the
+  database is touched.
+- **An import both ways, and what it needed.** `events.ts` already imports `rules.ts`, so `rules.ts` importing `events.ts` makes them
+  import each other. `events.ts` built its event insert when the module loaded, from `rules.ts`'s `RULES_STAMP_SQL`. With the import
+  added, a process that loads `rules.js` or `alerts.js` first stopped with "Cannot access 'RULES_STAMP_SQL' before initialization", the
+  failure D73 met in another pair. Main loads in all three orders. The insert is now built on first use and kept
+  (`insertEventsSql()`), so the order modules load in no longer matters. The statement's text is the same.
+- **Unchanged:** which events move, the rule they record, and the transaction. No existing assertion changed.
+- **Debt list:** the `services/rules.ts` entry for `events` comes off, which leaves 77 on main after #299.
+
+**Proof:**
+- **Load order.** `server/test/module-load-order.test.ts` loads `rules.js`, `events.js` and `alerts.js` each first, in a fresh process.
+  With the insert built at load again, the `rules.js` and `alerts.js` cases fail with the error above; with it built on first use, all
+  three pass.
+- **The owner function.** `server/test/alert-events-move.test.ts`, against the database:
+  - Both events of the alert moved from go to the alert moved to, with the rule, including one that had matched an earlier rule. An
+    event already on the target keeps its rule; another alert's event and an event with no alert are untouched. A repeat moves nothing.
+  - A move in a transaction that rolls back leaves the events where they were.
+  - 22 hostile inputs (ids including an injection string, an array and a number, and the same alert in other letter case) are refused
+    before a connection that throws if used, each by its own check's message.
+- **Red checks** (`alert-events-move`, `module-load-order`, `table-ownership`; 11 tests):
+  - With `rules.ts` as on main, `table-ownership.test.ts` fails.
+  - With the insert built at load again, the two load-order cases fail.
+  - With the move's `WHERE` made always true, the move test and the rollback test fail.
+  - With the id check, or the same-alert check, disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 11 of 11 pass.
+- **Neighbours.** The 30 non-browser files that import `services/rules.js` or `services/events.js` (chosen by that exact import), with
+  `module-load-order`, `table-ownership`, `audit-sweep` and `import-cycles`: 282 of 282.
+
+---
+
 ## D103. A fleet job withdraws its outstanding commands through commands.ts, the commands' owner (2026-11-16)
 
 **What the code did** (at `73c8fcd`; an entry on the ownership debt list, F21.R2):
