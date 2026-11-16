@@ -6,6 +6,50 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D101. A cabinet replacement closes the old cabinet's alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `dbee3d3`; an entry on the ownership debt list, F21.R2):
+- **The write.** `completeReplacement` in `server/src/services/replacement.ts:86-93` retires the replaced cabinet. It resolved every
+  unresolved alert of that cabinet itself, with its own `UPDATE alerts … WHERE cabinet_id = $1 AND state <> 'resolved'`, resolution
+  "Replaced by <name>.".
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor the user who approved the replacement, with
+  `issueTypeId`, `resolution`, `automatic: true` and `replacedBy`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `replacement.ts` wrote `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** As with D100, it is a user's action that closes these alerts, and the audit names the replacing cabinet, so
+  `closeAutomatically` (actor system) does not fit. `closeReplacedCabinetAlerts(db, userId, cabinetId, replacedBy, resolution)` in
+  `alerts.ts` holds the same statement and audits each close by that user with the same details, in the caller's transaction.
+- **Checked before the database.** The user and both cabinets (each a uuid, and the two cabinets different), and the resolution (1 to 500
+  characters, no control characters), are checked before any query.
+- **Why the resolution check refuses nothing real.** The resolution is built from the new cabinet's name. The approval contract
+  (`contracts/schemas/console/approve-enrollment.schema.json`, `cabinet`) already allows only 1 to 128 characters with no control
+  characters, so every name a replacement can carry passes.
+- **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
+  `replacement.ts` drops `auditMany`, which nothing else there used. No import cycle: `alerts.ts` does not import `replacement.ts`.
+- **Debt list:** the `services/replacement.ts` entry for `alerts` comes off, which leaves 81 on main after #294 (D100 takes another off).
+
+**Proof:**
+- **Behaviour.** `server/test/cabinet-replacement.test.ts` asserts the old cabinet's alert is resolved as "Replaced by SYNC." and the
+  replacement reports one alert resolved. It passes through the new call.
+- **The owner function.** `server/test/replaced-cabinet-alert-close.test.ts`, against the database:
+  - Every unresolved alert of the replaced cabinet closes, with an issue type or without, a claimed one included. Each is audited once by
+    the user with its issue type, the resolution, `automatic: true` and `replacedBy`. One resolved already and another cabinet's alert
+    are left alone. A repeat closes nothing.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 30 hostile inputs (ids including an injection string, an array and a number; a cabinet replacing itself in other letter case;
+    resolutions) are refused before a connection that throws if used.
+- **Red checks** (`replaced-cabinet-alert-close`, `cabinet-replacement`, `table-ownership`, `audit-sweep`, `import-cycles`; 19 tests):
+  - With `replacement.ts` as on main, `table-ownership.test.ts` fails.
+  - With the cabinet scope made always true, the new close test fails.
+  - With the audit disabled, the new close test fails.
+  - With the self-replacement check disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 19 of 19 pass.
+- **Neighbours.** The 36 non-browser files that reach `alerts.ts`, the replacement or enrollment pass: 344 of 346, with 2 skipped that
+  need `TEST_AGENT_DLL`.
+
+---
+
 ## D99. The site-outage check closes its alerts through alerts.ts, the alerts' owner (2026-11-16)
 
 **What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):

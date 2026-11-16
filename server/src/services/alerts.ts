@@ -6,7 +6,7 @@ import { scannerUsedFor } from "./client-scanner.js";
 import { platformSettings } from "./settings.js";
 import { createHash } from "node:crypto";
 import type { AlertFilter, Event } from "../contracts.js";
-import { audit, isUniqueViolation, lock, LOCK_TIMEOUT_MS, Pool, transaction, type Queryable, type Tx } from "../db/db.js";
+import { audit, auditMany, isUniqueViolation, lock, LOCK_TIMEOUT_MS, Pool, transaction, type Queryable, type Tx } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
@@ -824,4 +824,29 @@ export async function closeSiteOutageAlerts(db: Queryable, by: string, alertIds:
       WHERE a.state <> 'resolved' AND a.id IN (${ids})
         AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$${n + 1}, SYSUTCDATETIME()))`,
     [...alertIds, liveWithinSeconds, resolution]);
+}
+
+/**
+ * Closes every unresolved alert of a cabinet that another cabinet has replaced (F21.R2, decision-log D101): the old cabinet is retired,
+ * so nothing would close them later. The statement is the one replacement.ts ran. Each close is audited as alert.resolve by the user who
+ * replaced the cabinet, in the caller's transaction, with the alert's issue type and the replacing cabinet, as it was: the user's
+ * replacement closed them, so the actor is the user and closeAutomatically (actor system) is not used. The user, both cabinets and the
+ * resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeReplacedCabinetAlerts(db: Queryable, userId: string, cabinetId: string, replacedBy: string, resolution: string): Promise<{ id: string; issue: string | null }[]> {
+  if (typeof userId !== "string" || !ALERT_ID.test(userId)) throw new Error("the id of the user replacing the cabinet is required");
+  if (typeof cabinetId !== "string" || !ALERT_ID.test(cabinetId)) throw new Error("the replaced cabinet's id is required to close its alerts");
+  if (typeof replacedBy !== "string" || !ALERT_ID.test(replacedBy)) throw new Error("the replacing cabinet's id is required");
+  if (cabinetId.toLowerCase() === replacedBy.toLowerCase()) throw new Error("a cabinet does not replace itself");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  const closed = (await db.query<{ id: string; issue: string | null }>(
+    `DECLARE @o TABLE (id uniqueidentifier, issue uniqueidentifier);
+     UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2
+      OUTPUT inserted.id, inserted.issue_type_id INTO @o (id, issue)
+      WHERE cabinet_id = $1 AND state <> 'resolved';
+     SELECT id, issue FROM @o;`, [cabinetId, resolution])).rows;
+  await auditMany(db, closed.map(a => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: a.id, outcome: "succeeded" as const,
+    details: { issueTypeId: a.issue, resolution, automatic: true, replacedBy } })));
+  return closed;
 }
