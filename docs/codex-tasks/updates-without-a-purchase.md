@@ -28,16 +28,23 @@ cut at all, and an agent refuses every release at the Authenticode check.
   `3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b`, and the release key `keyId`
   `631c0270c5a8e67441f9019c8c9a9284d5b665d3ffdc5571103401ad3d070f70`.
 
-## The signing material, already on hand (never commit any of it)
+## The signing material, already on hand — staged for this run
 
-- `/home/marco/cabinet-signing/publisher-root.cert.pem` — SHA-256 is **exactly** the pinned root above (verified).
-- `/home/marco/cabinet-signing/publisher-root.key.pem`, `publisher-issuing.cert.pem`, `publisher-issuing.key.pem` —
-  issuing cert is `CN=Mashura Code Signing, O=Mashura LLC`, issued by the pinned root, valid to 2029-11-07.
-- `/home/marco/.cabinet-release/release-key.pem` and `.pub.pem` — the operator release key; the public half's SPKI SHA-256
-  is **exactly** the pinned `keyId` (verified).
+It is **outside the workspace** in its durable home, so a copy is staged inside the repo for this run, under a path
+`.gitignore` covers (`.staging/`). Read it there; never add anything under `.staging/` to a commit.
 
-A private key must never enter the repository, a commit, a log line, a test fixture, an env file, or a message. Every
-script takes a **path**; nothing reads a key from the repo.
+- `.staging/signing/publisher-root.cert.pem` — SHA-256 is **exactly** the pinned root above (verified by hand).
+- `.staging/signing/publisher-root.key.pem`, `publisher-issuing.cert.pem`, `publisher-issuing.key.pem` — the issuing cert
+  is `CN=Mashura Code Signing, O=Mashura LLC`, issued by the pinned root, valid to 2029-11-07.
+- `.staging/signing/release-key.pem` and `release-key.pub.pem` — the operator release key; the public half's SPKI SHA-256
+  is **exactly** the pinned `keyId` (verified by hand).
+- `.staging/tools/usr/bin/osslsigncode` — `osslsigncode` 2.9, extracted from its `.deb`, proven to run from inside the
+  repo. Its durable home is outside the repo; the shipped script must take the tool's path as a parameter (or find it on
+  `PATH`) and must not hard-code `.staging/`.
+
+The durable home of the keys is the owner's trust folder outside the repository, and the shipped script's parameter
+defaults must point there — not at `.staging/`. A private key must never enter a commit, a log line, a test fixture, an
+env file, or a message. Every script takes a **path**; nothing reads a key from a tracked path.
 
 ## The job
 

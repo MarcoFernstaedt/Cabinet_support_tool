@@ -14,7 +14,8 @@ param(
     [ValidateSet('win-x64', 'win-x86')]
     [string] $Architecture = 'win-x64',
     # A test build only: an upgrade trust folder from New-UpgradeTrust.ps1 (a throwaway release key and test code-signing root).
-    [string] $UpgradeTrustDir
+    [string] $UpgradeTrustDir,
+    [ValidateSet('production')] [string] $CabinetReleaseChannel
 )
 $ErrorActionPreference = 'Stop'
 # Resolved in the body rather than in the parameter default: Windows PowerShell 5.1 binds the default before the
@@ -25,6 +26,7 @@ $root = Resolve-Path (Join-Path $here '..')
 $dotnet = (Get-Command dotnet -CommandType Application).Source
 
 $extra = @()
+if ($CabinetReleaseChannel) { $extra += "-p:CabinetReleaseChannel=$CabinetReleaseChannel" }
 if ($Version) { $extra += "-p:Version=$Version" }
 if ($UpgradeTrustDir) {
     Write-Warning "Test build: this agent accepts only releases signed with the key in $UpgradeTrustDir."
