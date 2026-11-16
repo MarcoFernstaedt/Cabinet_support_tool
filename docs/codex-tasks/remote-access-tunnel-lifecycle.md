@@ -36,14 +36,23 @@ Phase 1 landed a working relay and nothing more, all of it inert:
 2. **The audited transitions.** Every state change writes an audit row through the repository's existing audit path: opened,
    each command or frame exchanged is **not** audited individually (that is the transcript's job and it would drown the
    audit), but opened, closed, killed, refused and the reason are. Name in the report which existing audit helper you used.
-3. **Who may open, and how it is proven - decided, do not choose it yourself: D98.** `docs/platform/decision-log.md` D98 settles
-what revision 1 of this brief wrongly called an existing permission. `session.open` is a catalog entry with `kind: "write"`,
-`minimumRole: "tier2"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`, and no `safetyNet`, following
-`network.setIp`. The route enforces it as the other writes do: `ROLE_RANK` (`server/src/services/roles.ts`) against
-`minimumRole`, then `consumeStepUpToken(db, token, userId, "session.open", target)` (`server/src/auth/stepup.ts:37`), the token
-taken from the body and wrapped as `server/src/console-api/admin-routes.ts:21` does. A role below tier2 gets the catalog path's
-own 403 from the server, not a hidden button. The lifecycle's audit actions are `session.open`, `session.end`, `session.kill`
-and `session.refused` - one row per transition, never per frame.
+3. **Who may open, and how it is proven - decided, do not choose it yourself: D98.** Read `docs/platform/decision-log.md` D98;
+it is the authority here and it was revised after the first attempt at this brief. In short:
+   - **Permission is a grant, never a rank.** Add migration `0035_user_permissions.sql` with
+     `user_permissions (id, user_id, permission, scope_kind, scope_id, granted_by, granted_at, removed_at, removed_by)`,
+     `scope_kind IN ('fleet','site','cabinet')` (`fleet` leaves `scope_id` NULL), unique per `(user_id, permission, scope_kind,
+     scope_id)` over live rows, FK to `users`, and `DENY DELETE` to `cabinet_app` - revocation is `removed_at`, as `sites`
+     already retires rows (`server/src/services/admin.ts:21`). Include the validation test and the real-schema test for it.
+   - **The check is against the cabinet**: a `fleet` grant, or a `site` grant for that cabinet's site, or a `cabinet` grant for
+     that cabinet. A grant scoped elsewhere is refused. `ROLE_RANK` is **not** consulted on this path and `admin` gets no
+     implicit session permission.
+   - Then, and only then, `consumeStepUpToken(db, token, userId, "session.open", target)` (`server/src/auth/stepup.ts:37`), the
+     token taken from the body and wrapped as `server/src/console-api/admin-routes.ts:21` does. A grant says who may; the code
+     says this operator, now.
+   - `session.open` is a catalog entry with `kind: "write"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`, and
+     **no `safetyNet`** (a session has no rollback net).
+   - Audit actions: `session.open`, `session.end`, `session.kill`, `session.refused` - one row per transition, never per frame -
+     and the same for each grant and revocation you add.
 4. **The bounds, all of them enforced server-side and tested.** One live session per cabinet; an idle timeout; a maximum
    session length; a small fleet-wide cap; and an operator-issued end from the console that frees the cabinet immediately
    (the relay's `close()` already exists for this). A cabinet must not be able to hold a session open past the maximum by

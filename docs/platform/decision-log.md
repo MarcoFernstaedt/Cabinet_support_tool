@@ -15,33 +15,53 @@ exists in `contracts/schemas/operations/catalog.json`; the console's guard is a 
 phase-2 run stopped instead of picking a role, which was right: choosing who may reach a customer's machine is not a decision
 for the run to take.
 
+**Revised the same day, on Marco's direction.** He rejected the rank-based reading of this decision: *"not all actions are
+doable by all roles - admin can just give some users more permission, example fleet wide or site wide changes."* He is right,
+and the first version was the softer error: rank is a coarse line that grows silently. `users.role` is a three-value rank,
+`CHECK (role IN ('tier1', 'tier2', 'admin'))` (`server/migrations/0001_baseline.sql:33`), so anything keyed to it hands every
+tier2 every power the platform grows later, including ones nobody has thought about yet. **A permission is something an admin
+grants, and it carries its scope.**
+
 **The decision:**
-- `session.open` is a catalog entry with `kind: "write"`, `minimumRole: "tier2"`, `confirm: "code"`, `expirySeconds: 120` and
-  `rateClass: "write"`, following `network.setIp` and `package.install`.
-- **No `safetyNet`.** That field belongs to the operations that have a rollback net behind them (`network.*`). A session has
-  none, and claiming one would be a lie in the catalog the agent compiles in.
-- The console route enforces the same two things the other writes do: `ROLE_RANK` against `minimumRole`, then
-  `consumeStepUpToken(db, token, userId, "session.open", target)` (`server/src/auth/stepup.ts:37`). A role below `tier2` is
-  refused by the server with the catalog path's own 403, not hidden in the UI.
-- The lifecycle's audit actions are `session.open`, `session.end`, `session.kill` and `session.refused`, through the
-  repository's existing audit path, one row per transition and **not** per frame (a transcript is not an audit).
-- The session's own bounds - one live per cabinet, an idle timeout, a maximum length, the fleet cap - are the server's, not
-  the catalog's.
+- **A grant table, not a rank.** `user_permissions (user_id, permission, scope_kind, scope_id)`, with `scope_kind` in
+  `('fleet', 'site', 'cabinet')`: `fleet` reaches every cabinet and leaves `scope_id` NULL, `site` and `cabinet` name one.
+  Unique per `(user_id, permission, scope_kind, scope_id)`; FK to `users`; `removed_at` / `removed_by` for revocation and
+  `DENY DELETE` to the application role, following how `sites` already retires rows (`server/src/services/admin.ts:21` reads
+  `s.removed_at IS NULL`). `permission` holds the catalog operation name, so the mechanism serves `session.open` first and the
+  rest of the platform afterwards rather than being a special case for tunneling.
+- **The check is against the cabinet, not the fleet.** A session opens on cabinet C when a grant matches C: one `fleet` grant,
+  or a `site` grant for C's site, or a `cabinet` grant for C. A `site`-scoped grant therefore reaches that site's cabinets
+  and no others. Nothing in this path reads `ROLE_RANK`; an `admin` holds **no implicit** session permission, and the same
+  table is how an admin gives one to itself. That is what "admin can give some users more permission" means in code.
+- `session.open` is also a catalog entry with `kind: "write"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`
+  and **no `safetyNet`** - that field belongs to operations with a rollback net behind them (`network.*`), and a session has
+  none, so claiming one would be a lie in the catalog the agent compiles in.
+- Then the step-up, unchanged and not replaced by the grant: `consumeStepUpToken(db, token, userId, "session.open", target)`
+  (`server/src/auth/stepup.ts:37`). A grant says *who may*; the code says *this operator, now*.
+- Audit: `session.open`, `session.end`, `session.kill`, `session.refused` through the repository's existing audit path, one row
+  per transition and **not** per frame (a transcript is not an audit) - **and every grant and revocation too**, because who may
+  reach a customer's machine is itself the record worth keeping.
+- The lifecycle's own bounds - one live per cabinet, an idle timeout, a maximum length, the fleet cap - are the server's, not
+  the catalog's and not the grant's.
 
 **What else was considered:**
-- **`minimumRole: "admin"`.** Rejected. The people who need this are the support tiers who already hold `tier2` to run
-  `network.setIp`, `package.install` and `driver.uninstall`, each of which already needs a code. A session reaches no further
-  than those do, and `admin`-only would leave the console's own support staff unable to use the feature the platform exists for.
+- **Rank-based, the first version of this entry.** Replaced on Marco's direction. Tying a new power to an existing rank is how
+  a platform ends up with powers nobody decided to hand out, and it blurs the platform's own customer-facing promise that tier
+  1 and tier 2 are different levels of trust.
+- **`minimumRole: "admin"` inside the rank model.** Rejected then, and moot now: under grants an admin can hold the permission
+  or not, per scope, like anyone else.
 - **`confirm: "click"`**, as `service.control` and the firewall rules use. Rejected: those are reversible without leaving the
   machine. A live channel into a customer's cabinet is the class that takes a code.
 
-**What it costs:** every open costs the operator a step-up code, so a long troubleshooting call starts with an authenticator
-prompt, and a code cannot be reused for a second open inside its window. Accepted - the alternative is a session that anyone
-holding a stolen console cookie can open on any cabinet in the fleet.
+**What it costs:** a table, a migration and an admin surface to hand grants out before the first session can open at all -
+and every open still costs a step-up code, so a long troubleshooting call starts with an authenticator prompt. Accepted. The
+alternative is the one this decision exists to avoid: a stolen console cookie, or any tier2 who happens to exist, reaching any
+customer's cabinet in the fleet.
 
-**Proof:** not yet, and not claimed. Phase 2 is unwritten. The tests that will prove it are named under "Prove it" in
-`docs/codex-tasks/remote-access-tunnel-lifecycle.md`: no session opens without a step-up token, none opens for a role below
-`tier2`, and the audit row is written on each transition.
+**Proof:** not yet, and not claimed. Phase 2 is partly written. The tests that will prove it are named under "Prove it" in
+`docs/codex-tasks/remote-access-tunnel-lifecycle.md`: no session opens without a matching grant, none opens for a grant scoped
+elsewhere, none opens without a step-up token, one audit row per transition, and the live-session bound held by the database
+rather than by the server alone.
 
 ---
 
