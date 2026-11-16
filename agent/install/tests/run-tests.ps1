@@ -160,13 +160,15 @@ try {
     # console's own launcher runs. The installer's signature check learned this on a real cabinet: it saw 24 files
     # where 4 are programs, counted the .pdb and .xml shipped beside them, and refused a fully signed release.
     # These tests refuse to run below pwsh 7, where -Include does apply, so the check is made against the source.
-    Test-That 'the installer picks the programs it signs by extension, never with -Include' {
-        $code = @(Get-Content -LiteralPath (Join-Path $install 'Install-CabinetAgent.ps1') | Where-Object { $_ -notmatch '^\s*#' })
-        $scan = @($code | Where-Object { $_ -match 'Get-ChildItem' -and $_ -match 'Extension' })
-        Assert-True ($scan.Count -ge 1) 'the installer to choose the files it checks by extension'
-        Assert-True (($scan -join "`n") -match '\.exe') 'the program scan to name .exe'
-        foreach ($line in @($code | Where-Object { $_ -match '-Include' })) {
-            Assert-True $false "no -Include in the installer's code, but found: $($line.Trim())"
+    Test-That 'both scripts pick the programs they check by extension, never with -Include' {
+        foreach ($name in 'Install-CabinetAgent.ps1', 'Test-CabinetAgent.ps1') {
+            $code = @(Get-Content -LiteralPath (Join-Path $install $name) | Where-Object { $_ -notmatch '^\s*#' })
+            $scan = @($code | Where-Object { $_ -match 'Get-ChildItem' -and $_ -match 'Extension' })
+            Assert-True ($scan.Count -ge 1) "$name to choose the files it checks by extension"
+            Assert-True (($scan -join "`n") -match '\.exe') "$name to name .exe"
+            foreach ($line in @($code | Where-Object { $_ -match '-Include' })) {
+                Assert-True $false "no -Include in $name, but found: $($line.Trim())"
+            }
         }
     }
 }

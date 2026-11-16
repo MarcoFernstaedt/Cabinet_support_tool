@@ -97,7 +97,10 @@ Invoke-Check 'Network service is not an administrator' {
 
 Invoke-Check 'Program signatures' {
     if (-not (Test-Path -LiteralPath $programDir -PathType Container)) { Add-Result 'FAIL' 'Program signatures' ($programDir + ' does not exist'); return }
-    $programs = @(Get-ChildItem -LiteralPath $programDir -Recurse -File -Include '*.exe' -ErrorAction SilentlyContinue)
+    # Picked by extension, not with -Include: given a -LiteralPath, Windows PowerShell 5.1 ignores -Include and
+    # returns every file, so the .pdb and .xml shipped beside the programs were counted as programs and this
+    # check warned on a healthy cabinet (measured: 24 files, 4 of them programs, 0 unsigned).
+    $programs = @(Get-ChildItem -LiteralPath $programDir -Recurse -File -ErrorAction SilentlyContinue | Where-Object { $_.Extension -in '.exe' })
     $unsigned = @($programs | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' })
     if ($programs.Count -eq 0) { Add-Result 'FAIL' 'Program signatures' 'no programs found' }
     elseif ($unsigned.Count -eq 0) { Add-Result 'PASS' 'Program signatures' ([string]$programs.Count + ' programs, all validly signed') }
