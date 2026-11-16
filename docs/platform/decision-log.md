@@ -6,6 +6,55 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D103. A fleet job withdraws its outstanding commands through commands.ts, the commands' owner (2026-11-16)
+
+**What the code did** (at `73c8fcd`; an entry on the ownership debt list, F21.R2):
+- **The write.** While following a batch, `followUp` in `server/src/services/fleet-jobs.ts:343-360` withdrew the batch's commands that
+  were overdue, or still queued for a cabinet not heard from, with its own `UPDATE commands`. One delivered, or whose cabinet is offline,
+  became `expired`; one undelivered to an online cabinet became `failed`. Its expiry was pulled in to now, kept above its issue time.
+- **Its own audit.** It then wrote its own `command.expire` rows with `auditMany`: actor `command-expiry`, naming the job, why
+  (`fleet-job-withdrawal`) and whether the command had been delivered.
+- **Who owns that table.** `commands` belongs to `services/commands.ts`. With the insert moved by D102, this was the last write to
+  `commands` in `fleet-jobs.ts`.
+
+**The decision:**
+- **A new owner function.** `withdrawJobCommands(tx, jobId, commandIds, offlineAfterSeconds, batchMs)` in `commands.ts` holds the same
+  statement and the same audit, in the caller's transaction. `fleet-jobs.ts` keeps the read of the commands' outcomes that follows it.
+- **Checked before the database.** The job and every command id must be uuids, 1 to 200 of them (a job covers at most 200 cabinets,
+  `fleet-job.schema.json`), the offline window 1 to 86,400 whole seconds, and the batch budget 0 to 86,400,000 whole milliseconds.
+  Tests run jobs with a budget of 0, so 0 is allowed.
+- **A target without a command.** A target a restart left as answered but unverified has no command id, and `followUp` used to pass
+  its null key to the statement along with the others, where it matched nothing. The first version of this change refused the null, and
+  `fleet-jobs-sync-last.test.ts` "a satellite left waiting for verification by a server restart" failed (the sync cabinet stayed
+  pending instead of skipped). `followUp` now passes only the real ids, and skips the call when there are none. Nothing changes: the
+  read that follows still finds that target missing, as before.
+- **Unchanged:** which commands are withdrawn, their new status and expiry, the audit, and the transaction. No existing assertion
+  changed.
+- **Debt list:** the `services/fleet-jobs.ts` entry for `commands` comes off, which leaves 78 on main after #298. `commands` now lists
+  only `demo/demo.ts`.
+
+**Proof:**
+- **The owner function.** `server/test/job-command-withdrawal.test.ts`, against the database:
+  - Of five commands given, the one queued to an offline cabinet is withdrawn at once as expired, the one overdue to an online cabinet
+    as failed, and the delivered overdue one as expired. The one within its budget and the finished one are left alone, as is one not
+    given. Each withdrawal is audited once, with the job, the cabinet, the reason and whether it was delivered. Every expiry stays after
+    its issue time. A repeat withdraws nothing.
+  - A budget of 0 withdraws a command issued that moment, with its expiry still after its issue time.
+  - A withdrawal in a transaction that rolls back leaves the command queued and unaudited.
+  - 30 hostile inputs (ids including an injection string and 201 of them, windows and budgets that are negative, fractional, NaN,
+    infinite, too large or strings) are refused before a connection that throws if used, each by its own check's message.
+- **Red checks** (`job-command-withdrawal`, `fleet-jobs-sync-last`, `table-ownership`; 15 tests):
+  - With `fleet-jobs.ts` as on main, `table-ownership.test.ts` fails.
+  - With the filter of null ids removed, the restart test above fails.
+  - With the offline rule removed, the withdrawal test and the rollback test fail.
+  - With the audit disabled, the withdrawal test fails.
+  - Each of the four input checks disabled on its own fails the hostile-input test.
+  - Restored and `cmp` identical, 15 of 15 pass.
+- **Neighbours.** The 20 non-browser files that import `services/commands.js` or `services/fleet-jobs.js` (chosen by that exact
+  import), with `table-ownership`, `audit-sweep` and `import-cycles`: 217 of 217.
+
+---
+
 ## D102. Bulk changes queue their commands through commands.ts, the commands' owner (2026-11-16)
 
 **What the code did** (at `10a9972`; entries on the ownership debt list, F21.R2):
