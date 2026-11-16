@@ -155,6 +155,20 @@ try {
         & $release @releaseArgs -UpgradeTrustDir (Join-Path $work 'dev-trust') -AllowUnsignedForTest | Out-Null
         foreach ($f in 'agent-0.2.0.zip', 'manifest.json', 'signature.json') { Assert-True (Test-Path (Join-Path $work "release\$f")) "$f was written by a test release" }
     }
+
+    # Windows PowerShell 5.1 ignores -Include when the path was given with -LiteralPath, and 5.1 is the shell the
+    # console's own launcher runs. The installer's signature check learned this on a real cabinet: it saw 24 files
+    # where 4 are programs, counted the .pdb and .xml shipped beside them, and refused a fully signed release.
+    # These tests refuse to run below pwsh 7, where -Include does apply, so the check is made against the source.
+    Test-That 'the installer picks the programs it signs by extension, never with -Include' {
+        $code = @(Get-Content -LiteralPath (Join-Path $install 'Install-CabinetAgent.ps1') | Where-Object { $_ -notmatch '^\s*#' })
+        $scan = @($code | Where-Object { $_ -match 'Get-ChildItem' -and $_ -match 'Extension' })
+        Assert-True ($scan.Count -ge 1) 'the installer to choose the files it checks by extension'
+        Assert-True (($scan -join "`n") -match '\.exe') 'the program scan to name .exe'
+        foreach ($line in @($code | Where-Object { $_ -match '-Include' })) {
+            Assert-True $false "no -Include in the installer's code, but found: $($line.Trim())"
+        }
+    }
 }
 finally {
     if ($KeepWork) { Write-Host "work kept in $work" } else { Remove-Item -Recurse -Force $work -ErrorAction SilentlyContinue }
