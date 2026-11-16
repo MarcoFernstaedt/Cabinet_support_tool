@@ -153,6 +153,7 @@ The only way files reach a cabinet. There is no general file transfer.
 - Write pause: an Admin can pause all write operations fleet-wide, or for one client, at once. Reads keep working. Meant for incidents or anything that looks wrong.
 - Per-user write limit: by default at most 20 writes per hour per user. A fleet job or bulk change counts as one. Going over, on any write path, pauses that user's writes and raises a security alert to Admins. An Admin's resume restarts the count.
 - One cabinet per write command, always. There is no way to send a change to many cabinets at once, except signed agent upgrades through staged rollout.
+- A command a fleet job or a bulk firewall change queues is checked where it is stored, as a single command is (decision-log D102): a catalog write operation, parameters that match that operation's schema, and an expiry after its issue time. One that fails is not queued, and the batch it belongs to stops with that error.
 
 ## Security alerts
 

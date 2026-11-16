@@ -21,6 +21,7 @@ import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.j
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
 import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
+import { queueBulkCommand } from "./commands.js";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
 
 export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy", "network.setDns", "network.setIp", "network.renewLease"] as const;
@@ -294,8 +295,7 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
         continue;
       }
       const commandId = randomUUID();
-      await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`, [commandId, t.cabinet_id, job.operation, safeJson(t.params), job.created_by, issuedAt, expiresAt, jobId]);
+      await queueBulkCommand(c, { commandId, cabinetId: t.cabinet_id, operation: job.operation, params: t.params, issuedBy: job.created_by, issuedAt, expiresAt, bulkId: jobId });
       await c.query("UPDATE fleet_job_targets SET state = 'issued', command_id = $3, detail = NULL, updated_at = SYSUTCDATETIME() WHERE job_id = $1 AND cabinet_id = $2",
         [jobId, t.cabinet_id, commandId]);
       issued.push({ cabinet_id: t.cabinet_id, command_id: commandId, params: t.params });

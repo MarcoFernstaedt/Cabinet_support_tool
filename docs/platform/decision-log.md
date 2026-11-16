@@ -6,6 +6,49 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D102. Bulk changes queue their commands through commands.ts, the commands' owner (2026-11-16)
+
+**What the code did** (at `10a9972`; entries on the ownership debt list, F21.R2):
+- **The writes.** Two bulk paths inserted queued commands into `commands` themselves, each with its own `INSERT INTO commands …
+  'queued', bulk_id`: the bulk firewall change (`server/src/services/firewall-policy.ts:190-191`) and each fleet-job batch
+  (`server/src/services/fleet-jobs.ts:297-298`).
+- **Who owns that table.** `commands` belongs to `services/commands.ts`. Its single-command path, `issueCommand`, checks the operation
+  against the catalog and the parameters against the operation's schema before anything is stored. The two bulk inserts stored what
+  they were given.
+
+**The decision:**
+- **A new owner function.** `queueBulkCommand(c, cmd)` in `commands.ts` holds the insert both paths shared, in the caller's transaction.
+  The callers keep what is theirs: the person, the fleet pause, the write limit, each cabinet's state, and the audit of what they queued.
+- **Checked where it is stored.** Before the database is touched it checks, as `issueCommand` does, that the operation is a catalog
+  write, that the parameters match its schema, that the four ids are uuids, and that the expiry is after the issue time.
+- **What that changes.** Both paths build their parameters on the server (a fleet job's plan, `fleet-jobs.ts:94-132`, where the
+  network fixes are already schema-checked; the firewall switches from the policy), so every command they queue today passes. A command
+  that did not, which only a server defect or a hand-edited `fleet_job_targets` row could produce, is now not stored: the batch's
+  transaction rolls back with the error, where before it was queued for the agent to refuse. Spec 05 "Fleet safety controls" says so.
+- **Debt list:** the `services/firewall-policy.ts` entry for `commands` comes off, which leaves 79 on main after #296. `services/fleet-jobs.ts` stays on it: it also withdraws a batch's unanswered commands with its own `UPDATE commands`
+  (`fleet-jobs.ts:345`), which is its own entry to move.
+- **No import cycle:** `commands.ts` reaches neither `fleet-jobs.ts` nor `firewall-policy.ts`.
+
+**Proof:**
+- **The owner function.** `server/test/bulk-command-queue.test.ts`, against the database:
+  - A command is stored as given: queued, in its bulk, by its issuer, with its parameters and times.
+  - One queued in a transaction that rolls back is not stored.
+  - 45 hostile inputs are refused before a connection that throws if used, each by its own check's message: ids (an injection string, a
+    number), operations (not in the catalog, a shell-like name, the wrong case, and a read with parameters its schema accepts),
+    parameters, and times (equal, earlier, invalid, strings).
+- **Red checks** (`bulk-command-queue`, `table-ownership`):
+  - With `firewall-policy.ts` as on main, `table-ownership.test.ts` fails.
+  - Each of the six checks disabled on its own fails the hostile-input test. The first version of that test accepted any refusal, and
+    two checks stayed green when disabled (a later check, or a `TypeError`, refused the same value); it now asks for each check's own
+    message.
+  - Restored and `cmp` identical, it passes.
+- **Neighbours.** The 23 non-browser files that import `services/commands.js`, `services/fleet-jobs.js` or
+  `services/firewall-policy.js`, with `table-ownership`, `audit-sweep` and `import-cycles`: 255 of 255 on the second run. On the first
+  run, `fleet-jobs.test.ts` "a cabinet that took the command and never answered is failed" failed once. That file passed 3 of 3 alone.
+  The test waits a fixed 300 ms for the batch to queue its command before marking it taken. That timing is not proven to be the cause.
+
+---
+
 ## D101. A cabinet replacement closes the old cabinet's alerts through alerts.ts, the alerts' owner (2026-11-16)
 
 **What the code did** (at `dbee3d3`; an entry on the ownership debt list, F21.R2):
