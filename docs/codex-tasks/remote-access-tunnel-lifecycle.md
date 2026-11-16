@@ -126,6 +126,27 @@ that interface.
 - **F7: no constant retry hint.** The relay answers `retry-after: 1` while the server's own backoff is randomised over
   30-90 s. Use the server's figure or omit the header, and say which in a comment where it is set.
 
+## Revision 3 amendments, from the test audit (2026-11-15)
+
+Audit: `cabinet-audit/lab64/qa-phase2-tests.md`, pinned by sha256 to the bytes it read, since the tree moved under it.
+
+- **The agent's no-listener test cannot observe what it claims** (section 2, unproven). It can detect only a
+  *persistent* listener opened during the call. Replace it with a check that fails if the agent's session path opens a
+  listener at all, and let the test's name say what it can and cannot see.
+- **The server's example sweep silently skips the session frame.** The envelope map at
+  `server/test/contracts.test.ts:34` has no session-frame entry, so the examples this branch added are validated by the
+  contracts package alone and the server's own sweep never sees them (the invalid/operation example is proven by
+  `contracts/test/contracts.test.mjs`, not by the test that looks like it does it). Add the entry.
+- **The frame bound is two different numbers.** The server's cap and the agent's maximum (16384) do not agree, and the
+  test proves only that a bound exists, not its value. Reconcile them and pin the value in the test.
+- **The one integration point has no test.** `POST /agent/v1/sessions/:sessionId/frames` - the fail-closed 404, the
+  UUID check, 413, a null body leading to 404, and the retry-after header - is untested; so are
+  `lockedSessionRecord`'s UPDLOCK/HOLDLOCK hint, `touchSessionRecord`'s write, `closeSessionRecord`'s unknown-end
+  branch, the agent's bad-base64 path, and the composed relay+lifecycle+route path. These are the tests this phase owes.
+- **The mutation harness did not finish.** The box was contended when it ran, so "would a plausibly broken
+  implementation still pass?" is unanswered for the record and schema tests. It is re-run on a quiet box and the result
+  recorded here; until then the audit's mutation section is not completed, not measured.
+
 ## If the brief is wrong
 
 Stop and report rather than guessing: name the file and line that contradicts the brief. A stop is a finding, not a failed
