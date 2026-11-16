@@ -48,14 +48,15 @@ An agent built for cabinets has to be able to check every release it is offered.
   (`contracts/schemas/agent/upgrade-keys.schema.json`). The common name and organization above are the one rule from that
   contract the build enforces; rules such as no extra properties and at most two publishers it does not.
   `UpgradeTrust.Load` checks the whole contract first, and a list that fails it stops the broker too. The contracts suite
-  validates the repository file against that schema, and a release built from any other trust folder (the signing pipeline,
-  F1.R2) must run the same validation before it builds.
+  validates the repository file against that schema, and the release packer (`agent/install/new-agent-release.py`) runs the same
+  validation before it signs or packages anything.
 - **Development upgrades are allowed** (`AllowUnsignedDevelopmentUpgrades=true`, error CAB0001). Such an agent would accept programs
   that are not code-signed.
 
 The check is the `CheckCabinetReleaseTrust` target (and its inline `CheckUpgradeTrust` task) in `agent/src/Cabinet.Agent.Core/Cabinet.Agent.Core.csproj`, run before compilation. It needs no package restore.
 Development, test and CI builds leave the property unset and are not stopped by it. The signing pipeline (step 1 of the signing flow)
-sets it; until that pipeline exists (finding F1.R2) no build sets it. The repository's own list now pins a publisher, so a
+sets it. `Publish-CabinetAgent.ps1 -CabinetReleaseChannel production` passes it through to every published program.
+The repository's own list now pins a publisher, so a
 cabinet release build of the current tree passes this check, which `contracts/test/release-channel.test.mjs` asserts
 alongside the cases that still fail: an empty list, a broken publisher entry, or a root that is not the pinned one.
 
@@ -69,10 +70,17 @@ signature and the chain before it writes anything, and refuses to write a privat
 in `agent/install/tests/run-tests.ps1`. The decision behind it (7 November 2026) is our own publisher root and no bought
 certificate, so we can sign and update our own programs.
 
-What that does not yet do: nothing signs the agent binaries with the issuing certificate, and no cabinet has the root in
-its trust store. Both are F1.R2 — the signing step and the install step that puts the root on the machine. The two
-conditions are independent and both are needed: Windows must accept the signature, which is what the installed root is
-for, and the signer must match this pinned publisher, which is what this list is for.
+`agent/install/new-agent-release.py` signs every published program on Linux with `osslsigncode`, verifies every signature
+against this root, and creates the same release files as `New-AgentRelease.ps1`. Architecture is supplied separately when
+uploading; the signed manifest uses `releasedAt` and has no architecture field. The local installer and generated fleet
+script carry the public root offline, check its certificate SHA-256 before opening either machine store, and add it to
+`LocalMachine\Root` and `LocalMachine\TrustedPublisher` only when absent. Fleet reruns repair publisher trust even when
+the agent is already installed.
+
+The two conditions remain independent: Windows must accept the signature, which is what the installed root is for, and
+the signer must match this pinned publisher, which is what this list is for. Linux verification does not prove Windows'
+`WinVerifyTrust` result. The Windows signature test and an observed cabinet rollout are release gates; see
+[the signing runbook](../platform/agent-release-signing.md) for commands and the evidence still needed.
 
 ## Installing on the cabinet
 

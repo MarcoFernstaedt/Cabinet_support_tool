@@ -26,7 +26,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **One difference in what is recorded.** The audit details now also carry `verifiedFix`, as every automatic close does
   (`automatic-close.ts`, F18.R1). It names the platform fix that explains the close, or null. Nothing reads its absence.
 - **Unchanged:** which alert closes and when, the sentence, the actor and the transaction. No existing assertion changed.
-- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 84 on main after #285 (D96 takes another off).
+- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 83 on main after #292.
 
 **Proof:**
 - **Behaviour.** `server/test/drives.test.ts`, "the disk-filling forecast resolves itself once the system drive stops filling", asserts
@@ -73,6 +73,36 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Red check:** with `finishDiagnosis` moved before `reconcileBaselineAlert` in `network.ts`, the fixed test fails. Restored and `cmp`
   identical, it passes 3 of 3.
 - **The whole file:** 13 of 13.
+
+---
+
+## D96. The heartbeat closes a reboot-loop alert through alerts.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (on #284's head, `467d79f`; an entry on the ownership debt list, F21.R2):
+- **The write.** `bootFromHeartbeat` in `server/src/services/crashes.ts:67` closed the cabinet's unresolved `reboot_loop` alert once the
+  cabinet had run for 2 hours, with its own `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`
+  passed to `closeAutomatically`, resolution "Running for 2 hours without restarting."
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `crashes.ts` raises through `upsertAlert` and writes `alerts`
+  nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is exactly the close by signature that `closeSignatureAlert` holds, so `crashes.ts`
+  calls it with closer `reboot-loop`, the cabinet, `reboot_loop` and the same sentence. The close is still audited as `alert.resolve` by
+  `reboot-loop` through `closeAutomatically`. `crashes.ts` drops its now-unused `automatic-close.js` import.
+- **Unchanged:** which alert closes and when, the audit, and the input check, which is `closeSignatureAlert`'s (D94).
+- **No new owner code and no existing assertion changed.**
+- **Debt list:** the `services/crashes.ts` entry for `alerts` comes off, which leaves 84 after #285.
+- **Depends on #284**, which adds `closeSignatureAlert`. This branch started from #284's head; main, with #284 and #285, is merged in.
+
+**Proof:**
+- **Behaviour:** `server/test/crashes.test.ts` "3 in an hour is a reboot loop, 2 hours up ends it" asserts the loop alert is resolved
+  after 2 hours up. It passes through the new call.
+- **Red checks** (`crashes`, `table-ownership`, `audit-sweep`, `import-cycles`; 27 tests):
+  - With `crashes.ts` as on #284's head, `table-ownership.test.ts` fails.
+  - With the signature passed as `reboot-loop` instead of `reboot_loop`, the 2-hour test and the went-quiet test fail, so the existing
+    tests watch this close.
+  - Restored and `cmp` identical, 27 of 27 pass.
+- **Neighbours:** `crashes`, `alerts-sql`, `fleet-patterns`, `scale` and `signature-alert-writes` pass, 62 of 62.
 
 ---
 

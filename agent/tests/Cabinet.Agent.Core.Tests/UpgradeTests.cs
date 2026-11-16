@@ -907,3 +907,73 @@ public sealed class LoopbackBrokerStream(BrokerRequestHandler handler) : Stream
         return new ValueTask<int>(ReadAsync(temp, 0, temp.Length, token).ContinueWith(t => { temp.AsSpan(0, t.Result).CopyTo(buffer.Span); return t.Result; }, token));
     }
 }
+
+/// <summary>Opt-in real release evidence; no keys or signed executables are fixtures in source control.</summary>
+public sealed class SignedReleaseFactAttribute : FactAttribute
+{
+    public SignedReleaseFactAttribute()
+    {
+        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable("SIGNED_AGENT_BINARY")) ||
+            string.IsNullOrEmpty(Environment.GetEnvironmentVariable("OSSLSIGNCODE")))
+            Skip = "Set SIGNED_AGENT_BINARY and OSSLSIGNCODE to check a real signed release on Linux.";
+    }
+}
+
+public sealed class RealReleaseSignatureTests
+{
+    // Test-only Linux implementation of the OS boundary. Production continues to use WindowsAuthenticode.
+    private sealed class LinuxAuthenticode(string tool, string root, string work) : IAuthenticode
+    {
+        public static int Run(string tool, params string[] args)
+        {
+            var start = new System.Diagnostics.ProcessStartInfo(tool) { RedirectStandardOutput = true, RedirectStandardError = true };
+            foreach (string arg in args) start.ArgumentList.Add(arg);
+            using var process = System.Diagnostics.Process.Start(start)!;
+            var stdout = process.StandardOutput.ReadToEndAsync();
+            var stderr = process.StandardError.ReadToEndAsync();
+            process.WaitForExit();
+            Task.WaitAll(stdout, stderr);
+            return process.ExitCode;
+        }
+
+        public int Verify(string path) => Run(tool, "verify", "-CAfile", root, "-in", path);
+
+        public (X509Certificate2 Signer, X509Certificate2Collection Certificates)? ReadSignature(string path)
+        {
+            string extracted = Path.Combine(work, Guid.NewGuid().ToString("N") + ".pem");
+            Assert.Equal(0, Run(tool, "extract-signature", "-pem", "-in", path, "-out", extracted));
+            var pem = System.Security.Cryptography.PemEncoding.Find(File.ReadAllText(extracted));
+            byte[] der = Convert.FromBase64String(File.ReadAllText(extracted)[pem.Base64Data]);
+            var signed = Cabinet.Agent.Core.Packages.SignedData.Verify(der);
+            return (signed.Signer, signed.Certificates);
+        }
+    }
+
+    [SignedReleaseFact]
+    public void Real_signed_binary_passes_and_changed_or_unsigned_binary_fails_the_agent_check()
+    {
+        string binary = Path.GetFullPath(Environment.GetEnvironmentVariable("SIGNED_AGENT_BINARY")!);
+        string tool = Path.GetFullPath(Environment.GetEnvironmentVariable("OSSLSIGNCODE")!);
+        string work = Directory.CreateTempSubdirectory("real-authenticode-").FullName;
+        try
+        {
+            string root = Path.Combine(work, "root.pem");
+            using var rootStream = typeof(UpgradeTrust).Assembly.GetManifestResourceStream("upgrade/agent-code-signing-root.pem")!;
+            using (var file = File.Create(root)) rootStream.CopyTo(file);
+            var authenticode = new LinuxAuthenticode(tool, root, work);
+            Assert.Null(AgentSignatures.Problem(binary, UpgradeTrust.Compiled, authenticode));
+            byte[] bytes = File.ReadAllBytes(binary);
+            // A byte in the DOS stub is hashed by Authenticode; the PE and embedded signature remain parseable.
+            bytes[0x40] ^= 1;
+            string tampered = Path.Combine(work, "tampered.exe");
+            File.WriteAllBytes(tampered, bytes);
+            Assert.NotEqual(0, authenticode.Verify(tampered));
+            Assert.NotNull(AgentSignatures.Problem(tampered, UpgradeTrust.Compiled, authenticode));
+            string unsigned = Path.Combine(work, "unsigned.exe");
+            Assert.Equal(0, LinuxAuthenticode.Run(tool, "remove-signature", "-in", binary, "-out", unsigned));
+            Assert.NotEqual(0, authenticode.Verify(unsigned));
+            Assert.NotNull(AgentSignatures.Problem(unsigned, UpgradeTrust.Compiled, authenticode));
+        }
+        finally { Directory.Delete(work, true); }
+    }
+}
