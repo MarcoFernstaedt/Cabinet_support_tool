@@ -8,7 +8,8 @@
 // the scanner, and the service comes off the client's watched list. The approved list is left alone: taking an entry off needs the same
 // signature as putting one on, and an approved service nobody watches does nothing by itself.
 import { consumeStepUpToken } from "../auth/stepup.js";
-import { audit, auditMany, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { closeClientIssueAlerts } from "./alerts.js";
 import { ensureClientEntry, normalizeEntry, readLevelState } from "./approved-apps.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
 import { Refused } from "./errors.js";
@@ -54,18 +55,9 @@ export async function applyScannerChoice(c: Queryable, userId: string, clientId:
     const next = service && watched.some(n => same(n, service)) ? watched.filter(n => !same(n, service)) : null;
     await c.query("UPDATE clients SET fingerprint_scanner = 0, watched_services = COALESCE($2, watched_services) WHERE id = $1",
       [clientId, next === null ? null : safeJson(next)]);
-    // Open scanner alerts of the client's cabinets go: nothing is watched any more, so nothing would ever close them. alerts carries a
-    // trigger, so the changed ids come back through a table variable (as in site-outage.ts), and each closure is audited.
-    const closed = (await c.query<{ id: string }>(
-      `DECLARE @o TABLE (id uniqueidentifier);
-       UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $2
-        OUTPUT inserted.id INTO @o (id)
-         FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
-        WHERE s.client_id = $1 AND a.issue_type_id = $3 AND a.state <> 'resolved';
-       SELECT id FROM @o;`, [clientId, NOT_USED, ISSUE.scanner])).rows;
-    if (closed.length > 0)
-      await auditMany(c, closed.map(r => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: r.id, outcome: "succeeded" as const,
-        details: { issueTypeId: ISSUE.scanner, resolution: NOT_USED, automatic: true } })));
+    // Open scanner alerts of the client's cabinets go: nothing is watched any more, so nothing would ever close them. alerts.ts closes them
+    // and audits each closure by this user, in this transaction (D100).
+    const closed = await closeClientIssueAlerts(c, userId, clientId, ISSUE.scanner, NOT_USED);
     await audit(c, { actorKind: "user", actorId: userId, action: "client.fingerprint_scanner", targetKind: "client", targetId: clientId, outcome: "succeeded",
       details: { enabled: false, unwatched: next === null ? null : service, resolvedAlerts: closed.length } });
     return { approval: null, resolvedAlerts: closed.length };
