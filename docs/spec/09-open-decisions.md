@@ -10,7 +10,9 @@ Milestone 7 built the signing for both cloud options without choosing between th
 - which provider, and the P-256 signing key created in it, with only the build pipeline's identity allowed to sign;
 - the key's public half committed to `contracts/trust/upgrade/upgrade-keys.json` (`agent/install/New-UpgradeTrust.ps1 -AwsKmsKeyId …` or `-PublicKeyFile …` writes it).
 
-Until then that file holds no key, so agents built from the repository accept no upgrade at all.
+The provider question is still open, but the file is no longer empty: it holds one entry, "Release key (operator, October 2026)" — an
+ECDSA P-256 public key (`contracts/trust/upgrade/upgrade-keys.json`). So agents built from the repository do accept an upgrade signed by
+that key. What remains undecided is where its private half lives and that only the build pipeline may use it.
 
 ## Agent code-signing certificate (needed before the first real release)
 
@@ -130,7 +132,8 @@ Decided here, open to change:
 - **Approval before the console exists.** Approving cabinets, creating bootstrap tokens and issuing read commands is done with the `platform-admin` command line, run by a named person (`--as`). Every action is audited, and approval needs an Admin. Milestone 3 moves these to the console with sign-in and step-up. Since Milestone 5 the CLI can also issue a write, but only with `--write`, by a named Tier 2 or Admin, under the same role, Admin-only and approved-package rules as the console (one shared code path), audited as "via cli". Step-up is not asked there: the CLI runs only on the server host, by someone who already holds its database credentials. **Superseded by F3 (decision-log D31):** every CLI change now needs the named person's authenticator code, checked like a step-up (02-security-model.md "Control 8").
 - **Users table now.** The audit log and commands need a person's ID, so a minimal users table (username, name, role, status) exists from this milestone. Milestone 3 adds passwords, two-factor and sessions.
 - **Audit log account.** The spec asks for audit entries in the same transaction as the action, and for a database account that can only insert into the audit table. Both hold this way:
-  - The server's account cannot touch the audit table directly. It calls `audit_append()`, which runs as `cabinet_audit_writer`, a role that can only insert entries and move the chain head.
+  - The server's account cannot touch the audit table directly: `cabinet_app` is granted SELECT on `audit_log` and explicitly refused INSERT, UPDATE and DELETE (`server/migrations/0001_baseline.sql:1101`, `:1141`), and refused `audit_chain_head` entirely (`:1142`). It appends through `audit_append()` and `audit_append_many()` (`CREATE PROCEDURE` at `:969` and `:989`), which it may only execute (`:1135`-`:1136`).
+  - The procedure writes as its owner, so an entry lands without the caller ever holding insert rights. There is no separate `cabinet_audit_writer` role: one application role with an explicit refusal is what enforces this.
   - Triggers refuse UPDATE, DELETE and TRUNCATE on the table, even from its owner.
 - **Certificate issuing without a library.** Node's built-in crypto plus a small DER encoder issues the certificates. This avoids about ten extra packages, and the signing step is the single function `signTbs`, which matches a KMS sign call. openssl verifies the output in the tests.
 - **Agent certificates.** They are ECDSA P-256 and valid for 90 days:
@@ -280,7 +283,7 @@ Decided here, open to change:
 - **Warnings are collected from the logs where hardware trouble shows first:** System, HardwareEvents, WHEA, Storport, ClassPnP, Storage Spaces, NTFS and thermal.
   - Every other allowed log gives Critical and Error only, as before.
   - A warning that matches no rule is stored on its cabinet, where it can be mapped, but raises no alert; otherwise every chatty driver would fill the Unrecognized list. An unmatched error still becomes an unrecognized alert.
-- **A starting catalog of 33 built-in rules (migration 0006):**
+- **A starting catalog of built-in rules, seeded with the schema itself: 23 issue types and 38 symptom rules, every one `built_in` and live (`server/migrations/0001_baseline.sql:854`-`:918`):**
   - Drive failing: disk 7, 11, 52, 154 major; disk 15, 51, 153 minor; NTFS 55, 98 major and 140 minor; storahci, stornvme, iaStorA and iaStorAVC controller resets (129) minor.
   - Hardware error (new, major): WHEA 18 major; 17, 19, 47 minor.
   - System crash (new, major): bug check 1001.
@@ -289,7 +292,9 @@ Decided here, open to change:
   - Network connectivity: Tcpip 4199 address conflict (major), DNS Client 1014 (minor).
   - Driver failure: Kernel-PnP 219. Windows update failure: WindowsUpdateClient 20.
 
-  These are a starting point from common Windows knowledge. Check them against real cabinets; any can be disabled, and Map to issue adds more.
+  The catalog moved into the consolidated baseline when the migrations were squashed; in the earlier numbering it was `0006_alert_catalog.sql`.
+
+These are a starting point from common Windows knowledge. Check them against real cabinets; any can be disabled, and Map to issue adds more.
 - **An alert's severity only goes up.** When a more serious symptom of the same issue arrives on a cabinet, the alert becomes major and is announced to every console like a new major alert. It does not drop back to minor on its own.
 - **Home page and client pages** count major alerts only. The site page and the cabinet sidebar still count every open alert, since they are about single cabinets.
 - **Creating a new issue type from Map to issue** is for Admins only (issue types are Admin-only in the spec). It uses one authenticator code for both the type and the rule. Tier 2 maps to the closest issue type or asks an Admin.
@@ -821,7 +826,8 @@ Raised in the review of #95. The spec contradicts itself:
 - `contracts/schemas/operations/catalog.json` has `firewall.setRule` at `confirm: "click"`, and the click row of the confirmation-level table in `12-milestones-8-to-12.md` lists "firewall rules".
 - The code row of that same table says "every rule change" needs a fresh authenticator code.
 
-The code follows the catalog (click). Undecided: which of the two is meant. The tour copy says only "Tier 2" for rules, which is true either way.
+The code follows the catalog for this operation (click): `firewall.setRule` is not one of the controlled operations, so nothing raises it
+(`server/src/services/commands.ts:57`, `server/src/services/controlled-targets.ts:16`). The one deliberate override is the three operations that touch a running program — `service.control`, `service.setStartType` and `process.end` — which the server raises to a code because an agent built before the approved-applications list enforces nothing (`commands.ts:52`-`:54`). Undecided: which of the two table rows is meant for rule changes. The tour copy says only "Tier 2" for rules, which is true either way.
 
 ## Fingerprint scanner per client (2026-10-27)
 
