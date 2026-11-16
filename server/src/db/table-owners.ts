@@ -62,7 +62,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   cabinets: { owner: "services/cabinets.ts", also: ["agent-api/presence.ts", "demo/demo.ts", "services/admin.ts", "services/approved-apps.ts", "services/commands.ts", "services/config-ingest.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/replacement.ts", "services/rollouts.ts", "services/settings.ts", "services/sync-cabinets.ts", "services/watched-services.ts"] },
   case_notes: { owner: "services/case-notes.ts", also: ["demo/troubleshooting.ts"] },
   clients: { owner: "services/admin.ts", also: ["demo/demo.ts", "services/approved-apps.ts", "services/client-scanner.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/firewall-policy.ts", "services/fleet-import.ts", "services/time.ts", "services/watched-services.ts", "services/writes.ts"] },
-  commands: { owner: "services/commands.ts", also: ["demo/demo.ts", "services/firewall-policy.ts", "services/fleet-jobs.ts"] },
+  commands: { owner: "services/commands.ts", also: ["demo/demo.ts", "services/fleet-jobs.ts"] },
   config_changes: { owner: "services/config-ingest.ts", also: [] },
   config_current: { owner: "services/config-ingest.ts", also: [] },
   config_versions: { owner: "services/config-ingest.ts", also: [] },

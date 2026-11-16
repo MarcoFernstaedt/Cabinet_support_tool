@@ -88,6 +88,29 @@ async function issueInTransaction(pool: Pool, userId: string, cabinetId: string,
   });
 }
 
+/** One command of a bulk change, as a fleet job or a bulk firewall change queues it (queueBulkCommand). */
+export interface BulkCommand { commandId: string; cabinetId: string; operation: string; params: unknown; issuedBy: string; issuedAt: Date; expiresAt: Date; bulkId: string }
+
+/**
+ * Queues one command of a bulk change, in the caller's transaction (F21.R2, decision-log D102). The bulk callers check the person, the
+ * fleet pause, the write limit and each cabinet, and audit what they queued; this is the insert they shared, checked here before the
+ * database is touched as issueCommand checks a single command: a catalog write operation, its parameters against the operation's
+ * schema, ids that are uuids, and an expiry after the issue time.
+ */
+export async function queueBulkCommand(c: Queryable, cmd: BulkCommand): Promise<void> {
+  const isId = (v: unknown) => typeof v === "string" && CABINET_ID.test(v);
+  if (!cmd || typeof cmd !== "object") throw new Error("a bulk command is required");
+  for (const k of ["commandId", "cabinetId", "issuedBy", "bulkId"] as const) if (!isId(cmd[k])) throw new Error(`a bulk command's ${k} must be a uuid`);
+  if (typeof cmd.operation !== "string" || !isOperationName(cmd.operation)) throw new Error("a bulk command's operation must be a catalog operation");
+  if (catalog.get(cmd.operation)!.kind !== "write") throw new Error("a bulk command is a write");
+  if (!operations[cmd.operation].params.is(cmd.params)) throw new Error("a bulk command's parameters do not match the operation's schema");
+  if (!(cmd.issuedAt instanceof Date) || !(cmd.expiresAt instanceof Date) || Number.isNaN(cmd.issuedAt.getTime()) || !(cmd.expiresAt.getTime() > cmd.issuedAt.getTime()))
+    throw new Error("a bulk command expires after it is issued");
+  await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`,
+    [cmd.commandId, cmd.cabinetId, cmd.operation, safeJson(cmd.params), cmd.issuedBy, cmd.issuedAt, cmd.expiresAt, cmd.bulkId]);
+}
+
 /** How long a command handed to a poll stays leased to it (docs/spec/03-protocol.md "Protocol 1.1"). */
 export const LEASE_SECONDS = 30;
 

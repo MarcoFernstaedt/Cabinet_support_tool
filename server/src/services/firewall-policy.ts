@@ -7,6 +7,7 @@ import { randomUUID } from "node:crypto";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { catalog } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { queueBulkCommand } from "./commands.js";
 import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
@@ -187,8 +188,7 @@ export async function bulkApply(pool: Pool, userId: string, scope: "site" | "cli
     for (const t of targets) {
       const commandId = randomUUID();
       const params = { profiles: switchesFor(t.policy) };
-      await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
-                     VALUES ($1, $2, 'firewall.applyPolicy', $3, $4, $5, $6, 'queued', $7)`, [commandId, t.id, safeJson(params), userId, issuedAt, expiresAt, bulkId]);
+      await queueBulkCommand(c, { commandId, cabinetId: t.id, operation: "firewall.applyPolicy", params, issuedBy: userId, issuedAt, expiresAt, bulkId });
       await audit(c, { actorKind: "user", actorId: userId, action: "command.write", targetKind: "cabinet", targetId: t.id, outcome: "succeeded",
         details: { commandId, operation: "firewall.applyPolicy", params, bulkId } });
       commands.push({ commandId, cabinetId: t.id, cabinet: t.name });
