@@ -97,6 +97,8 @@ export function keyIdentifier(spki: Buffer): Buffer {
 
 export interface CertificateProfile {
   kind: "agent" | "server" | "ca";
+  /** Maximum subordinate CAs (CA profiles only). */
+  pathLength?: number;
   commonName: string;
   organization?: string;
   /** dNSName entries (server), or a URI (agent). */
@@ -130,7 +132,7 @@ export async function issue(
   const subject = name(profile.commonName, profile.organization);
   const extensions: Buffer[] = [];
   if (profile.kind === "ca") {
-    extensions.push(extension(OID.basicConstraints, true, der.sequence(der.boolean(true), der.integer(0))));
+    extensions.push(extension(OID.basicConstraints, true, der.sequence(der.boolean(true), der.integer(profile.pathLength ?? 0))));
     extensions.push(extension(OID.keyUsage, true, der.bitString(Buffer.from([0x06]), 1))); // keyCertSign, cRLSign
   } else {
     extensions.push(extension(OID.basicConstraints, true, der.sequence()));
@@ -150,7 +152,7 @@ export async function issue(
     der.context(0, der.integer(2)),
     der.integer(serial),
     algorithm,
-    profile.kind === "ca" ? subject : issuer.name,
+    issuer.name.length === 0 ? subject : issuer.name,
     der.sequence(der.time(profile.notBefore), der.time(profile.notAfter)),
     subject,
     subjectSpki,

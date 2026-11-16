@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { createServer, connect } from "node:tls";
 import * as der from "../src/pki/der.js";
 import { CsrError, verifyCsr } from "../src/pki/x509.js";
-import { developmentIssuingKey, developmentServerCertificate, issueAgentCertificate, AGENT_CERT_DAYS } from "../src/pki/issuing.js";
+import { developmentPlatformPki, developmentIssuingKey, developmentServerCertificate, issueAgentCertificate, AGENT_CERT_DAYS } from "../src/pki/issuing.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
 const CABINET = "9b2d7c1e-5a4f-4e3b-8c2d-1f0e9a8b7c6d";
@@ -105,4 +105,54 @@ test("the DER decoder refuses malformed lengths and trailing bytes", () => {
   assert.equal(der.oidToString(der.decode(der.oid("1.2.840.10045.4.3.2"))), "1.2.840.10045.4.3.2");
   assert.deepEqual(der.decode(der.integer(0)).value, Buffer.from([0]));
   assert.deepEqual(der.decode(der.integer(128)).value, Buffer.from([0, 128]));
+});
+
+
+test("acceptance PKI pins the self-signed direct issuer and serves exactly leaf plus CA", async () => {
+  const { rootPem, issuingKey, tls } = await developmentPlatformPki(tempDir(), ["localhost", "127.0.0.1"]);
+  const root = new X509Certificate(rootPem);
+  const issuing = new X509Certificate(issuingKey.certificatePem);
+  assert.equal(root.subject, root.issuer);
+  assert.ok(root.ca && root.verify(root.publicKey));
+  assert.equal(issuing.subject, issuing.issuer);
+  assert.equal(issuingKey.certificatePem, rootPem);
+  assert.ok(issuing.checkIssued(root) && issuing.verify(root.publicKey));
+  assert.equal(tls.certPem.match(/BEGIN CERTIFICATE/g)?.length, 2);
+  const leaf = new X509Certificate(tls.certPem);
+  assert.ok(leaf.checkIssued(issuing) && leaf.verify(issuing.publicKey));
+  assert.equal(leaf.checkHost("localhost"), "localhost");
+  assert.equal(leaf.checkIP("127.0.0.1"), "127.0.0.1");
+});
+
+test("acceptance leaf validates with only platform-ca.pem and no supplied intermediate", { skip: !existsSync("/usr/bin/openssl") }, async () => {
+  const dir = tempDir();
+  const { rootPem, tls } = await developmentPlatformPki(dir, ["localhost"]);
+  writeFileSync(join(dir, "platform-ca.pem"), rootPem);
+  // Deliberately discard the server's supplied chain, as AgentApiClient does.
+  writeFileSync(join(dir, "leaf.pem"), new X509Certificate(tls.certPem).toString());
+  assert.match(execFileSync("/usr/bin/openssl", ["verify", "-CAfile", join(dir, "platform-ca.pem"),
+    "-no-CApath", "-no-CAstore", "-purpose", "sslserver", "-verify_hostname", "localhost", join(dir, "leaf.pem")]).toString(), /OK/);
+});
+
+test("acceptance TLS validates using only the root and rejects wrong hosts and roots", async () => {
+  const { rootPem, tls } = await developmentPlatformPki(tempDir(), ["localhost", "127.0.0.1"]);
+  const server = createServer({ cert: tls.certPem, key: tls.keyPem }, socket => socket.end("trusted"));
+  await new Promise<void>(r => server.listen(0, "127.0.0.1", r));
+  const port = (server.address() as { port: number }).port;
+  async function request(ca: string, servername: string) {
+    return new Promise<string>((resolve, reject) => {
+      const socket = connect({ host: "127.0.0.1", port, ca, servername, rejectUnauthorized: true });
+      let data = "";
+      socket.on("data", chunk => data += chunk);
+      socket.on("end", () => resolve(data));
+      socket.on("error", reject);
+    });
+  }
+  try {
+    assert.equal(await request(rootPem, "localhost"), "trusted");
+    assert.equal(await request(rootPem, "127.0.0.1"), "trusted");
+    await assert.rejects(request(rootPem, "wrong.example"), /does not match/);
+    const stranger = await developmentIssuingKey(tempDir());
+    await assert.rejects(request(stranger.certificatePem, "localhost"));
+  } finally { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); }
 });

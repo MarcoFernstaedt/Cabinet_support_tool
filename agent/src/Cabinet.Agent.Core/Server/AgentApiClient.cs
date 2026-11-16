@@ -346,6 +346,13 @@ public sealed class AgentApiClient : IDisposable
             "session-control", token).ConfigureAwait(false);
     }
 
+    public async Task<System.Text.Json.JsonElement> ExchangeShellFrameAsync(Guid sessionId, object frame, CancellationToken token)
+    {
+        using JsonDocument doc = await SendBytesAsync(HttpMethod.Post, $"/agent/v1/sessions/{sessionId:D}/frames",
+            JsonSerializer.SerializeToUtf8Bytes(frame, frame.GetType(), ContractJson.Options), null, "session-control", RequestTimeout, token).ConfigureAwait(false);
+        return doc.RootElement.Clone();
+    }
+
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, string schema, CancellationToken token)
     {
         using JsonDocument doc = await SendBytesAsync(method, path, body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options),

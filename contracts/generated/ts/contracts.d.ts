@@ -2092,7 +2092,7 @@ export interface SessionEnd {
 }
 
 export interface SessionOpen {
-  kind: "diagnostic";
+  kind: "diagnostic" | "shell";
   reason: string;
   stepUpToken: string;
 }
@@ -3383,6 +3383,7 @@ export interface Heartbeat {
    * Present, and true, only when this agent was built to accept agent upgrades whose programs are not code-signed (a development build with no code-signing publisher compiled in). The console marks such a cabinet: whoever holds the release key alone decides what it runs. Absent from every production build.
    */
   unsignedUpgrades?: true;
+  developmentShell?: boolean;
 }
 
 /**
@@ -3449,13 +3450,35 @@ export interface ServerAck {
   serverTime: string;
 }
 
-export interface SessionControl {
-  control: "open" | "close" | "keepalive";
-}
+export type SessionControl =
+  | {
+      control: "open" | "close" | "keepalive";
+    }
+  | {
+      kind: "shell.in";
+      data: string;
+    }
+  | {
+      kind: "shell.resize";
+      columns: number;
+      rows: number;
+    }
+  | {
+      kind: "shell.exit";
+    };
 
-export interface OpaqueSessionTransportFrame {
-  data: string;
-}
+export type OpaqueSessionTransportFrame =
+  | {
+      data: string;
+    }
+  | {
+      kind: "shell.out";
+      data: string;
+    }
+  | {
+      kind: "shell.exit";
+      code: number;
+    };
 
 /**
  * GET /agent/v1/updates/{version}: the release's manifest exactly as signed (base64, so not one byte changes in transit) and its detached signature. The package zip itself is GET /agent/v1/updates/{version}/package. The server answers only a cabinet the current batch of a running rollout has offered this version to. The agent trusts none of it until the broker has checked the signature against its own compiled-in key.
@@ -5695,7 +5718,7 @@ export interface SystemCheckHealthOutput {
 
 export interface SessionOpenParams {
   sessionId: string;
-  kind: "diagnostic";
+  kind: "diagnostic" | "shell";
 }
 
 export interface SessionOpenOutput {

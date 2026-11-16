@@ -1,7 +1,7 @@
 // Certificate issuing for the agent API. All signing goes through
 // IssuingKey.signTbs: the development key below, or the KMS in production.
 import { createPrivateKey, generateKeyPairSync, sign } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { issue, issuerOf, verifyCsr, type IssuedCertificate, type IssuingKey } from "./x509.js";
 
@@ -66,4 +66,21 @@ export async function developmentServerCertificate(key: IssuingKey, dir: string,
   writeFileSync(certPath, cert.pem);
   writeFileSync(namesPath, wanted);
   return { certPem: cert.pem, keyPem };
+}
+
+/** Fresh acceptance PKI: one self-signed CA directly signs the server leaf.
+ * The agent builds its own chain from the leaf alone and this pinned CA.
+ * Serve the complete leaf-first chain; never reuse a cached demo CA.
+ */
+export async function developmentPlatformPki(dir: string, hostnames: string[]): Promise<{
+  rootPem: string; issuingKey: IssuingKey; tls: { certPem: string; keyPem: string };
+}> {
+  if (process.env.NODE_ENV === "production") throw new Error("Development PKI cannot be used in production");
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const freshDir = mkdtempSync(join(dir, "acceptance-pki-"));
+  const issuingKey = await developmentIssuingKey(freshDir);
+  const tls = await developmentServerCertificate(issuingKey, freshDir, hostnames);
+  // The issuing CA is itself the root and the agent's platform-ca.pem.
+  return { rootPem: issuingKey.certificatePem, issuingKey,
+    tls: { ...tls, certPem: tls.certPem + issuingKey.certificatePem } };
 }

@@ -130,6 +130,11 @@
     "sessionsEnabled": {
       "type": "boolean",
       "default": false
+    },
+    "developmentShellEnabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Development branch only. Separate from sessionsEnabled; never written by release installers."
     }
   }
 }

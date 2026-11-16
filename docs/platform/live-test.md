@@ -150,3 +150,5 @@ waits for; this run proves the agent's programs run and the platform follows the
 **Still open after this run**: the read-only path through the console (the supported route), the approved-programs list,
 and a re-check of the fifteen reads the 2026-10-25 run found `unavailable` with the 0.3.1 agent.
 
+
+For development shell acceptance, see [Windows acceptance harness constraints and reviewer commands](windows-acceptance-harness.md).

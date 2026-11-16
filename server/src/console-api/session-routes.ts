@@ -1,3 +1,6 @@
+import { SessionShell } from "../services/session-shell.js";
+import { sessionRecord } from "../services/session-records.js";
+import { requireCabinetPermission } from "../services/user-permissions.js";
 import { openSession } from "../services/session-opening.js";
 import { boundTo, consumeStepUpToken } from "../auth/stepup.js";
 import { transaction } from "../db/db.js";
@@ -16,6 +19,30 @@ export async function sessionRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const cabinetId = id(request);
     const body = consoleBodies.sessionOpen.parse(request.body);
     return openSession(o.pool, user.userId, cabinetId, { ...body, stepUpToken: boundTo(body.stepUpToken, body) });
+  });
+  app.get("/api/cabinets/:id/sessions", async request => {
+    const user = await o.guards.session(request);
+    if (user.stage !== "complete") throw new Refused("sign_in_incomplete", 401, "finish signing in first");
+    const cabinetId = id(request);
+    await requireCabinetPermission(o.pool, user.userId, cabinetId, "session.open");
+    const capable = (await o.pool.query("SELECT id FROM cabinets WHERE id = $1 AND development_shell = 1 AND read_only = 0 AND last_heartbeat_at > DATEADD(minute, -10, SYSUTCDATETIME())", [cabinetId])).rows.length > 0;
+    return { developmentShell: capable, sessions: (await o.pool.query("SELECT * FROM remote_sessions WHERE cabinet_id = $1 AND operator_id = $2 ORDER BY opened_at DESC", [cabinetId, user.userId])).rows };
+  });
+  app.get("/api/sessions/:id/record", async request => {
+    const user = await o.guards.session(request);
+    if (user.stage !== "complete") throw new Refused("sign_in_incomplete", 401, "finish signing in first");
+    const sessionId = id(request), row = await sessionRecord(o.pool, sessionId);
+    if (!row || row.operator_id !== user.userId) throw new Refused("not_found", 404, "no such session");
+    await requireCabinetPermission(o.pool, user.userId, row.cabinet_id, "session.open");
+    return { session: row, commands: (await o.pool.query("SELECT seq, input_data, complete, recorded_at FROM session_shell_commands WHERE session_id = $1 ORDER BY seq", [sessionId])).rows, frames: (await o.pool.query("SELECT seq, direction, frame, recorded_at FROM session_shell_frames WHERE session_id = $1 ORDER BY seq", [sessionId])).rows };
+  });
+  app.post("/api/sessions/:id/frames", async request => {
+    const user = await o.guards.session(request);
+    if (user.stage !== "complete") throw new Refused("sign_in_incomplete", 401, "finish signing in first");
+    const sessionId = id(request), row = await sessionRecord(o.pool, sessionId);
+    if (!row || row.operator_id !== user.userId) throw new Refused("not_found", 404, "no such session");
+    // This is the console end of the session transport, not an agent execution API.
+    return { frame: await new SessionShell(o.pool).exchange(row.cabinet_id, sessionId, "console", request.body, user.userId) };
   });
   app.post("/api/admin/permissions", async request => {
     const user = await o.guards.role(request, "admin");

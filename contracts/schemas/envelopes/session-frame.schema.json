@@ -2,26 +2,64 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/session-frame.schema.json",
   "title": "Opaque session transport frame",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "data"
-  ],
-  "properties": {
-    "data": {
-      "type": "string",
-      "maxLength": 21848,
-      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
-      "allOf": [
-        {
-          "if": {
-            "minLength": 21848
-          },
-          "then": {
-            "pattern": "==$"
-          }
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "data"
+      ],
+      "properties": {
+        "data": {
+          "type": "string",
+          "maxLength": 21848,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$",
+          "allOf": [
+            {
+              "if": {
+                "minLength": 21848
+              },
+              "then": {
+                "pattern": "==$"
+              }
+            }
+          ]
         }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "shell.out"
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 21848,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "kind",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "shell.exit"
+        },
+        "code": {
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "code"
       ]
     }
-  }
+  ]
 }

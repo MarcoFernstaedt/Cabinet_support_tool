@@ -10,6 +10,8 @@
     <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Exercise the production native exit reader without requiring the Windows-only assembly. -->
+    <Compile Include="../../src/Cabinet.Agent.Windows/SessionProcessExitCode.cs" Link="SessionProcessExitCode.cs" />
     <ProjectReference Include="..\..\src\Cabinet.Agent.Core\Cabinet.Agent.Core.csproj" />
   </ItemGroup>
 </Project>

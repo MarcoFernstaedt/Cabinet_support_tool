@@ -49,3 +49,10 @@ test("successful admission queues only the server-generated session ID", async (
   assert.equal(f.calls.filter(sql => sql.startsWith("INSERT INTO remote_sessions")).length, 1);
   assert.equal(f.calls.filter(sql => sql.startsWith("INSERT INTO commands")).length, 1);
 });
+
+test("shell admission without an agent capability report refuses and audits without queuing a command", async () => {
+  const f = fixture();
+  await assert.rejects(openSession(f.pool, "operator", "cabinet", { ...input, kind: "shell" }), /not reported/);
+  assert.ok(!f.calls.some(sql => sql.startsWith("INSERT INTO commands")));
+  assert.ok(f.calls.some(sql => sql.includes("EXEC audit_append")));
+});

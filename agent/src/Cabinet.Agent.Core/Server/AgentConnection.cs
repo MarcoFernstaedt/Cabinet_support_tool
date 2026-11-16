@@ -10,6 +10,7 @@ namespace Cabinet.Agent.Core.Server;
 
 public sealed class AgentConnectionOptions
 {
+    public Func<ISessionTerminal>? ShellTerminal { get; init; }
     public required Uri ServerUri { get; init; }
     public required X509Certificate2 PlatformCa { get; init; }
     public required IAgentKeyStore Keys { get; init; }
@@ -307,13 +308,13 @@ public sealed class AgentConnection(AgentConnectionOptions o)
         CommandProcessor processor = o.ProcessorFor(o.Config with { CabinetId = s.Identity.CabinetId });
         var localSessions = new LocalSessions(Path.Combine(Path.GetDirectoryName(o.Store.TokenPath)!, "sessions.jsonl"),
             () => o.Config.SessionsEnabled && !o.Config.ReadOnlyMode,
-            () => { try { CheckCertificate(s.Identity); return true; } catch { return false; } }, TimeProvider.System);
+            () => { try { CheckCertificate(s.Identity); return true; } catch { return false; } }, TimeProvider.System, () => o.Config.DevelopmentShellEnabled, o.ShellTerminal);
         processor.RegisterSessionHandler(localSessions.OpenAsync);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
         var loops = new[]
         {
             Supervise("session control", async t => {
-                try { while (!t.IsCancellationRequested) { await localSessions.PollAsync(s.Api, t).ConfigureAwait(false); await Delay(TimeSpan.FromSeconds(15), t).ConfigureAwait(false); } }
+                try { while (!t.IsCancellationRequested) { await localSessions.PollAsync(s.Api, t).ConfigureAwait(false); await Delay(TimeSpan.FromMilliseconds(localSessions.IsShell ? 100 : 15000), t).ConfigureAwait(false); } }
                 finally { localSessions.Close("Connection ended"); }
                 return Ended.Cancelled;
             }, stop.Token),
@@ -382,6 +383,7 @@ public sealed class AgentConnection(AgentConnectionOptions o)
                         // Which architecture this cabinet runs, from the process's own bitness: the platform records it
                         // and offers only the releases that match. Optional in the contract, so an agent built before
                         // the second architecture — which sends nothing here — stays valid.
+                        DevelopmentShell = o.Config.DevelopmentShellEnabled && o.Config.SessionsEnabled && !o.Config.ReadOnlyMode && o.ShellTerminal is not null ? true : null,
                         Architecture = AgentArchitecture.Current,
                         // A development build that would install unsigned agent programs says so, so the console can mark it.
                         UnsignedUpgrades = Upgrades.UpgradeTrust.AcceptsUnsignedPrograms ? true : null,

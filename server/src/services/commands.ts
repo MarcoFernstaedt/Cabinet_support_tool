@@ -17,11 +17,11 @@ import { refuseAgentSession } from "./session-records.js";
 export const MAX_COMMANDS_PER_POLL = 50;
 
 /** Session admission has already checked grant, step-up and limits and inserted its audited record in this transaction. */
-export async function queueSessionOpen(tx: Tx, operatorId: string, cabinetId: string, sessionId: string): Promise<void> {
+export async function queueSessionOpen(tx: Tx, operatorId: string, cabinetId: string, sessionId: string, kind: "diagnostic" | "shell" = "diagnostic"): Promise<void> {
   const issued = new Date(Math.floor(Date.now() / 1000) * 1000);
   await tx.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
     VALUES ($1, $2, 'session.open', $3, $4, $5, $6, 'queued')`,
-  [randomUUID(), cabinetId, safeJson({ sessionId, kind: "diagnostic" }), operatorId, issued, new Date(issued.getTime() + 120_000)]);
+  [randomUUID(), cabinetId, safeJson({ sessionId, kind }), operatorId, issued, new Date(issued.getTime() + 120_000)]);
 }
 
 

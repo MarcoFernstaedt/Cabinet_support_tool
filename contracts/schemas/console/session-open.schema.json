@@ -6,7 +6,10 @@
   "additionalProperties": false,
   "properties": {
     "kind": {
-      "const": "diagnostic"
+      "enum": [
+        "diagnostic",
+        "shell"
+      ]
     },
     "reason": {
       "type": "string",

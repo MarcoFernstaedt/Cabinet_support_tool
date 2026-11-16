@@ -111,6 +111,10 @@ export interface AgentApiOptions {
   /** HTTP/2 with HTTP/1.1 fallback on the same port (default true). */
   http2?: boolean;
   admission?: Partial<Admission>;
+  /** Optional diagnostics observer; does not alter admission decisions. */
+  onAdmissionShed?: (reason: string) => void;
+  /** Supplies a read-only snapshot of the actual load gates for acceptance diagnostics. */
+  onAdmissionDiagnostics?: (read: () => Record<string, unknown>) => void;
   /** How long an accepted certificate is remembered for its connection before it is checked again. */
   authCacheMs?: number;
   /** The TLS session-ticket key for a UTC day (48 bytes). Given when several processes serve the agent port, so a session resumes in
@@ -284,7 +288,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     // sockets open. A whole site of cabinets behind one address stays far below the cap: each cabinet keeps one connection.
     const source = sourceKey(socket.remoteAddress ?? "");
     const open = openPerSource.get(source) ?? 0;
-    if (open >= admission.maxConnectionsPerSource || openTotal >= admission.maxConnections) { socket.destroy(); opsMeter.count("shed", "connection_limit"); return; }
+    if (open >= admission.maxConnectionsPerSource || openTotal >= admission.maxConnections) { o.onAdmissionShed?.("connection_limit"); socket.destroy(); opsMeter.count("shed", "connection_limit"); return; }
     openPerSource.set(source, open + 1);
     openTotal++;
     socket.once("close", () => {
@@ -321,6 +325,9 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   lagTimer.unref();
   // The database is behind when requests wait more than maxAcquireWaitMs for a connection (not when many wait: a queue of 1 ms
   // statements clears at once), or when the queue is five times maxPendingAcquires (a burst no wait can absorb).
+  const loadReason = (severe = false): string => o.pool.waitMs > admission.maxAcquireWaitMs * (severe ? 5 : 1)
+    ? "database_acquire_wait" : o.pool.pending > admission.maxPendingAcquires * (severe ? 10 : 5)
+      ? "database_pending_acquires" : lagSeconds >= (severe ? 6 : 3) ? "event_loop_lag" : "overload_override";
   const overloaded = (): boolean => admission.overloaded?.() ?? (o.pool.waitMs > admission.maxAcquireWaitMs
     || o.pool.pending > admission.maxPendingAcquires * 5 || lagSeconds >= 3);
   // Under plain overload (a backlog draining) the cheap, time-critical calls still go through: a command poll is one seek and a result
@@ -328,6 +335,18 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   // downloads are what the shed is for. When the database is far behind (five times the wait) everything is turned away again.
   const severelyOverloaded = (): boolean => admission.overloaded?.() ?? (o.pool.waitMs > admission.maxAcquireWaitMs * 5
     || o.pool.pending > admission.maxPendingAcquires * 10 || lagSeconds >= 6);
+  o.onAdmissionDiagnostics?.(() => ({
+    waitMs: o.pool.waitMs, pending: o.pool.pending, lagSeconds,
+    lagP99Ms: lag.percentile(99) / 1e6,
+    maxAcquireWaitMs: admission.maxAcquireWaitMs,
+    maxPendingAcquires: admission.maxPendingAcquires,
+    maxEventLoopLagMs: admission.maxEventLoopLagMs,
+    // overloaded() inputs: waitMs > maxAcquireWaitMs OR pending > maxPendingAcquires * 5
+    // OR lagSeconds >= 3 (consecutive p99 samples above maxEventLoopLagMs); override takes precedence.
+    overloaded: overloaded(), severelyOverloaded: severelyOverloaded(),
+    reason: overloaded() ? loadReason() : "below_all_load_thresholds",
+    overrideConfigured: admission.overloaded !== undefined,
+  }));
   const connectionTokens = new TokenBucket(admission.newConnectionsPerSecond, admission.newConnectionsBurst);
   const requestTokens = new TokenBucket(admission.requestsPerSecond, admission.requestsBurst);
   // Traffic without a verified client certificate: its own buckets, per source and in total, never the shared ones above.
@@ -386,7 +405,8 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
   };
 
   /** A refusal for load: 503 with a randomised Retry-After; a long poll instead gets an empty answer telling it when to come back. */
-  const shed = (request: FastifyRequest, reply: FastifyReply, opts: { seconds: number; closeConnection?: boolean; pollAnswer?: boolean; pollMs?: number }): FastifyReply => {
+  const shed = (request: FastifyRequest, reply: FastifyReply, opts: { reason: string; seconds: number; closeConnection?: boolean; pollAnswer?: boolean; pollMs?: number }): FastifyReply => {
+    o.onAdmissionShed?.(opts.reason);
     if (opts.closeConnection) {
       closeAfter(request, reply);
     }
@@ -417,34 +437,36 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     if (!certified) {
       const source = sourceKey(request.ip);
       const database = route === "/agent/v1/enroll" || route === "/agent/v1/enroll/:requestId";
-      const limited = !unauthenticatedSources.take(source) || !unauthenticatedTotal.take()
-        || (route === "/agent/v1/enroll/:requestId" && !enrollStatusSources.take(source))
-        || (database && !unauthenticatedDatabase.take());
+      const limited = !unauthenticatedSources.take(source) ? "unauthenticated_source_rate"
+        : !unauthenticatedTotal.take() ? "unauthenticated_total_rate"
+        : route === "/agent/v1/enroll/:requestId" && !enrollStatusSources.take(source) ? "enrollment_status_source_rate"
+        : database && !unauthenticatedDatabase.take() ? "unauthenticated_database_rate" : null;
       if (limited) {
+        o.onAdmissionShed?.(limited);
         // HTTP/2 has no Connection header: the session is closed once the answer is out instead.
         closeAfter(request, reply);
         return reply.code(429).header("retry-after", String(connectionRetryAfter())).send({ error: "rate_limited" });
       }
       if (route === "/health" || !database) return;
-      if (shuttingDown) return shed(request, reply, { seconds: Math.ceil(reconnectSpread() / 1000), closeConnection: true });
+      if (shuttingDown) return shed(request, reply, { reason: "shutdown", seconds: Math.ceil(reconnectSpread() / 1000), closeConnection: true });
       // Enrollment reads and writes the database; it waits while the database is behind, like everything else.
-      if (overloaded()) return shed(request, reply, { seconds: retryAfter() });
+      if (overloaded()) return shed(request, reply, { reason: loadReason(), seconds: retryAfter() });
       return;
     }
     if (shuttingDown) {
       const ms = reconnectSpread();
-      return shed(request, reply, { seconds: Math.ceil(ms / 1000), closeConnection: true });
+      return shed(request, reply, { reason: "shutdown", seconds: Math.ceil(ms / 1000), closeConnection: true });
     }
     const connection = connectionOf(request);
     if (!admitted.has(connection)) {
-      if (!connectionTokens.take()) return shed(request, reply, { seconds: connectionRetryAfter(), closeConnection: true, pollAnswer: false });
+      if (!connectionTokens.take()) return shed(request, reply, { reason: "connection_rate", seconds: connectionRetryAfter(), closeConnection: true, pollAnswer: false });
       admitted.add(connection);
     }
-    if (!requestTokens.take()) return shed(request, reply, { seconds: retryAfter(), pollAnswer: false });
+    if (!requestTokens.take()) return shed(request, reply, { reason: "request_rate", seconds: retryAfter(), pollAnswer: false });
     // A long poll turned away for load comes back in 10 to 30 s: it costs the database almost nothing (one seek when nothing waits),
     // and sending it away for a minute would leave its cabinet unable to receive a command for that long; sooner adds load (2-10 s did, at 10,000).
     const essential = (request.method === "GET" && path === "/agent/v1/commands") || (request.method === "POST" && path === "/agent/v1/results");
-    if (essential ? severelyOverloaded() : overloaded()) return shed(request, reply, { seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
+    if (essential ? severelyOverloaded() : overloaded()) return shed(request, reply, { reason: loadReason(essential), seconds: retryAfter(), pollMs: randomInt(10_000, 30_001) });
   });
 
   // Operations counters (counts only, see docs/platform/operations.md): every answered request, sheds and server errors by route pattern.
@@ -657,7 +679,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       }
     });
 
-    registerSessionFrameRoute(scoped, o.sessionRelay, retryAfter);
+    registerSessionFrameRoute(scoped, o.sessionRelay, retryAfter, o.pool);
 
     scoped.post("/agent/v1/results", async request => {
       await storeResult(o.pool, request.cabinet!.id, envelopes.result.parse(request.body));

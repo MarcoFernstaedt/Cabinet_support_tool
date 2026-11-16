@@ -2,18 +2,76 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/session-control.schema.json",
   "title": "Session control",
-  "type": "object",
-  "additionalProperties": false,
-  "required": [
-    "control"
-  ],
-  "properties": {
-    "control": {
-      "enum": [
-        "open",
-        "close",
-        "keepalive"
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "control"
+      ],
+      "properties": {
+        "control": {
+          "enum": [
+            "open",
+            "close",
+            "keepalive"
+          ]
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "shell.in"
+        },
+        "data": {
+          "type": "string",
+          "maxLength": 21848,
+          "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+        }
+      },
+      "required": [
+        "kind",
+        "data"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "shell.resize"
+        },
+        "columns": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 300
+        }
+      },
+      "required": [
+        "kind",
+        "columns",
+        "rows"
+      ]
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "shell.exit"
+        }
+      },
+      "required": [
+        "kind"
       ]
     }
-  }
+  ]
 }

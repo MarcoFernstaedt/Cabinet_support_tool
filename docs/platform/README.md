@@ -27,6 +27,7 @@ how it is run, what was decided, and what is left.
 - [performance.md](performance.md): sizing and the load test.
 - [windows-coverage-review.md](windows-coverage-review.md): what the platform reads on Windows, and what is missing.
 - [cost.md](cost.md): what running this costs.
+- [windows-acceptance-harness.md](windows-acceptance-harness.md): Windows shell acceptance constraints and reviewer commands.
 - [live-test.md](live-test.md): the test to run on a real cabinet, and what the real-machine runs found: read-only on 2026-10-25,
   the write sweep and the 32-bit package on a 64-bit machine on 2026-11-13.
 

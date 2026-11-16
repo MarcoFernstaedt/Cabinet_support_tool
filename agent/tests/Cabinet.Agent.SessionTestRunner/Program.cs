@@ -4,7 +4,7 @@ using System.Reflection;
 using Cabinet.Agent.Core.Tests;
 
 int count = 0;
-foreach (var type in new[] { typeof(SessionTransportTests), typeof(LocalSessionsTests) })
+foreach (var type in new[] { typeof(SessionTransportTests), typeof(LocalSessionsTests), typeof(SessionShellTests) })
 foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
 {
     var attributes = method.GetCustomAttributesData();

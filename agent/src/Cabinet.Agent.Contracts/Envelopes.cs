@@ -89,6 +89,7 @@ public sealed record EventBatch
 
 public sealed record Heartbeat
 {
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? DevelopmentShell { get; init; }
     public required string AgentVersion { get; init; }
     public required long UptimeSeconds { get; init; }
     public required bool ReadOnlyMode { get; init; }
