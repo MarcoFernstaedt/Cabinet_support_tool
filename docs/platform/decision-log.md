@@ -6,7 +6,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
-## D98. Opening a remote session is tier2 with a step-up code (2026-11-15)
+## D98. Opening a remote session needs a grant and a step-up code (2026-11-15)
 
 **What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
 the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`

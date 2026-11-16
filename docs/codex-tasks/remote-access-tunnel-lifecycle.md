@@ -71,7 +71,8 @@ it is the authority here and it was revised after the first attempt at this brie
 
 At minimum, and named in your report with the command that ran each one:
 
-- A session cannot start without a step-up token, and cannot start for a role below `tier2` (D98).
+- A session cannot start without a step-up token; cannot start without a matching grant; and cannot start for a grant
+  scoped to another site or another cabinet (D98).
 - Opening writes the audit row and the record; closing writes the close row and stamps the reason; killing writes its own.
 - An idle session ends by itself, and a session cannot be held past the maximum by exchanging frames.
 - A second live session on the same cabinet is refused.
