@@ -337,6 +337,20 @@ public sealed class AgentApiClient : IDisposable
         return new CommandBatch(commands.EnumerateArray().Select(c => Encoding.UTF8.GetBytes(c.GetRawText())).ToList(), poll, reconnect);
     }
 
+    /// <summary>Opaque bounded bytes over the existing outbound mTLS client; never command dispatch.</summary>
+    public async Task<byte[]> ExchangeSessionFrameAsync(Guid sessionId, byte[] bytes, CancellationToken token)
+    {
+        if (bytes.Length > 16_384) throw new ArgumentOutOfRangeException(nameof(bytes));
+        var frame = await SendAsync<SessionTransportFrame>(HttpMethod.Post,
+            $"/agent/v1/sessions/{sessionId:D}/frames", new SessionTransportFrame(Convert.ToBase64String(bytes)),
+            "session-frame", token).ConfigureAwait(false);
+        byte[] received = Convert.FromBase64String(frame.Data);
+        if (received.Length > 16_384) throw new InvalidDataException("Session frame exceeds the transport limit.");
+        return received;
+    }
+
+    private sealed record SessionTransportFrame(string Data);
+
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, string schema, CancellationToken token)
     {
         using JsonDocument doc = await SendBytesAsync(method, path, body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options),

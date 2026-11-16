@@ -3,6 +3,7 @@
 // any other code touches it (docs/spec/STANDING-INSTRUCTIONS.md).
 import { createAjv, readCatalog, ref } from "@mashura/cabinet-contracts/load";
 import type {
+  OpaqueSessionTransportFrame as SessionFrame,
   BulkFirewallPolicy,
   BulkScope,
   CatalogEntry,
@@ -164,6 +165,7 @@ function validator<T>(name: string, id: string): Validator<T> {
 const envelope = (file: string) => ref(`envelopes/${file}.schema.json`);
 
 export const envelopes = {
+  sessionFrame: validator<SessionFrame>("session-frame", envelope("session-frame")),
   command: validator<Command>("command", envelope("command")),
   result: validator<Result>("result", envelope("result")),
   event: validator<Event>("event", envelope("event")),

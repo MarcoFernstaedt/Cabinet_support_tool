@@ -3419,6 +3419,10 @@ export interface ServerAck {
   serverTime: string;
 }
 
+export interface OpaqueSessionTransportFrame {
+  data: string;
+}
+
 /**
  * GET /agent/v1/updates/{version}: the release's manifest exactly as signed (base64, so not one byte changes in transit) and its detached signature. The package zip itself is GET /agent/v1/updates/{version}/package. The server answers only a cabinet the current batch of a running rollout has offered this version to. The agent trusts none of it until the broker has checked the signature against its own compiled-in key.
  */

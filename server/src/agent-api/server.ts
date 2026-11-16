@@ -35,6 +35,7 @@ import { knowsScannerWatch } from "../services/client-scanner.js";
 import { anyRolloutRunning, offerFor, recordUpgradeStatus } from "../services/rollouts.js";
 import { PacingCache } from "../services/settings.js";
 import { Presence } from "./presence.js";
+import { RelayError, type SessionRelay } from "./session-relay.js";
 import { revocationEpoch } from "./revocations.js";
 
 /** Admission control and load shedding (all per server process). */
@@ -84,6 +85,8 @@ export const DEFAULT_ADMISSION: Admission = {
 };
 
 export interface AgentApiOptions {
+  /** Absent until the audited session service is installed: transport fails closed. */
+  sessionRelay?: SessionRelay;
   pool: Pool;
   issuingKey: IssuingKey;
   notifier: CommandNotifier;
@@ -650,6 +653,21 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
           ...(shuttingDown ? { reconnectAfterMs: reconnectSpread() } : {}) });
       } finally {
         held.delete(entry);
+      }
+    });
+
+    scoped.post<{ Params: { sessionId: string } }>("/agent/v1/sessions/:sessionId/frames", async (request, reply) => {
+      if (!o.sessionRelay || !UUID.test(request.params.sessionId)) return reply.code(404).send({ error: "not_found" });
+      const frame = envelopes.sessionFrame.parse(request.body);
+      const bytes = Buffer.from(frame.data, "base64");
+      if (bytes.length > 16_384) return reply.code(413).send({ error: "frame_too_large" });
+      try {
+        const received = await o.sessionRelay.exchange(request.cabinet!.id, request.params.sessionId.toLowerCase(), "agent", bytes);
+        if (received === null) return reply.code(404).send({ error: "not_found" });
+        return envelopes.sessionFrame.parse({ data: received.toString("base64") });
+      } catch (error) {
+        if (error instanceof RelayError) return reply.code(error.status).header("retry-after", "1").send({ error: error.code });
+        throw error;
       }
     });
 
