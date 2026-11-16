@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D99. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
+
+**Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
+presses Next and sees another page of the same amount. So the rule is the screenful, not a number - neither the 25 that
+D81 recorded nor the 10 a branch proposed.
+
+**What it means in code.** The console computes the rows per page from what fits the viewport, floors it at a readable
+minimum, and asks the server for exactly that (`console/src/components/Pager.tsx`, sent as `limit` by
+`console/src/pages/Fleet.tsx:144`). The route's own contract is unchanged: `limit` 1 to 500, `offset` 0 to 999999
+(D81), so a screenful is always inside it. Next is a page of the same size, not a jump to the end, and a resize
+re-pages from the first page rather than stranding the reader mid-list.
+
+**What else was considered.** Keeping a fixed number and correcting the documents to match: cheaper, and it was the
+alternative offered on the review of #271. It was rejected because Marco asked for the screenful, and a fixed number is
+what put a 10-row page and a 25-row specification in disagreement in the first place. A "show all" list was not
+considered: the site view is the one place a list is unbounded by site size.
+
+**What it costs.** The page size is now a function of the window, so it is not a constant any test can quote. A test
+pins the *rule* instead - the page holds what fits and Next shows the next page of the same size - and the counts
+"1-25 of 230 / page 1 of 10" that `server/test/console-site-paging-e2e.test.ts` asserts today move with the viewport
+the test drives.
+
+**Proof.** `docs/spec/06-console-spec.md:27` states the behaviour rather than the number, and D81's "each page of 25"
+records that D99 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
+it fail on a viewport whose screenful is not that constant.
+
+---
+
 ## D98. Opening a remote session needs a grant and a step-up code (2026-11-15)
 
 **What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
@@ -629,7 +657,8 @@ count against a batch, and a pause would still need an Admin to resume a rollout
   else: `limit` 1 to 500, `offset` 0 to 999999, both as whole numbers in plain digits.
 - **Anything else is refused with 400.** That includes an unknown parameter, a repeated one and a leading zero. Left out, it is 200
   from the first, as before, so every other caller is unchanged.
-- **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. While the next page loads, the site
+- **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. (The number is
+  superseded by D99: the page carries the screenful, and Next shows the next page of the same size.) While the next page loads, the site
   stays on screen, so the panels below it keep what is being typed in them.
 - **Both network standard panels are given `cabinetCount`.**
 
