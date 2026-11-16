@@ -44,4 +44,4 @@ A repository test (`server/test/supply-chain.test.ts`) fails if a base image los
 
 ## 5. Still to do (outside the code)
 
-Authenticode and KMS signing certificates and the signing pipeline need to be set up with real keys; the key ceremony and who may approve a signature are the owner's decision. Until then the development key is used and upgrades are not offered to real cabinets.
+The signing key ceremony is the owner's decision, and it is made without a purchase: the publisher root is our own internal CA, pinned in `contracts/trust/upgrade/upgrade-keys.json` and installed on a cabinet by the installer, and the release key is the operator's, kept outside the checkout. The pipeline is `agent/install/new-agent-release.py` (`docs/platform/agent-release-signing.md`). Upgrades are still not offered to real cabinets until one is observed taking an upgrade on real hardware.
