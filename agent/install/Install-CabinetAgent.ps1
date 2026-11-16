@@ -161,6 +161,27 @@ if ([Environment]::Is64BitOperatingSystem -and -not [Environment]::Is64BitProces
 $principal = [Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) { throw 'Run this script from an elevated PowerShell: right-click Windows PowerShell (or PowerShell 7) and choose Run as administrator, then run the same command again.' }
 
+# Offline publisher root, independently pinned before either machine store is opened.
+$publisherRoot = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList (,[Convert]::FromBase64String('MIIBrDCCAVKgAwIBAgIIaEd3FpmQnL0wCgYIKoZIzj0EAwIwOjEUMBIGA1UEChMLTWFzaHVyYSBMTEMxIjAgBgNVBAMTGU1hc2h1cmEgQ29kZSBTaWduaW5nIFJvb3QwHhcNMjYxMTA3MTcwODAwWhcNMzYxMTA3MTcwODAwWjA6MRQwEgYDVQQKEwtNYXNodXJhIExMQzEiMCAGA1UEAxMZTWFzaHVyYSBDb2RlIFNpZ25pbmcgUm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBWdrLIalTuwCjLcue3C8LTXFNRBBfdDwBcsMWI77yICUV3vn7FnpvCKp6Z8ALGx+VpG1P3bQbf7QpUQHi0g7yqjQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQN8OvKy8wSy4ikw9gpL7O55DxbiDAKBggqhkjOPQQDAgNIADBFAiAHHj7V24k++uWj18nGMQd8L9OS4sDqwh3H8euqBZBOhgIhAODH1r0xH3GeOBc3D1EQJj7LkhqPVf/kRAlpEgrXZvXQ'))
+$publisherHash = [Security.Cryptography.SHA256]::Create()
+try {
+    $publisherSha = ([BitConverter]::ToString($publisherHash.ComputeHash($publisherRoot.RawData))).Replace('-', '').ToLowerInvariant()
+} finally { $publisherHash.Dispose() }
+if ($publisherSha -ne '3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b') {
+    throw 'The publisher root does not match the pinned SHA-256. Obtain the original installer from support.'
+}
+try {
+    foreach ($storeName in 'Root', 'TrustedPublisher') {
+        $store = New-Object Security.Cryptography.X509Certificates.X509Store -ArgumentList $storeName, 'LocalMachine'
+        try {
+            $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+            if (-not ($store.Certificates | Where-Object { [Convert]::ToBase64String($_.RawData) -eq [Convert]::ToBase64String($publisherRoot.RawData) })) {
+                $store.Add($publisherRoot)
+            }
+        } finally { $store.Close() }
+    }
+} finally { $publisherRoot.Dispose() }
+
 # The default source folder, resolved where $PSScriptRoot and $PSCommandPath are certainly set (see the note on the
 # parameter): the same command then works whether it is typed in a window, run with -File, or run with -Command, on
 # Windows PowerShell 5.1 and on PowerShell 7.
@@ -238,9 +259,13 @@ foreach ($project in 'Cabinet.Agent.Broker', 'Cabinet.Agent.Network', 'Cabinet.A
     Copy-Item -LiteralPath $from -Destination (Join-Path $incoming $project) -Recurse
 }
 # - Every program must carry a valid Authenticode signature, unless this is a development or demo build.
-# -File is required: on Windows PowerShell 5.1, -Include also returns matching *directories*,
-# and Get-AuthenticodeSignature cannot take a directory.
-$unsigned = Get-ChildItem -LiteralPath $incoming -Recurse -File -Include '*.exe', '*.dll' | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
+# - The programs are picked by extension, not with -Include: given a -LiteralPath, Windows PowerShell 5.1
+# ignores -Include and returns every file, so the .pdb and .xml that ship next to the programs were counted
+# as programs and a fully signed release was refused on a real cabinet. Measured there (PS 5.1.26100.9818):
+# 24 files returned, 4 of them programs, 0 unsigned. pwsh 7 does apply -Include, so a test run in this repo
+# cannot show the difference. -LiteralPath stays, because a folder may hold wildcard characters.
+$programs = Get-ChildItem -LiteralPath $incoming -Recurse -File | Where-Object { $_.Extension -in '.exe', '.dll' }
+$unsigned = $programs | Where-Object { (Get-AuthenticodeSignature -LiteralPath $_.FullName).Status -ne 'Valid' }
 if ($unsigned) {
     if (-not $AllowUnsigned) { throw "$(@($unsigned).Count) programs are not code-signed (first: $(@($unsigned)[0].Name)). Production builds are signed; for a development or demo build, run again with -AllowUnsigned." }
     Write-Warning "Installing an unsigned development or demo build ($(@($unsigned).Count) programs). Never do this on a production cabinet."
