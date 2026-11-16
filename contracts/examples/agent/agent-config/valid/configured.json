@@ -19,5 +19,6 @@
     443,
     1433
   ],
-  "localHarness": true
+  "localHarness": true,
+  "developmentShellEnabled": false
 }

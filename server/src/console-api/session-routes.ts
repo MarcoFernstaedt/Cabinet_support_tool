@@ -18,13 +18,21 @@ export async function sessionRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     if (user.stage !== "complete") throw new Refused("sign_in_incomplete", 401, "finish signing in first");
     const cabinetId = id(request);
     const body = consoleBodies.sessionOpen.parse(request.body);
+    // A shell must have the lifecycle installed so its end/kill path can enforce closure.
+    if (body.kind === "shell" && !o.sessionLifecycle) throw new Refused("shell_unavailable", 400, "shell lifecycle is not installed");
     return openSession(o.pool, user.userId, cabinetId, { ...body, stepUpToken: boundTo(body.stepUpToken, body) });
   });
   app.get("/api/cabinets/:id/sessions", async request => {
     const user = await o.guards.session(request);
     if (user.stage !== "complete") throw new Refused("sign_in_incomplete", 401, "finish signing in first");
     const cabinetId = id(request);
-    await requireCabinetPermission(o.pool, user.userId, cabinetId, "session.open");
+    // Discovery runs on every cabinet view, including for people without session access.
+    // Reveal neither capability nor session records without a current scoped grant.
+    try { await requireCabinetPermission(o.pool, user.userId, cabinetId, "session.open"); }
+    catch (error) {
+      if (error instanceof Refused && error.code === "permission_required") return { developmentShell: false, sessions: [] };
+      throw error;
+    }
     const capable = (await o.pool.query("SELECT id FROM cabinets WHERE id = $1 AND development_shell = 1 AND read_only = 0 AND last_heartbeat_at > DATEADD(minute, -10, SYSUTCDATETIME())", [cabinetId])).rows.length > 0;
     return { developmentShell: capable, sessions: (await o.pool.query("SELECT * FROM remote_sessions WHERE cabinet_id = $1 AND operator_id = $2 ORDER BY opened_at DESC", [cabinetId, user.userId])).rows };
   });

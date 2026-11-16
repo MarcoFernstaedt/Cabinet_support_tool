@@ -83,3 +83,35 @@ test("console opening needs complete sign-in and a step-up body, without consult
       assert.equal((await send(payload)).statusCode, 400);
   } finally { await app.close(); }
 });
+
+test("session discovery hides capability and records without a grant, and never consults rank", async () => {
+  let stage = "totp", granted = false;
+  const queries: string[] = [];
+  const pool = { query: async (sql: string) => {
+    queries.push(sql);
+    if (sql.includes("FROM user_permissions")) return { rows: granted ? [{ id: "grant" }] : [] };
+    if (sql.includes("development_shell = 1")) return { rows: [{ id: sessionId }] };
+    if (sql.includes("FROM remote_sessions")) return { rows: [{ id: sessionId, operator_id: "operator" }] };
+    assert.fail(`unexpected query: ${sql}`);
+  } } as unknown as Pool;
+  const app = Fastify();
+  app.setErrorHandler((error, _request, reply) => reply.code(error instanceof Refused ? error.status : 500).send({ error: "refused" }));
+  await app.register(sessionRoutes, { pool, guards: {
+    session: async () => ({ userId: "operator", stage }),
+    role: async () => assert.fail("session discovery must not consult rank"),
+  } as unknown as Guards } as ConsoleApiOptions & { guards: Guards });
+  try {
+    const read = () => app.inject({ method: "GET", url: `/api/cabinets/${sessionId}/sessions` });
+    assert.equal((await read()).statusCode, 401);
+    assert.deepEqual(queries, []);
+    stage = "complete";
+    const hidden = await read();
+    assert.equal(hidden.statusCode, 200);
+    assert.deepEqual(hidden.json(), { developmentShell: false, sessions: [] });
+    assert.equal(queries.length, 1, "no capability or session records read without a grant");
+    granted = true;
+    const visible = await read();
+    assert.equal(visible.statusCode, 200);
+    assert.deepEqual(visible.json(), { developmentShell: true, sessions: [{ id: sessionId, operator_id: "operator" }] });
+  } finally { await app.close(); }
+});

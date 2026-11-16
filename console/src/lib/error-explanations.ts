@@ -32,6 +32,11 @@ const pausedWrites = (who: string): Explanation => ({
 });
 
 const codeExplanations: Record<string, Explanation> = {
+  frame_too_large: { title: "Session message too large", detail: "The session message exceeds the transport size limit.", fix: "Send less terminal input at once and try again." },
+  relay_backpressure: { title: "Session queue full", detail: "The other end has not yet received the queued session messages.", fix: "Wait for the session to catch up before sending more input." },
+  shell_frame_required: { title: "Invalid shell message", detail: "The shell received an unsupported session message.", fix: "Refresh the console and reopen the shell session." },
+  shell_line_too_large: { title: "Terminal input too long", detail: "The pending terminal input exceeds the line size limit.", fix: "End this session and use shorter input in a new session." },
+  shell_unavailable: { title: "Shell unavailable", detail: "Shell access is unavailable for this cabinet or server.", fix: "Check that the cabinet is online, permits writes and reports the development shell capability." },
   invalid_permission: { title: "Unknown permission", detail: "The grant does not name a supported operation.", fix: "Ask an Admin to choose a permission from the operation catalog." },
   invalid_scope: { title: "Invalid permission scope", detail: "The grant must name the fleet, a site or a cabinet.", fix: "Ask an Admin to correct the scope and try again." },
   invalid_session_record: { title: "Invalid session details", detail: "The session kind, reason or ending is not valid.", fix: "Enter a brief reason and use a supported session kind." },

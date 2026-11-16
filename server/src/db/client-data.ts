@@ -60,6 +60,8 @@ export const TABLE_PLACEMENT: Readonly<Record<string, Placement>> = {
   ops_counters: "platform",
   packages: "platform",
   remote_sessions: "client",
+  session_shell_commands: "client",
+  session_shell_frames: "client",
   replacement_reapply: "client",
   replacement_reapply_steps: "client",
   rollout_targets: "client",
