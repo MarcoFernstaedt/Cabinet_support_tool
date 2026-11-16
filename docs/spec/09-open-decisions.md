@@ -497,7 +497,7 @@ Every edit is role-limited and audited with who, what and the before and after. 
 - **New device sign-ins are shown.** The server remembers each browser by a random device cookie (only its hash is stored). A sign-in from a device or network the account had not used before is marked in the person's own sign-in list, announced to them right after sign-in, listed for Admins, and raises a security alert. An account's first device is not "new".
 - **Cookies** carry the `__Host-` prefix (C6): Secure, HttpOnly, SameSite=Strict, Path=/, no Domain. Everyone is signed out once when this is deployed.
 
-### Support actions and Windows reads, October 2026 (built, not yet run on a real cabinet)
+### Support actions and Windows reads, October 2026 (built, and since run on a real cabinet)
 
 Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `sessions.list`, `shares.list`, `reliability.list`, `disk.folders`, `dns.cache`, `power.status`) and four actions, all in the fixed catalog, served by the broker:
 
@@ -595,11 +595,11 @@ Decided while building it, for the owner to confirm:
 - **Case notes keep their text out of the audit log** (free text can hold anything); the audit log records that a note was added, its length and what it hangs on. Redaction by an Admin needs a reason and keeps the note.
 - **Diagnose this cabinet refuses an offline cabinet** instead of waiting for the reads to expire. The network diagnosis alone still waits.
 - **Open question:** should the triage queue also include the latest cabinet diagnoses' findings (for example "wrong gateway on 5 cabinets") as groups? Today its groups are alerts by issue type and unrecognized errors; the batch network diagnosis already groups fixes by cause.
-- **Open question:** the connection profile read, per-server DNS resolution and a per-hop traceroute are agent operations still to be written (Windows code, not testable on the Linux build machine).
+- **Answered:** the connection profile read, per-server DNS resolution and a per-hop traceroute are all built, all Windows code. `network.config` returns each adapter's Windows network profile (name and public/private/domain category) and the machine WinHTTP proxy (`agent/src/Cabinet.Agent.Windows/NetworkExtras.cs:65-70`, `:109-124`); the hosts file is the read `network.hosts`; per-server DNS resolution is one `network.test` per DNS server the connected adapters use (`server/src/diagnose/network.ts:73`); the path is the read `network.trace` (`contracts/schemas/operations/network.trace.schema.json`).
 
 ## Windows coverage (October 2026)
 
-- **Built (not yet run on a real cabinet):** `system.hardware`, `system.identity` and `network.hosts`, read-only Tier 1 reads (see 04-agent-spec.md). `docs/platform/windows-coverage-review.md` keeps the remaining ideas (update source and service health, volume integrity).
+- **Built, and since run on a real cabinet:** `system.hardware`, `system.identity` and `network.hosts`, read-only Tier 1 reads (see 04-agent-spec.md); the read sweep ran every catalogue read on Marco's HP (`deviceb`) on 2026-11-02 and again on 2026-11-13. `docs/platform/windows-coverage-review.md` keeps the remaining ideas (update source and service health, volume integrity).
 - **To confirm on a real cabinet:** the registry values that hold the last Group Policy time (`...\Group Policy\State\Machine\Extension-List\{00000000-0000-0000-0000-000000000000}`, `EndTimeLo` and `EndTimeHi`; the reading is null when they are absent), the display list from `root\wmi` `WmiMonitorID` in the services session, and TPM `enabled` from `Win32_Tpm` (needs the broker's rights). `system.identity` runs in the network process (no administrator rights needed; the domain controller lookup is a network call, which the broker never makes) and reads only the automatic sign-in flag and user name, never the password.
 - **Decision:** fleet search reaches the three new readings by plain text (model, manufacturer, BIOS version, processor; domain, workgroup or local administrator name; hosts name or address) and, for identity, by the keywords `workgroup`, `auto_logon` and `no_domain_controller`. No new alert rules: a hosts line or a workgroup cabinet is shown, not raised.
 
@@ -643,7 +643,7 @@ The control half of milestone 10 (`docs/spec/13-roadmap.md`: `process.end` and `
 - **Server administrators only**, not Tier 2 and up, although the spec's milestone 10 wording is "an admin". Everywhere else, changing a client's, site's or cabinet's own list is a Tier 2 action with a confirmation click; the fleet default is Admin only. A program the platform may start, stop or restart is an owner's decision, and the list is the thing a lost Tier 2 session would most want to widen. Say if a Tier 2 account should be able to propose a list that an Admin approves.
 - **An empty list is a level of its own**: it approves nothing at that level and still wins over the level above. `entries null` instead removes the level's list, so the level above applies. The spec does not distinguish the two, and the console's editor needs to show them differently.
 - **A request will name the entry's key** (`app:<name>`), never a raw PID, a service name alone or a command line. A PID may point at the thing (to read its image path) but cannot be the stored identity, because Windows reuses PID numbers.
-- **Built, not yet enforced end to end:** the list is stored, resolved and audited; pushing it to the cabinet, the broker refusing anything not on its own copy, and the console page that edits it are the next slice.
+- **Enforced end to end:** the list is stored, resolved and audited; it reaches the cabinet on the heartbeat and the cabinet refuses before Windows is asked (`agent/src/Cabinet.Agent.Core/Services/ApprovedApps.cs`, the section below), and the console page that edits it is built (`server/src/console-api/service-routes.ts`).
 
 ### The cabinet's own copy is now the gate, and what about it is deliberate (October 2026)
 
