@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D98. Opening a remote session is tier2 with a step-up code (2026-11-15)
+
+**What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
+the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`
+exists in `contracts/schemas/operations/catalog.json`; the console's guard is a minimum-role test
+(`server/src/console-api/server.ts:80`, `role(request, minimum)`), ranked by `ROLE_RANK` (`server/src/services/roles.ts`). The
+phase-2 run stopped instead of picking a role, which was right: choosing who may reach a customer's machine is not a decision
+for the run to take.
+
+**The decision:**
+- `session.open` is a catalog entry with `kind: "write"`, `minimumRole: "tier2"`, `confirm: "code"`, `expirySeconds: 120` and
+  `rateClass: "write"`, following `network.setIp` and `package.install`.
+- **No `safetyNet`.** That field belongs to the operations that have a rollback net behind them (`network.*`). A session has
+  none, and claiming one would be a lie in the catalog the agent compiles in.
+- The console route enforces the same two things the other writes do: `ROLE_RANK` against `minimumRole`, then
+  `consumeStepUpToken(db, token, userId, "session.open", target)` (`server/src/auth/stepup.ts:37`). A role below `tier2` is
+  refused by the server with the catalog path's own 403, not hidden in the UI.
+- The lifecycle's audit actions are `session.open`, `session.end`, `session.kill` and `session.refused`, through the
+  repository's existing audit path, one row per transition and **not** per frame (a transcript is not an audit).
+- The session's own bounds - one live per cabinet, an idle timeout, a maximum length, the fleet cap - are the server's, not
+  the catalog's.
+
+**What else was considered:**
+- **`minimumRole: "admin"`.** Rejected. The people who need this are the support tiers who already hold `tier2` to run
+  `network.setIp`, `package.install` and `driver.uninstall`, each of which already needs a code. A session reaches no further
+  than those do, and `admin`-only would leave the console's own support staff unable to use the feature the platform exists for.
+- **`confirm: "click"`**, as `service.control` and the firewall rules use. Rejected: those are reversible without leaving the
+  machine. A live channel into a customer's cabinet is the class that takes a code.
+
+**What it costs:** every open costs the operator a step-up code, so a long troubleshooting call starts with an authenticator
+prompt, and a code cannot be reused for a second open inside its window. Accepted - the alternative is a session that anyone
+holding a stolen console cookie can open on any cabinet in the fleet.
+
+**Proof:** not yet, and not claimed. Phase 2 is unwritten. The tests that will prove it are named under "Prove it" in
+`docs/codex-tasks/remote-access-tunnel-lifecycle.md`: no session opens without a step-up token, none opens for a role below
+`tier2`, and the audit row is written on each transition.
+
+---
+
 ## D97. The baseline-alert ordering test locks the alert by its id (2026-11-15)
 
 **What the test did** (`server/test/network-troubleshooting.test.ts:270`, at `2f45af4`, after D93):

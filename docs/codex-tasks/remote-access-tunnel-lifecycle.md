@@ -36,10 +36,14 @@ Phase 1 landed a working relay and nothing more, all of it inert:
 2. **The audited transitions.** Every state change writes an audit row through the repository's existing audit path: opened,
    each command or frame exchanged is **not** audited individually (that is the transcript's job and it would drown the
    audit), but opened, closed, killed, refused and the reason are. Name in the report which existing audit helper you used.
-3. **Who may open, and how it is proven.** Opening is behind the console's existing permission for it **and** a step-up
-   token: `consumeStepUpToken(db, token, userId, action, target)` (`server/src/auth/stepup.ts:37`), taken from the body and
-   wrapped by the route as `server/src/console-api/admin-routes.ts:21` does. A role without the permission is refused by
-   the server, not hidden in the UI.
+3. **Who may open, and how it is proven - decided, do not choose it yourself: D98.** `docs/platform/decision-log.md` D98 settles
+what revision 1 of this brief wrongly called an existing permission. `session.open` is a catalog entry with `kind: "write"`,
+`minimumRole: "tier2"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`, and no `safetyNet`, following
+`network.setIp`. The route enforces it as the other writes do: `ROLE_RANK` (`server/src/services/roles.ts`) against
+`minimumRole`, then `consumeStepUpToken(db, token, userId, "session.open", target)` (`server/src/auth/stepup.ts:37`), the token
+taken from the body and wrapped as `server/src/console-api/admin-routes.ts:21` does. A role below tier2 gets the catalog path's
+own 403 from the server, not a hidden button. The lifecycle's audit actions are `session.open`, `session.end`, `session.kill`
+and `session.refused` - one row per transition, never per frame.
 4. **The bounds, all of them enforced server-side and tested.** One live session per cabinet; an idle timeout; a maximum
    session length; a small fleet-wide cap; and an operator-issued end from the console that frees the cabinet immediately
    (the relay's `close()` already exists for this). A cabinet must not be able to hold a session open past the maximum by
@@ -58,7 +62,7 @@ Phase 1 landed a working relay and nothing more, all of it inert:
 
 At minimum, and named in your report with the command that ran each one:
 
-- A session cannot start without a step-up token, and cannot start for a role without the permission.
+- A session cannot start without a step-up token, and cannot start for a role below `tier2` (D98).
 - Opening writes the audit row and the record; closing writes the close row and stamps the reason; killing writes its own.
 - An idle session ends by itself, and a session cannot be held past the maximum by exchanging frames.
 - A second live session on the same cabinet is refused.
