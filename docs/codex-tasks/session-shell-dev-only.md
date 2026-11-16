@@ -1,7 +1,9 @@
 # Task: an operator shell over the session transport, development branch only
 
-**Who builds it:** on Marco's direction this one goes to Claude, working on `feat/remote-access-tunnel`. It is not a
-task for `main` and not a task for any branch cut from `main`.
+**Who builds it:** Codex CLI, on `feat/remote-access-tunnel`. On Marco's direction the split is by branch: **Codex
+builds on the lab development branch, Claude works on `main`.** This is not a task for `main`, and not for any branch
+cut from it. It also starts only after item 6 of `docs/codex-tasks/remote-access-tunnel-lifecycle.md` composes the
+relay - there is no transport to carry a shell before that.
 
 **Marco's direction (2026-11-15):** "For shell I want you to get full shell access and this is only on second branch -
 whatever you send it this never goes on main, this is strictly only used in development, never touched main."
@@ -10,7 +12,12 @@ whatever you send it this never goes on main, this is strictly only used in deve
 
 A full interactive shell from the platform to a cabinet's agent, so an engineer can use a cabinet the way he uses a
 machine he has ssh to: run a command, read the output, see the hardware. It exists on `feat/remote-access-tunnel` and
-nowhere else.
+nowhere else. The shell and the tunnel are one branch's business whatever else they are: the tunnel is the transport,
+the shell is a capability that rides it, and both live here and never on `main`.
+
+**Why we want it, in Marco's words:** so the platform can "look around the cabinet to find things and see if we can add
+them". The shell is how we learn what a machine exposes; a typed operation with its own allowlist entry and its own
+audit row is how any of it ships to `main`. D100 keeps that route open, and this branch does not replace it.
 
 ## Why the branch matters more than the feature
 
