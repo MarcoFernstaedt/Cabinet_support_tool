@@ -199,8 +199,24 @@ test("the installer refuses a source anyone but SYSTEM and administrators can ch
   const scan = code.indexOf("Get-AuthenticodeSignature");
   const install = code.indexOf("$from = Join-Path $incoming $service.Project");
   assert.ok(copy > 0 && scan > copy && install > scan, "copy, then check the copy, then install the copy");
-  assert.match(code, /Get-ChildItem -LiteralPath \$incoming -Recurse -File -Include '\*\.exe', '\*\.dll'/);
+  // Picked by extension, not with -Include: given a -LiteralPath, Windows PowerShell 5.1 ignores -Include and
+  // returns every file, so the .pdb and .xml shipped beside the programs were scanned as programs and a fully
+  // signed release was refused on a real cabinet (measured there: 24 files, 4 of them programs, 0 unsigned).
+  // pwsh 7 does apply -Include, so a run of this suite cannot show the difference; the test below does.
+  assert.match(code, /Get-ChildItem -LiteralPath \$incoming -Recurse -File \| Where-Object \{ \$_.Extension -in '\.exe', '\.dll' \}/);
   assert.match(code, /finally \{[\s\S]*Remove-Item -LiteralPath \$incoming/);
+});
+
+test("no script filters programs with -Include, which Windows PowerShell 5.1 ignores beside -LiteralPath", () => {
+  // Measured on a cabinet under 5.1: such a filter returns every file. Both scripts learned it the hard way: the
+  // installer refused a fully signed release, and the acceptance check warned about .pdb files as programs.
+  // pwsh 7 does apply -Include, so this is checked against the source.
+  for (const name of ["Install-CabinetAgent.ps1", "Test-CabinetAgent.ps1"]) {
+    const code = readFileSync(join(installDir, name), "utf8").split("\n").map(codePart).join("\n");
+    for (const line of code.split("\n")) {
+      assert.ok(!line.includes("-Include"), `${name}: -Include filters nothing beside -LiteralPath: ${line.trim()}`);
+    }
+  }
 });
 
 /**
@@ -212,9 +228,9 @@ test("the installer refuses a source anyone but SYSTEM and administrators can ch
  */
 const ACCEPTANCE_VOCABULARY = new Set(`access accesscontrol accesscontroltype account add add-result administrator adsi algorithm and asyncwaithandle at band
   beginconnect buildnumber caption catch check close cmdletbinding collections computer connected container contains continue convertfrom-json
-  convertto-json count default depth descending detail directory else elseif environment eq erroraction exception exit file filesystemrights filter
+  convertto-json count default depth descending detail directory else elseif environment eq erroraction exception exit extension file filesystemrights filter
   finally first force foreach foregroundcolor fullname function generic get-acl get-authenticodesignature get-childitem get-ciminstance get-content
-  get-date get-filehash get-item get-sid get-untrustedwriters getcurrent getowner gettype gt hash host identityreference if in include int invoke
+  get-date get-filehash get-item get-sid get-untrustedwriters getcurrent getowner gettype gt hash host identityreference if in int invoke
   invoke-check invokemember io is64bitoperatingsystem isinrole itemtype join join-path lastwritetimeutc le leaf list literalpath message name ne net
   new-item new-object not notcontains ntaccount object or ordered out-null padright param passed path pathtype platformserver port principal
   productversion psversion raw readonlymode recurse results return scriptblock security securityidentifier select-object sha256 silentlycontinue

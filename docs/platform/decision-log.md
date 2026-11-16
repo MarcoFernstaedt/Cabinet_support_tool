@@ -31,8 +31,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   site outage) instead of `issueTypeId`, as every automatic close does (`automatic-close.ts`). The alert the entry targets still holds
   its issue type. Nothing reads `issueTypeId` from an `alert.resolve` entry.
 - **Unchanged:** which alerts close and when, the sentence, the actor and the transaction. No existing assertion changed.
-- **Debt list:** the `services/site-outage.ts` entry for `alerts` comes off, which leaves 84 on main after #285 (D96 and D98 each take
-  another off).
+- **Debt list:** the `services/site-outage.ts` entry for `alerts` comes off, which leaves 82 on main after #293.
 
 **Proof:**
 - **The owner function.** `server/test/site-outage-close.test.ts`, against the database:
@@ -53,6 +52,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - Restored and `cmp` identical, 17 of 17 pass.
 - **Neighbours.** The 14 non-browser files that reach `alerts.ts` or `site-outage.ts` (among them `alerts-sql`, `scale` and `demo`)
   pass: 122 of 122.
+
+---
+
+## D98. The disk-filling forecast closes its alert through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** When the system drive stops filling, `checkDiskForecast` in `server/src/services/drives.ts:79-87` closed the cabinet's
+  unresolved `disk-forecast` alert itself, inside `inTransaction`, with its own
+  `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `drive-forecast`, with `cabinetId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `drives.ts` raises the alert through `upsertAlert` and writes
+  `alerts` nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is the close by signature that `closeSignatureAlert` holds. `drives.ts` now calls it
+  with closer `drive-forecast`, the cabinet, `disk-forecast` and the same sentence.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `drive-forecast`, with `automatic: true`,
+  in the caller's transaction or a new one.
+- **Imports.** `drives.ts` drops `auditMany` and `inTransaction`, which nothing else there used.
+- **One difference in what is recorded.** The audit details now also carry `verifiedFix`, as every automatic close does
+  (`automatic-close.ts`, F18.R1). It names the platform fix that explains the close, or null. Nothing reads its absence.
+- **Unchanged:** which alert closes and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 83 on main after #292.
+
+**Proof:**
+- **Behaviour.** `server/test/drives.test.ts`, "the disk-filling forecast resolves itself once the system drive stops filling", asserts
+  the alert closes and is audited once by the system with `automatic: true`. It passes through the new call.
+- **Red checks** (`drives`, `table-ownership`, `audit-sweep`, `import-cycles`; 20 tests):
+  - With `drives.ts` as on main, `table-ownership.test.ts` fails.
+  - With the signature passed as `disk_forecast`, the forecast test fails, so it watches this close.
+  - Restored and `cmp` identical, 20 of 20 pass.
+- **Neighbours.** The 25 files that test `drives.ts` and the modules that call it (`cabinets.ts`, `maintenance.ts`, the reading routes,
+  the demo) pass: 291 of 298, with 7 skipped that need `TEST_AGENT_DLL`.
 
 ---
 
@@ -89,6 +122,36 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - **Red check:** with `finishDiagnosis` moved before `reconcileBaselineAlert` in `network.ts`, the fixed test fails. Restored and `cmp`
   identical, it passes 3 of 3.
 - **The whole file:** 13 of 13.
+
+---
+
+## D96. The heartbeat closes a reboot-loop alert through alerts.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (on #284's head, `467d79f`; an entry on the ownership debt list, F21.R2):
+- **The write.** `bootFromHeartbeat` in `server/src/services/crashes.ts:67` closed the cabinet's unresolved `reboot_loop` alert once the
+  cabinet had run for 2 hours, with its own `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`
+  passed to `closeAutomatically`, resolution "Running for 2 hours without restarting."
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `crashes.ts` raises through `upsertAlert` and writes `alerts`
+  nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is exactly the close by signature that `closeSignatureAlert` holds, so `crashes.ts`
+  calls it with closer `reboot-loop`, the cabinet, `reboot_loop` and the same sentence. The close is still audited as `alert.resolve` by
+  `reboot-loop` through `closeAutomatically`. `crashes.ts` drops its now-unused `automatic-close.js` import.
+- **Unchanged:** which alert closes and when, the audit, and the input check, which is `closeSignatureAlert`'s (D94).
+- **No new owner code and no existing assertion changed.**
+- **Debt list:** the `services/crashes.ts` entry for `alerts` comes off, which leaves 84 after #285.
+- **Depends on #284**, which adds `closeSignatureAlert`. This branch started from #284's head; main, with #284 and #285, is merged in.
+
+**Proof:**
+- **Behaviour:** `server/test/crashes.test.ts` "3 in an hour is a reboot loop, 2 hours up ends it" asserts the loop alert is resolved
+  after 2 hours up. It passes through the new call.
+- **Red checks** (`crashes`, `table-ownership`, `audit-sweep`, `import-cycles`; 27 tests):
+  - With `crashes.ts` as on #284's head, `table-ownership.test.ts` fails.
+  - With the signature passed as `reboot-loop` instead of `reboot_loop`, the 2-hour test and the went-quiet test fail, so the existing
+    tests watch this close.
+  - Restored and `cmp` identical, 27 of 27 pass.
+- **Neighbours:** `crashes`, `alerts-sql`, `fleet-patterns`, `scale` and `signature-alert-writes` pass, 62 of 62.
 
 ---
 

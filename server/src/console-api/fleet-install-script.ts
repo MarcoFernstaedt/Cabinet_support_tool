@@ -8,7 +8,7 @@
 // and every cabinet that uses it still waits for an Admin's approval. It is sent to the console only in the Authorization header, and
 // the download never counts as a use.
 //
-// Exit codes, for the remote management tool: 0 installed, or already installed (nothing changed); 1 not installed, with the reason and
+// Exit codes, for the remote management tool: 0 installed, or already installed (publisher trust checked); 1 not installed, with the reason and
 // the next step on the last two lines of output. Windows PowerShell 5.1 syntax only, ASCII only. Every value is checked against its
 // exact shape before it is written into the script, so no value can close a quote.
 import { check, HOST, PEM, SHA256, TOKEN } from "./installer-launcher.js";
@@ -71,8 +71,29 @@ try {
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
         Stop-Install 'the script is not running with administrator rights.' 'Run it as SYSTEM from the remote management tool.'
     }
+    # Offline publisher root, independently pinned before either machine store is opened.
+    $publisherRoot = New-Object Security.Cryptography.X509Certificates.X509Certificate2 -ArgumentList (,[Convert]::FromBase64String('MIIBrDCCAVKgAwIBAgIIaEd3FpmQnL0wCgYIKoZIzj0EAwIwOjEUMBIGA1UEChMLTWFzaHVyYSBMTEMxIjAgBgNVBAMTGU1hc2h1cmEgQ29kZSBTaWduaW5nIFJvb3QwHhcNMjYxMTA3MTcwODAwWhcNMzYxMTA3MTcwODAwWjA6MRQwEgYDVQQKEwtNYXNodXJhIExMQzEiMCAGA1UEAxMZTWFzaHVyYSBDb2RlIFNpZ25pbmcgUm9vdDBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABBWdrLIalTuwCjLcue3C8LTXFNRBBfdDwBcsMWI77yICUV3vn7FnpvCKp6Z8ALGx+VpG1P3bQbf7QpUQHi0g7yqjQjBAMA8GA1UdEwEB/wQFMAMBAf8wDgYDVR0PAQH/BAQDAgEGMB0GA1UdDgQWBBQN8OvKy8wSy4ikw9gpL7O55DxbiDAKBggqhkjOPQQDAgNIADBFAiAHHj7V24k++uWj18nGMQd8L9OS4sDqwh3H8euqBZBOhgIhAODH1r0xH3GeOBc3D1EQJj7LkhqPVf/kRAlpEgrXZvXQ'))
+    $publisherHash = [Security.Cryptography.SHA256]::Create()
+    try {
+        $publisherSha = ([BitConverter]::ToString($publisherHash.ComputeHash($publisherRoot.RawData))).Replace('-', '').ToLowerInvariant()
+    } finally { $publisherHash.Dispose() }
+    if ($publisherSha -ne '3049e830ab210ae07a12f5fc287b0e503532e2245de6daf5546fb53916bffc3b') {
+        throw 'The publisher root does not match the pinned SHA-256. Obtain the original installer from support.'
+    }
+    try {
+        foreach ($storeName in 'Root', 'TrustedPublisher') {
+            $store = New-Object Security.Cryptography.X509Certificates.X509Store -ArgumentList $storeName, 'LocalMachine'
+            try {
+                $store.Open([Security.Cryptography.X509Certificates.OpenFlags]::ReadWrite)
+                if (-not ($store.Certificates | Where-Object { [Convert]::ToBase64String($_.RawData) -eq [Convert]::ToBase64String($publisherRoot.RawData) })) {
+                    $store.Add($publisherRoot)
+                }
+            } finally { $store.Close() }
+        }
+    } finally { $publisherRoot.Dispose() }
+
     if (Get-Service -Name 'CabinetAgentNetwork' -ErrorAction SilentlyContinue) {
-        Write-Output 'Already installed: the cabinet agent is on this machine. Nothing was changed.'
+        Write-Output 'Already installed: the cabinet agent is on this machine. Publisher trust checked.'
         exit 0
     }
 

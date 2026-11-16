@@ -49,7 +49,7 @@ A red-team review of the agent, installer, deployment, server, console, contract
 | C5 | Low | Images are pinned by tag, not digest. | Open. |
 | C6 | Low | The session cookie lacks the `__Host-` prefix. | Open. Renaming signs everyone out once; planned with the next deployment. |
 | C7 | Info | Bootstrap tokens last 7 days. | Accepted. Single use, and each enrollment still needs an Admin's approval. |
-| C8 | Info | Tier 2 may change or delete any Windows firewall rule by exact name. | Open question for the product owner (09-open-decisions.md). |
+| C8 | Info | Tier 2 may change or delete any Windows firewall rule by exact name. | Answered by the owner (October 2026): yes, kept audited and bounded by the safety net (09-open-decisions.md, "Decisions, October 2026 (owner)"). The separate question of the *confirmation level* for a rule change is still open there. |
 
 Clean in the review: no XSS sinks, CSRF protection (Origin check and SameSite), strict CSP, path traversal in static files, cookie redaction in logs, bounded contracts with `additionalProperties: false`, program allow-list by full path, npm and NuGet audits.
 
