@@ -827,6 +827,33 @@ export async function closeSiteOutageAlerts(db: Queryable, by: string, alertIds:
 }
 
 /**
+ * Closes the unresolved alerts of one issue type on every cabinet of a client, because the user who switched what raises them off for
+ * that client left nothing to close them later (F21.R2, decision-log D100): the fingerprint scanner switched off. The statement is the
+ * one client-scanner.ts ran. Each close is audited as alert.resolve by that user, in the caller's transaction, as it was: the user's
+ * choice closed them, so the actor is the user and not the system, and closeAutomatically (actor system) is not used. The user, the
+ * client, the issue type and the resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeClientIssueAlerts(db: Queryable, userId: string, clientId: string, issueTypeId: string, resolution: string): Promise<{ id: string }[]> {
+  if (typeof userId !== "string" || !ALERT_ID.test(userId)) throw new Error("the id of the user closing the alerts is required");
+  if (typeof clientId !== "string" || !ALERT_ID.test(clientId)) throw new Error("a client id is required to close its alerts");
+  if (typeof issueTypeId !== "string" || !ALERT_ID.test(issueTypeId)) throw new Error("an issue type id is required to close its alerts");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  // alerts carries a trigger, so the changed ids come back through a table variable.
+  const closed = (await db.query<{ id: string }>(
+    `DECLARE @o TABLE (id uniqueidentifier);
+     UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $2
+      OUTPUT inserted.id INTO @o (id)
+       FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
+      WHERE s.client_id = $1 AND a.issue_type_id = $3 AND a.state <> 'resolved';
+     SELECT id FROM @o;`, [clientId, resolution, issueTypeId])).rows;
+  if (closed.length > 0)
+    await auditMany(db, closed.map(r => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: r.id, outcome: "succeeded" as const,
+      details: { issueTypeId, resolution, automatic: true } })));
+  return closed;
+}
+
+/**
  * Closes every unresolved alert of a cabinet that another cabinet has replaced (F21.R2, decision-log D101): the old cabinet is retired,
  * so nothing would close them later. The statement is the one replacement.ts ran. Each close is audited as alert.resolve by the user who
  * replaced the cabinet, in the caller's transaction, with the alert's issue type and the replacing cabinet, as it was: the user's

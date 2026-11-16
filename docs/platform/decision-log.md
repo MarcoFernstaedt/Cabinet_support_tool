@@ -27,7 +27,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   characters, so every name a replacement can carry passes.
 - **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
   `replacement.ts` drops `auditMany`, which nothing else there used. No import cycle: `alerts.ts` does not import `replacement.ts`.
-- **Debt list:** the `services/replacement.ts` entry for `alerts` comes off, which leaves 81 on main after #294 (D100 takes another off).
+- **Debt list:** the `services/replacement.ts` entry for `alerts` comes off, which leaves 80 on main after #295.
 
 **Proof:**
 - **Behaviour.** `server/test/cabinet-replacement.test.ts` asserts the old cabinet's alert is resolved as "Replaced by SYNC." and the
@@ -45,8 +45,53 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - With the audit disabled, the new close test fails.
   - With the self-replacement check disabled, the hostile-input test fails.
   - Restored and `cmp` identical, 19 of 19 pass.
-- **Neighbours.** The 36 non-browser files that reach `alerts.ts`, the replacement or enrollment pass: 344 of 346, with 2 skipped that
-  need `TEST_AGENT_DLL`.
+- **Neighbours.** The 34 non-browser files that import `services/alerts.js`, `services/replacement.js` or `services/enrollment.js`
+  (chosen by that exact import), with `table-ownership`, `audit-sweep` and `import-cycles`, at main with #295 merged in: 347 of 349
+  pass, with 2 skipped that need `TEST_AGENT_DLL`. The first commit's message gives 344 of 346 for 36 files chosen by a looser text
+  match, which also caught files that only mention the words.
+
+---
+
+## D100. Switching a client's fingerprint scanner off closes its alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `82d6e84`; an entry on the ownership debt list, F21.R2):
+- **The write.** `applyScannerChoice` in `server/src/services/client-scanner.ts:57-68`, when an Admin switches a client's scanner off,
+  resolved the unresolved scanner alerts on every cabinet of that client itself: its own `UPDATE a … FROM alerts a JOIN cabinets k JOIN
+  sites s WHERE s.client_id = $1`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor the user who switched it off, with `issueTypeId`,
+  `resolution` and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `client-scanner.ts` wrote `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** The existing closes are by one cabinet, and they audit as the system through `closeAutomatically`. This one
+  spans a client's cabinets, and it is a user's choice that closes the alerts. `closeClientIssueAlerts(db, userId, clientId,
+  issueTypeId, resolution)` in `alerts.ts` holds the same statement, and audits each close as `alert.resolve` by that user with the same
+  details, in the caller's transaction.
+- **Checked before the database.** The user, the client and the issue type (each a uuid), and the resolution (1 to 500 characters, no
+  control characters), are checked before any query.
+- **An import both ways.** `alerts.ts` already imports `scannerUsedFor` from `client-scanner.ts`, and now `client-scanner.ts` imports
+  `closeClientIssueAlerts` from `alerts.ts`. As with `crashes.ts` since #292, neither calls the other while loading, so the order they
+  load in does not matter. `import-cycles.test.ts` guards `maintenance.ts` only, and still passes.
+- **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
+  `client-scanner.ts` drops `auditMany`, which nothing else there used.
+- **Debt list:** the `services/client-scanner.ts` entry for `alerts` comes off, which leaves 81 on main after #294.
+
+**Proof:**
+- **Behaviour.** `server/test/client-scanner-sql.test.ts`, "switching off: … open scanner alerts resolved and audited", passes through the
+  new call.
+- **The owner function.** `server/test/client-issue-alert-close.test.ts`, against the database:
+  - The client's open and claimed scanner alerts, on cabinets at two sites, close and are audited once each by the user, with the
+    details as before. Another issue's alert, another client's alert and one resolved already are left alone. A repeat closes nothing.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 29 hostile inputs (ids including an injection string, an array and a number; resolutions) are refused before a connection that
+    throws if used.
+- **Red checks** (`client-issue-alert-close`, `client-scanner-sql`, `table-ownership`, `audit-sweep`, `import-cycles`; 24 tests):
+  - With `client-scanner.ts` as on main, `table-ownership.test.ts` fails.
+  - With the client scope made always true, the new close test fails.
+  - With the audit disabled, the new close test and the switch-off test fail.
+  - With the user id check disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 24 of 24 pass.
+- **Neighbours.** The 17 non-browser files that reach `alerts.ts`, `client-scanner.ts` or `fleet.ts` pass: 141 of 141.
 
 ---
 
