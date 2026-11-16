@@ -36,6 +36,7 @@ import { sweepHealth } from "./services/cabinet-health.js";
 import { leased, takeLease } from "./services/job-lease.js";
 import { scheduleFleetRecovery } from "./services/fleet-jobs.js";
 import { startDueReapplies } from "./services/replacement-reapply.js";
+import { SessionLifecycle } from "./services/session-lifecycle.js";
 
 import cluster from "node:cluster";
 import { createHmac, randomBytes } from "node:crypto";
@@ -123,6 +124,8 @@ if (runsConsole && config.console) {
 let stopServices = (): void => undefined;
 if (runsJobs) {
   const jobs = jobsPool!;
+  // Records expire even without another frame. The relay remains uninstalled until opening is fully authorized.
+  const sessionLifecycle = new SessionLifecycle(jobs, () => undefined);
   const failed = (what: string) => (e: unknown): void => logError(`${what} failed: ${JSON.stringify(errorInfo(e))}`);
 
   // Cabinets past the offline alert threshold get a real alert; ones that are back resolve theirs. Not right after the server (or its
@@ -139,6 +142,7 @@ if (runsJobs) {
     // The same problem at many sites at once is one fleet alert with a report (D22).
     sweepFleetPatterns(jobs).catch(failed("fleet pattern check"));
     expireCommands(jobs).catch(failed("command expiry"));
+    sessionLifecycle.expire().catch(failed("session expiry"));
     expireRules(jobs).catch(failed("rule expiry"));
     checkRollouts(jobs).catch(failed("rollout check"));
     checkQuietLoops(jobs).then(() => sweepCrashIncidents(jobs)).catch(failed("reboot loop and crash incident check"));
