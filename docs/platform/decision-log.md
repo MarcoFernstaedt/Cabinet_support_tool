@@ -6,6 +6,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D98. The disk-filling forecast closes its alert through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** When the system drive stops filling, `checkDiskForecast` in `server/src/services/drives.ts:79-87` closed the cabinet's
+  unresolved `disk-forecast` alert itself, inside `inTransaction`, with its own
+  `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `drive-forecast`, with `cabinetId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `drives.ts` raises the alert through `upsertAlert` and writes
+  `alerts` nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is the close by signature that `closeSignatureAlert` holds. `drives.ts` now calls it
+  with closer `drive-forecast`, the cabinet, `disk-forecast` and the same sentence.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `drive-forecast`, with `automatic: true`,
+  in the caller's transaction or a new one.
+- **Imports.** `drives.ts` drops `auditMany` and `inTransaction`, which nothing else there used.
+- **One difference in what is recorded.** The audit details now also carry `verifiedFix`, as every automatic close does
+  (`automatic-close.ts`, F18.R1). It names the platform fix that explains the close, or null. Nothing reads its absence.
+- **Unchanged:** which alert closes and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 84 on main after #285 (D96 takes another off).
+
+**Proof:**
+- **Behaviour.** `server/test/drives.test.ts`, "the disk-filling forecast resolves itself once the system drive stops filling", asserts
+  the alert closes and is audited once by the system with `automatic: true`. It passes through the new call.
+- **Red checks** (`drives`, `table-ownership`, `audit-sweep`, `import-cycles`; 20 tests):
+  - With `drives.ts` as on main, `table-ownership.test.ts` fails.
+  - With the signature passed as `disk_forecast`, the forecast test fails, so it watches this close.
+  - Restored and `cmp` identical, 20 of 20 pass.
+- **Neighbours.** The 25 files that test `drives.ts` and the modules that call it (`cabinets.ts`, `maintenance.ts`, the reading routes,
+  the demo) pass: 291 of 298, with 7 skipped that need `TEST_AGENT_DLL`.
+
+---
+
 ## D97. The baseline-alert ordering test locks the alert by its id (2026-11-15)
 
 **What the test did** (`server/test/network-troubleshooting.test.ts:270`, at `2f45af4`, after D93):

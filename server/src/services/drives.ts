@@ -2,8 +2,8 @@
 // alert is raised when a drive reaches "act" or "urgent" (and only when its level rises), and the free space on the system drive is
 // projected forward so a drive that is filling up is flagged weeks before it is full.
 import type { DriveHealthReport } from "../contracts.js";
-import { audit, auditMany, type Queryable } from "../db/db.js";
-import { inTransaction, upsertAlert } from "./alerts.js";
+import { audit, type Queryable } from "../db/db.js";
+import { closeSignatureAlert, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 import { assessDrive, daysUntilEmpty, higher, riskClass, slopePerDay, type Assessment, type DriveSample, type Level, type RiskClass } from "./trends.js";
 import { driveThresholds } from "./settings.js";
@@ -74,17 +74,8 @@ async function diskForecast(db: Queryable, cabinetId: string): Promise<void> {
   if (rows.length < 48) return;
   const days = daysUntilEmpty(rows[rows.length - 1]!.free, slopePerDay(rows.map(r => ({ t: r.at.getTime(), v: r.free })), 48, 5));
   if (days === null || days > 30) {
-    // The closure is audited in the same transaction as the change (F4); alerts carries a trigger, so the changed ids go through a
-    // table variable (OUTPUT INTO), as the alert fold does.
-    await inTransaction(db, async tx => {
-      const resolved = (await tx.query<{ id: string }>(`DECLARE @o TABLE (id uniqueidentifier);
-        UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 OUTPUT inserted.id INTO @o (id)
-         WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved';
-        SELECT id FROM @o;`, [cabinetId, FORECAST_CLEARED])).rows;
-      if (resolved.length > 0)
-        await auditMany(tx, resolved.map(r => ({ actorKind: "system", actorId: "drive-forecast", action: "alert.resolve", targetKind: "alert", targetId: r.id.toLowerCase(),
-          outcome: "succeeded", details: { cabinetId: cabinetId.toLowerCase(), resolution: FORECAST_CLEARED, automatic: true } })));
-    });
+    // The closure is audited in the same transaction as the change (F4), by alerts.ts through closeAutomatically (D98).
+    await closeSignatureAlert(db, "drive-forecast", cabinetId, "disk-forecast", FORECAST_CLEARED);
     return;
   }
   await upsertAlert(db, { cabinetId, issueTypeId: ISSUE.diskSpace, severity: days <= 7 ? "major" : "minor", signature: "disk-forecast",
