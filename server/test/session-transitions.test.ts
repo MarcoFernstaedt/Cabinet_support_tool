@@ -62,3 +62,24 @@ test("a failed agent open uses the stored command's session ID and records refus
   assert.equal(closed, true);
   assert.deepEqual(actions, ["session.refused", "session.end", "command.result"]);
 });
+
+test("console opening needs complete sign-in and a step-up body, without consulting rank", async () => {
+  let stage = "totp";
+  const app = Fastify();
+  app.setErrorHandler((error, _request, reply) => {
+    if (error instanceof Refused) return reply.code(error.status).send({ error: error.code });
+    return reply.code(error instanceof ContractError ? 400 : 500).send({ error: "invalid_body" });
+  });
+  await app.register(sessionRoutes, { guards: {
+    session: async () => ({ userId: "operator", stage }),
+    role: async () => assert.fail("session opening must not consult rank"),
+  } as unknown as Guards } as ConsoleApiOptions & { guards: Guards });
+  try {
+    const send = (payload: unknown) => app.inject({ method: "POST", url: `/api/cabinets/${sessionId}/sessions`, payload: payload as object });
+    assert.equal((await send({ kind: "diagnostic", reason: "Investigate" })).statusCode, 401);
+    stage = "complete";
+    for (const payload of [{ kind: "diagnostic", reason: "Investigate" }, { kind: "shell", reason: "Investigate", stepUpToken: "token" },
+      { kind: "diagnostic", reason: "Investigate", stepUpToken: "token", operatorId: "other" }])
+      assert.equal((await send(payload)).statusCode, 400);
+  } finally { await app.close(); }
+});

@@ -41,6 +41,8 @@ public static class ExampleData
         }
         return parts[1] switch
         {
+            "session-control" => typeof(SessionControl),
+            "session-frame" => typeof(SessionDiagnosticFrame),
             "command" => typeof(Command),
             "result" => typeof(Result),
             "event" => typeof(AgentEvent),

@@ -1071,7 +1071,8 @@ export interface CommandRequest {
     | "system.hardware"
     | "system.identity"
     | "network.hosts"
-    | "config.snapshot";
+    | "config.snapshot"
+    | "session.open";
   params: {};
   /**
    * A one-time step-up token bound to this operation on this cabinet. Required for writes, refused for reads.
@@ -1509,6 +1510,14 @@ export interface PasswordChange {
   newPassword: string;
 }
 
+export interface PermissionGrant {
+  userId: string;
+  permission: string;
+  scopeKind: "fleet" | "site" | "cabinet";
+  scopeId: string | null;
+  stepUpToken: string;
+}
+
 /**
  * An Admin changes platform settings. Only the settings sent change.
  */
@@ -1818,7 +1827,8 @@ export interface RunbookPropose {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         params: {};
       };
       /**
@@ -1884,7 +1894,8 @@ export interface RunbookPropose {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         params: {};
         label: string;
       };
@@ -1955,7 +1966,8 @@ export interface RunbookPropose {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         params: {};
       };
       /**
@@ -2021,7 +2033,8 @@ export interface RunbookPropose {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         params: {};
         label: string;
       };
@@ -2076,6 +2089,12 @@ export interface SecurityAlertResolve {
 
 export interface SessionEnd {
   reason: string;
+}
+
+export interface SessionOpen {
+  kind: "diagnostic";
+  reason: string;
+  stepUpToken: string;
 }
 
 /**
@@ -2254,7 +2273,10 @@ export interface StepUpRequest {
     | "site.filefacts"
     | "cabinet.filefacts"
     | "site.apply_standards"
-    | "fleet.import";
+    | "fleet.import"
+    | "session.open"
+    | "permission.grant"
+    | "permission.revoke";
   /**
    * The ID the action applies to, or 'fleet'.
    */
@@ -2499,7 +2521,8 @@ export interface DiagnosticModule {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         /**
          * Checked against the operation's own params schema by the server.
          */
@@ -2569,7 +2592,8 @@ export interface DiagnosticModule {
           | "system.hardware"
           | "system.identity"
           | "network.hosts"
-          | "config.snapshot";
+          | "config.snapshot"
+          | "session.open";
         /**
          * Checked against the operation's own params schema by the server.
          */
@@ -2792,7 +2816,8 @@ export interface DiagnosticModule {
       | "system.hardware"
       | "system.identity"
       | "network.hosts"
-      | "config.snapshot";
+      | "config.snapshot"
+      | "session.open";
     /**
      * @minItems 1
      * @maxItems 16
@@ -2951,7 +2976,8 @@ export interface Command {
     | "system.hardware"
     | "system.identity"
     | "network.hosts"
-    | "config.snapshot";
+    | "config.snapshot"
+    | "session.open";
   params: {};
   issuedBy: string;
   /**
@@ -3421,6 +3447,10 @@ export interface ServerAck {
    * UTC time, ISO 8601, always ending in Z.
    */
   serverTime: string;
+}
+
+export interface SessionControl {
+  control: "open" | "close" | "keepalive";
 }
 
 export interface OpaqueSessionTransportFrame {
@@ -5663,6 +5693,15 @@ export interface SystemCheckHealthOutput {
   elapsedMs: number;
 }
 
+export interface SessionOpenParams {
+  sessionId: string;
+  kind: "diagnostic";
+}
+
+export interface SessionOpenOutput {
+  sessionId: string;
+}
+
 export interface PowerSetParams {
   setting: "usb_selective_suspend" | "fast_startup";
   enabled: boolean;
@@ -5684,7 +5723,7 @@ export interface CatalogEntry {
   rateClass: "read" | "write" | "network_test";
   safetyNet?: boolean;
 }
-export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "crash.list" | "storage.health" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "power.set";
+export type OperationName = "system.info" | "eventlog.channels" | "eventlog.query" | "boot.history" | "crash.list" | "storage.health" | "eventlog.get" | "devices.list" | "drivers.list" | "peripheral.status" | "updates.status" | "disk.smart" | "files.list" | "network.config" | "network.test" | "network.trace" | "database.connectivity" | "system.performance" | "network.listeners" | "usb.ports" | "firewall.state" | "services.list" | "processes.list" | "network.setIp" | "network.setDns" | "firewall.setProfile" | "firewall.applyPolicy" | "firewall.setRule" | "firewall.restore" | "package.install" | "updates.uninstall" | "driver.uninstall" | "service.control" | "service.setStartType" | "time.status" | "time.setZone" | "time.sync" | "network.renewLease" | "network.flushDns" | "system.security" | "software.list" | "startup.list" | "sessions.list" | "shares.list" | "reliability.list" | "disk.folders" | "dns.cache" | "power.status" | "system.hardware" | "system.identity" | "network.hosts" | "config.snapshot" | "system.restart" | "process.end" | "system.checkHealth" | "session.open" | "power.set";
 
 /** A command whose params are typed for its operation. */
 export type TypedCommand<O extends OperationName = OperationName> = O extends OperationName
@@ -5748,5 +5787,6 @@ export interface OperationTypes {
   "system.restart": { params: SystemRestartParams; output: SystemRestartOutput };
   "process.end": { params: ProcessEndParams; output: ProcessEndOutput };
   "system.checkHealth": { params: SystemCheckHealthParams; output: SystemCheckHealthOutput };
+  "session.open": { params: SessionOpenParams; output: SessionOpenOutput };
   "power.set": { params: PowerSetParams; output: PowerSetOutput };
 }

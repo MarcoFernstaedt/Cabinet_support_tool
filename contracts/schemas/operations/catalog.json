@@ -57,6 +57,7 @@
     {"name": "system.restart", "kind": "write", "minimumRole": "tier1", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "process.end", "kind": "write", "minimumRole": "tier2", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "system.checkHealth", "kind": "read", "minimumRole": "tier1", "confirm": "none", "expirySeconds": 300, "rateClass": "read"},
+    {"name": "session.open", "kind": "write", "minimumRole": "tier1", "confirm": "code", "expirySeconds": 120, "rateClass": "write"},
     {"name": "power.set", "kind": "write", "minimumRole": "tier1", "confirm": "click", "expirySeconds": 120, "rateClass": "write"}
   ]
 }

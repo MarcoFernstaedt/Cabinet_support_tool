@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import { catalog, envelopes, isOperationName, operations, type CatalogEntry, type Command, type Event, type OperationName, type Result } from "../contracts.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
-import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable, type Tx } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ingestAndEvaluate } from "./config-service.js";
@@ -15,6 +15,15 @@ import { searchText } from "./reading-search-text.js";
 import { refuseAgentSession } from "./session-records.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
+
+/** Session admission has already checked grant, step-up and limits and inserted its audited record in this transaction. */
+export async function queueSessionOpen(tx: Tx, operatorId: string, cabinetId: string, sessionId: string): Promise<void> {
+  const issued = new Date(Math.floor(Date.now() / 1000) * 1000);
+  await tx.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status)
+    VALUES ($1, $2, 'session.open', $3, $4, $5, $6, 'queued')`,
+  [randomUUID(), cabinetId, safeJson({ sessionId, kind: "diagnostic" }), operatorId, issued, new Date(issued.getTime() + 120_000)]);
+}
+
 
 export interface WriteAuthority {
   /** The one-time step-up token for this operation on this cabinet, for operations confirmed with a code (the console). */
@@ -38,6 +47,7 @@ export interface WriteAuthority {
  */
 export async function issueCommand(pool: Pool, userId: string, cabinetId: string, operation: string, params: unknown, auditAction = "command.issue",
   write?: WriteAuthority): Promise<Command> {
+  if (operation === "session.open") throw new Refused("session_route_required", 403, "use the scoped session opening route");
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
   // Confirmation levels (docs/spec/12-milestones-8-to-12.md): a code-level write needs a step-up token bound to its

@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/session-control.schema.json",
+  "title": "Session control",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "control"
+  ],
+  "properties": {
+    "control": {
+      "enum": [
+        "open",
+        "close",
+        "keepalive"
+      ]
+    }
+  }
+}

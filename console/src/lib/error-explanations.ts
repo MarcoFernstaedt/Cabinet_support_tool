@@ -32,6 +32,15 @@ const pausedWrites = (who: string): Explanation => ({
 });
 
 const codeExplanations: Record<string, Explanation> = {
+  invalid_permission: { title: "Unknown permission", detail: "The grant does not name a supported operation.", fix: "Ask an Admin to choose a permission from the operation catalog." },
+  invalid_scope: { title: "Invalid permission scope", detail: "The grant must name the fleet, a site or a cabinet.", fix: "Ask an Admin to correct the scope and try again." },
+  invalid_session_record: { title: "Invalid session details", detail: "The session kind, reason or ending is not valid.", fix: "Enter a brief reason and use a supported session kind." },
+  permission_required: { title: "Session permission required", detail: "You do not have a live grant covering this cabinet.", fix: "Ask an Admin to grant session access for this cabinet or its site." },
+  session_capacity: { title: "Session limit reached", detail: "The fleet already has the maximum number of live sessions.", fix: "End an unused session or wait for one to finish." },
+  session_live: { title: "Session already open", detail: "This cabinet already has a live diagnostic session.", fix: "End the existing session before opening another." },
+  session_route_required: { title: "Use session opening", detail: "This operation requires the session access checks.", fix: "Open a session through the cabinet session action." },
+  unknown_session: { title: "Session not found", detail: "This session does not belong to this cabinet or no longer exists.", fix: "Refresh the cabinet and open a new session if access is still needed." },
+
   // ---- accounts, sign-in and permissions ------------------------------------------------------------
   forbidden: {
     title: "Not permitted",

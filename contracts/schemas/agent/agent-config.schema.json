@@ -126,6 +126,10 @@
     "localHarness": {
       "description": "When true the network service also reads command files from its local inbox folder, which only administrators can write. Off in production.",
       "type": "boolean"
+    },
+    "sessionsEnabled": {
+      "type": "boolean",
+      "default": false
     }
   }
 }

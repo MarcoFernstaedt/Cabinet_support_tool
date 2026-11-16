@@ -59,6 +59,7 @@ export const TABLE_PLACEMENT: Readonly<Record<string, Placement>> = {
   notifications: "platform",
   ops_counters: "platform",
   packages: "platform",
+  remote_sessions: "client",
   replacement_reapply: "client",
   replacement_reapply_steps: "client",
   rollout_targets: "client",
@@ -75,6 +76,7 @@ export const TABLE_PLACEMENT: Readonly<Record<string, Placement>> = {
   trend_state: "platform",
   user_devices: "platform",
   user_networks: "platform",
+  user_permissions: "platform",
   users: "platform",
 };
 
@@ -94,6 +96,7 @@ export const CROSS_REFERENCES: readonly string[] = [
   "fleet_job_targets -> fleet_jobs",
   "known_fixes -> issue_types",
   "known_fixes -> users",
+  "remote_sessions -> users",
   "rollout_targets -> rollouts",
 ];
 

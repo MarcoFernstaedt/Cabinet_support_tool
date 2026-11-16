@@ -1,5 +1,6 @@
 {
   "cabinetId": null,
+  "sessionsEnabled": false,
   "readOnlyMode": false,
   "cabinetRole": null,
   "scanner": {

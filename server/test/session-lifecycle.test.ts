@@ -70,6 +70,30 @@ test("operator termination checks ownership under the close lock and releases on
   assert.equal(released, 0);
   owner = "operator";
   assert.equal(await lifecycle.endByOperator("session", "operator", "killed", "Stop access"), true);
-  assert.equal(writes, 2, "close and audit");
+  assert.equal(writes, 3, "close, audit and committed notification");
   assert.equal(released, 1);
+});
+
+test("revoking the opening operator's last grant kills the record without touching activity", async () => {
+  let committed = false, touched = false;
+  const actions: unknown[] = [];
+  const tx = { query: async (sql: string, params: unknown[]) => {
+    if (sql.startsWith("SELECT *,")) return { rows: [{ cabinet_id: "cabinet", operator_id: "operator", closed_at: null,
+      opened_at: new Date(), last_seen_at: new Date(), now: new Date() }], rowCount: 1 };
+    if (sql.includes("FROM user_permissions")) return { rows: [], rowCount: 0 };
+    if (sql.startsWith("UPDATE remote_sessions SET last_seen_at")) touched = true;
+    if (sql.startsWith("UPDATE remote_sessions SET closed_at")) {
+      assert.deepEqual(params, ["session", "killed", "Opening operator permission revoked"]);
+      return { rows: [{ cabinet_id: "cabinet" }], rowCount: 1 };
+    }
+    if (sql.includes("EXEC audit_append")) { actions.push(params[2]); return { rows: [{ seq: "1" }], rowCount: 1 }; }
+    return { rows: [], rowCount: 1 };
+  } } as unknown as Tx;
+  const pool = { transaction: async (fn: (c: Tx) => Promise<unknown>) => { const result = await fn(tx); committed = true; return result; } } as unknown as Pool;
+  let released = false;
+  const lifecycle = new SessionLifecycle(pool, () => { assert.equal(committed, true); released = true; });
+  assert.equal(await lifecycle.authorize("cabinet", "session"), false);
+  assert.equal(touched, false);
+  assert.equal(released, true);
+  assert.deepEqual(actions, ["session.kill"]);
 });

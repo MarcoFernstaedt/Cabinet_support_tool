@@ -36,6 +36,7 @@ import { sweepHealth } from "./services/cabinet-health.js";
 import { leased, takeLease } from "./services/job-lease.js";
 import { scheduleFleetRecovery } from "./services/fleet-jobs.js";
 import { startDueReapplies } from "./services/replacement-reapply.js";
+import { SessionRelay } from "./agent-api/session-relay.js";
 import { SessionLifecycle } from "./services/session-lifecycle.js";
 
 import cluster from "node:cluster";
@@ -68,6 +69,7 @@ let logError: (message: string) => void = message => console.error(message);
 let app: Awaited<ReturnType<typeof buildAgentApi>> | null = null;
 let notifier: CommandNotifier | null = null;
 let presence: Presence | null = null;
+let sessionRelay: SessionRelay | undefined;
 if (servesAgents) {
   notifier = new CommandNotifier(feed!);
   // Without this the long polls would fall back to re-checking the database every 5 s.
@@ -79,11 +81,17 @@ if (servesAgents) {
   const secret = process.env.AGENT_TICKET_SECRET;
   const ticketKey = workers > 1 && secret ? (day: number) => createHmac("sha384", Buffer.from(secret, "hex")).update(`ticket:${day}`).digest() : undefined;
   const { newConnectionsPerSecond, requestsPerSecond, maxConnectionsPerSource } = config.agentApi.admission;
-  app = await buildAgentApi({ pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
+  let lifecycle: SessionLifecycle;
+  sessionRelay = new SessionRelay((c, s, active) => lifecycle.authorize(c, s, active));
+  const relay = sessionRelay;
+  const stopSessionClosures = relay.watchClosures(feed!);
+  lifecycle = new SessionLifecycle(agentPool!, (c, s) => relay.close(c, s));
+  app = await buildAgentApi({ sessionRelay, pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
     ...(config.agentApi.longPollSeconds !== undefined ? { longPollMs: config.agentApi.longPollSeconds * 1000 } : {}),
     ...(ticketKey ? { ticketKey } : {}),
     admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2, maxConnectionsPerSource,
       maxPendingAcquires: config.database.agentPoolMax } });
+  app.addHook("onClose", async () => { stopSessionClosures(); });
   const agentLog = app.log;
   logError = message => agentLog.error(message);
   await app.listen({ host: config.agentApi.host, port: config.agentApi.port });
@@ -115,7 +123,8 @@ let stream: ResultStream | null = null;
 if (runsConsole && config.console) {
   stream = new ResultStream(feed!, consolePool!);
   await stream.start();
-  consoleApp = await buildConsoleApi({ pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
+  const sessionLifecycle = new SessionLifecycle(consolePool!, (c, s) => sessionRelay?.close(c, s));
+  consoleApp = await buildConsoleApi({ sessionLifecycle, pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
     stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
@@ -124,7 +133,7 @@ if (runsConsole && config.console) {
 let stopServices = (): void => undefined;
 if (runsJobs) {
   const jobs = jobsPool!;
-  // Records expire even without another frame. The relay remains uninstalled until opening is fully authorized.
+  // Records expire even without another frame; each worker rechecks durable closure before releasing any buffered frame.
   const sessionLifecycle = new SessionLifecycle(jobs, () => undefined);
   const failed = (what: string) => (e: unknown): void => logError(`${what} failed: ${JSON.stringify(errorInfo(e))}`);
 

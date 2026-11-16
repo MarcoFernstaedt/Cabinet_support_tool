@@ -1,3 +1,8 @@
+import { SessionRelay } from "../src/agent-api/session-relay.js";
+import { SessionLifecycle } from "../src/services/session-lifecycle.js";
+import { grantPermission, revokePermission } from "../src/services/user-permissions.js";
+import { openSession } from "../src/services/session-opening.js";
+import { issueStepUpToken } from "../src/auth/stepup.js";
 import test from "node:test";
 import assert from "node:assert/strict";
 import { request as httpsRequest } from "node:https";
@@ -29,10 +34,10 @@ let foreignKey: IssuingKey;
 interface Identity { key: TestKey; certPem: string; }
 interface Reply { status: number; body: any; }
 
-function call(method: string, path: string, body?: unknown, identity?: Identity, raw?: { data: string | Buffer; type?: string }): Promise<Reply> {
+function call(method: string, path: string, body?: unknown, identity?: Identity, raw?: { data: string | Buffer; type?: string }, targetPort = port): Promise<Reply> {
   return new Promise((resolve, reject) => {
     const data = raw ? raw.data : body === undefined ? undefined : JSON.stringify(body);
-    const req = httpsRequest({ host: "127.0.0.1", port, path, method, servername: "localhost", ca: key.certificatePem,
+    const req = httpsRequest({ host: "127.0.0.1", port: targetPort, path, method, servername: "localhost", ca: key.certificatePem,
       ...(identity ? { key: identity.key.keyPem, cert: identity.certPem } : {}),
       headers: data === undefined ? {} : { "content-type": raw?.type ?? "application/json", "content-length": Buffer.byteLength(data) } }, res => {
       let text = "";
@@ -441,4 +446,35 @@ test("operations counters: requests, refusals and sheds are counted by route pat
   assert.ok(counts["agent_auth_fail|no_certificate"]! >= 1, JSON.stringify(counts));
   const text = JSON.stringify(counts);
   assert.ok(!text.includes(me.cabinetId) && !text.includes("no-such-route"), "no identifier or URL in a code");
+});
+
+
+test("authenticated frame route stays 404 without an installed relay", async () => {
+  const identity = await enrolledCabinet();
+  assert.equal((await call("POST", `/agent/v1/sessions/${randomUUID()}/frames`, { data: "" }, identity)).status, 404);
+});
+
+test("mTLS frame route composes real grants, session records, relay and lifecycle, and revocation destroys output", async () => {
+  const identity = await enrolledCabinet();
+  const permission = await db.app.transaction(tx => grantPermission(tx, admin, admin, "session.open", "cabinet", identity.cabinetId));
+  let lifecycle: SessionLifecycle;
+  const relay = new SessionRelay((c, s, active) => lifecycle.authorize(c, s, active));
+  lifecycle = new SessionLifecycle(db.app, (c, s) => relay.close(c, s));
+  const dir = tempDir();
+  const composed = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, sessionRelay: relay,
+    tls: await developmentServerCertificate(key, dir, ["localhost"]), logger: false });
+  try {
+    await composed.listen({ host: "127.0.0.1", port: 0 });
+    const targetPort = (composed.server.address() as { port: number }).port;
+    const opened = await openSession(db.app, admin, identity.cabinetId, { kind: "diagnostic", reason: "Real composed relay check",
+      stepUpToken: await issueStepUpToken(db.app, admin, "session.open", identity.cabinetId) });
+    const send = (data: string) => call("POST", `/agent/v1/sessions/${opened.sessionId}/frames`, { data }, identity, undefined, targetPort);
+    const accepted = await send(Buffer.from("private diagnostics").toString("base64"));
+    assert.equal(accepted.status, 200);
+    assert.deepEqual(accepted.body, { control: "keepalive" });
+    await db.app.transaction(tx => revokePermission(tx, admin, permission));
+    assert.equal((await send("")).status, 404);
+    assert.equal(await relay.exchange(identity.cabinetId, opened.sessionId, "console", Buffer.alloc(0)), null);
+    assert.equal((await db.app.query<{ end_kind: string }>("SELECT end_kind FROM remote_sessions WHERE id = $1", [opened.sessionId])).rows[0]!.end_kind, "killed");
+  } finally { await composed.close(); }
 });

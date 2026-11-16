@@ -13,8 +13,8 @@ const EXAMPLES = join(SCHEMA_DIR, "..", "examples");
 const load = (rel: string): unknown => JSON.parse(readFileSync(join(EXAMPLES, rel), "utf8"));
 const files = (rel: string): string[] => (existsSync(join(EXAMPLES, rel)) ? readdirSync(join(EXAMPLES, rel)).filter(f => f.endsWith(".json")) : []);
 
-test("the server's catalog has all 56 operations", () => {
-  assert.equal(catalog.size, 56);
+test("the server's catalog has all 57 operations", () => {
+  assert.equal(catalog.size, 57);
   assert.equal(isOperationName("files.list"), true);
   assert.equal(isOperationName("shell.run"), false);
   assert.equal(isOperationName({}), false);
@@ -32,6 +32,7 @@ test("server operation validators agree with every shared example", () => {
 
 test("server envelope validators agree with every shared example", () => {
   const map: Record<string, keyof typeof envelopes> = {
+    "session-frame": "sessionFrame", "session-control": "sessionControl",
     command: "command", result: "result", event: "event", "event-batch": "eventBatch", heartbeat: "heartbeat",
     "server-ack": "serverAck", "commands-response": "commandsResponse", "enroll-request": "enrollRequest",
     "enroll-response": "enrollResponse", "enroll-status": "enrollStatus", "renew-request": "renewRequest", "renew-response": "renewResponse",

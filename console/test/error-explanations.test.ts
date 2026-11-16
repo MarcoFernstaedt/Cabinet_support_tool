@@ -13,6 +13,7 @@ import { PLATFORM_CODES, explainFailure, formatExplanation, normaliseFailure } f
 
 /** Every refusal code the server can send, straight from the grep in the task. */
 const DISCOVERED_CODES = [
+  "invalid_permission", "invalid_scope", "invalid_session_record", "permission_required", "session_capacity", "session_live", "session_route_required", "unknown_session",
   "already_claimed", "already_pending", "already_renewed", "already_resolved", "bad_item", "busy",
   "cabinet_offline", "certificate_refused", "config", "demo_client", "duplicate_item", "duplicate_key",
   "enrollment_refused", "fix_not_for_this_issue", "forbidden", "has_cabinets", "hash_mismatch",

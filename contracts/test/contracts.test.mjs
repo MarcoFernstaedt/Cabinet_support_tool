@@ -67,11 +67,12 @@ test("every envelope and every operation has a valid example, and every operatio
   }
 });
 
-test("the broker accepts only catalog operations, every write goes through it, and each is routed to its parameter schema", () => {
+test("the broker accepts only catalog operations, every privileged write goes through it, and each is routed to its parameter schema", () => {
   const request = JSON.parse(readFileSync(join(SCHEMA_DIR, "agent", "broker-request.schema.json"), "utf8"));
   const brokerOps = request.properties.operation.enum;
   for (const op of brokerOps) assert.ok(opNames.includes(op), `${op} must be in the catalog`);
-  for (const w of catalog.operations.filter(o => o.kind === "write")) assert.ok(brokerOps.includes(w.name), `${w.name} needs administrator rights, so it runs in the broker`);
+  for (const w of catalog.operations.filter(o => o.kind === "write" && o.name !== "session.open")) assert.ok(brokerOps.includes(w.name), `${w.name} needs administrator rights, so it runs in the broker`);
+  assert.ok(!brokerOps.includes("session.open"), "session lifecycle stays in the network service, with its certificate and local policy");
   const routed = request.allOf.filter(c => c.if?.properties?.operation?.const).map(c => c.if.properties.operation.const);
   assert.deepEqual([...routed].sort(), [...brokerOps].sort(), "every broker operation's params are checked");
   assert.ok(!JSON.stringify(request).includes('"path"'), "a broker request never carries a file path");
@@ -83,7 +84,7 @@ test("a broker request demands a commandId only for writes and confirm", () => {
   assert.ok(dispatch, "the broker request dispatches on kind");
   assert.ok(dispatch.then?.required?.includes("commandId"), "confirm carries the command it answers");
   const needsCommand = dispatch.else?.if?.properties?.operation?.enum ?? [];
-  const writes = catalog.operations.filter(o => o.kind === "write").map(o => o.name);
+  const writes = catalog.operations.filter(o => o.kind === "write" && o.name !== "session.open").map(o => o.name);
   assert.deepEqual([...needsCommand].sort(), [...writes].sort(),
     "a read never carries a commandId: the broker needs it only to attribute a change, and a reader that sends none must still be accepted");
   assert.deepEqual(dispatch.else?.else?.not?.required, ["commandId"],
@@ -184,7 +185,7 @@ test("catalog rules follow the security model", () => {
       // Tier 1 may change the firewall profiles (docs/spec/12-milestones-8-to-12.md) and correct the time zone and clock
       // (module 21, docs/spec/13-roadmap.md), and restart a cabinet (D28: the server still keeps shutdown for Admins); every other write is
       // Tier 2 and up.
-      const tier1 = ["firewall.setProfile", "firewall.applyPolicy", "time.setZone", "time.sync", "network.renewLease", "network.flushDns", "service.setStartType", "power.set", "system.restart"];
+      const tier1 = ["session.open", "firewall.setProfile", "firewall.applyPolicy", "time.setZone", "time.sync", "network.renewLease", "network.flushDns", "service.setStartType", "power.set", "system.restart"];
       assert.equal(op.minimumRole, tier1.includes(op.name) ? "tier1" : "tier2", op.name);
       assert.equal(op.rateClass, "write", op.name);
     }
@@ -193,7 +194,7 @@ test("catalog rules follow the security model", () => {
   assert.deepEqual(safetyNet, ["firewall.applyPolicy", "firewall.restore", "firewall.setProfile", "firewall.setRule", "network.setDns", "network.setIp"]);
   // Writes that can strand or alter a cabinet keep the authenticator code.
   const code = catalog.operations.filter(o => o.confirm === "code").map(o => o.name).sort();
-  assert.deepEqual(code, ["driver.uninstall", "firewall.restore", "network.setDns", "network.setIp", "package.install", "process.end", "system.restart", "updates.uninstall"]);
+  assert.deepEqual(code, ["driver.uninstall", "firewall.restore", "network.setDns", "network.setIp", "package.install", "process.end", "session.open", "system.restart", "updates.uninstall"]);
 });
 
 test("no schema allows the Security log or a generic command", () => {

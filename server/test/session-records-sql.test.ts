@@ -6,6 +6,7 @@ import { verifyAuditChain } from "../src/db/db.js";
 import { closeSessionRecord, insertSessionRecord, recordSessionRefusal, refuseAgentSession, sessionRecord } from "../src/services/session-records.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { SessionLifecycle, SESSION_IDLE_MS, SESSION_MAX_MS } from "../src/services/session-lifecycle.js";
+import { grantPermission } from "../src/services/user-permissions.js";
 import { SessionRelay } from "../src/agent-api/session-relay.js";
 
 let db: TestDatabase | undefined;
@@ -15,6 +16,7 @@ test.before(async () => {
   db = await createTestDatabase();
   const client = randomUUID(), site = randomUUID();
   await db.app.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'session-operator', 'Session operator', 'tier2')", [operator]);
+  await db.app.transaction(tx => grantPermission(tx, operator, operator, "session.open", "fleet", null));
   await db.app.query("INSERT INTO clients (id, name) VALUES ($1, 'Session client')", [client]);
   await db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, 'Session site')", [site, client]);
   await db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, 'Session cabinet', 'standalone', 'active')", [cabinet, site]);
@@ -88,11 +90,11 @@ test("the real table refuses concurrent live records and racing closes keep one 
 
 test("lifecycle closes commit before releasing buffers, and closed records reject subsequent frames", async () => {
   let lifecycle: SessionLifecycle;
-  const relay = new SessionRelay((c, s) => lifecycle.authorize(c, s));
+  const relay = new SessionRelay((c, s, active) => lifecycle.authorize(c, s, active));
   lifecycle = new SessionLifecycle(db!.app, (c, s) => relay.close(c, s));
   const id = await open("Test live transport lifecycle");
   assert.equal(await lifecycle.authorize(randomUUID(), id), false);
-  await relay.exchange(cabinet, id, "console", Buffer.from("buffered private bytes"));
+  await relay.exchange(cabinet, id, "agent", Buffer.from("buffered private bytes"));
   assert.equal(await lifecycle.end(id, "killed", "Operator ended access", actor), true);
   assert.equal(await relay.exchange(cabinet, id, "agent", Buffer.alloc(0)), null);
   assert.equal(await lifecycle.end(id, "explicit", "Repeated end", actor), false);

@@ -16,3 +16,7 @@ test("session history refuses empty and oversized reasons and kinds before writi
   for (const kind of ["", "  ", "x".repeat(65)])
     await assert.rejects(insertSessionRecord(untouched, { ...valid, kind }), { code: "invalid_session_record" });
 });
+
+test("unknown close endings are rejected before persistence", async () => {
+  await assert.rejects(closeSessionRecord(untouched, "unused", "unknown" as "explicit", "Reason", { actorKind: "system", actorId: "test" }), { code: "invalid_session_record" });
+});

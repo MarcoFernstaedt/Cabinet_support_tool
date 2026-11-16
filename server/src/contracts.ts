@@ -4,6 +4,7 @@
 import { createAjv, readCatalog, ref } from "@mashura/cabinet-contracts/load";
 import type {
   OpaqueSessionTransportFrame as SessionFrame,
+  SessionOpen, PermissionGrant, SessionControl,
   BulkFirewallPolicy,
   BulkScope,
   CatalogEntry,
@@ -165,6 +166,7 @@ function validator<T>(name: string, id: string): Validator<T> {
 const envelope = (file: string) => ref(`envelopes/${file}.schema.json`);
 
 export const envelopes = {
+  sessionControl: validator<SessionControl>("session-control", envelope("session-control")),
   sessionFrame: validator<SessionFrame>("session-frame", envelope("session-frame")),
   command: validator<Command>("command", envelope("command")),
   result: validator<Result>("result", envelope("result")),
@@ -217,6 +219,8 @@ const consoleBody = (file: string) => ref(`console/${file}.schema.json`);
 export type { KnownFixCreate };
 
 export const consoleBodies = {
+  sessionOpen: validator<SessionOpen>("session-open", consoleBody("session-open")),
+  permissionGrant: validator<PermissionGrant>("permission-grant", consoleBody("permission-grant")),
   sessionEnd: validator<{ reason: string }>("session-end", consoleBody("session-end")),
   login: validator<LoginRequest>("login-request", consoleBody("login-request")),
   code: validator<CodeRequest>("code-request", consoleBody("code-request")),

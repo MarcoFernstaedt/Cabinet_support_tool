@@ -20,6 +20,7 @@ const AUDIT_ACTION: Record<string, string> = {
 
 export async function issueFromConsole(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, operation: string, params: Record<string, unknown>,
   stepUpToken?: string, viaCli = false, confirmedParams?: unknown): Promise<Command> {
+  if (operation === "session.open") throw new Refused("session_route_required", 403, "use the scoped session opening route");
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
   const entry = catalog.get(operation)!;
   if (ROLE_RANK[user.role] < ROLE_RANK[entry.minimumRole as Role]) throw new Refused("forbidden", 403, "your role cannot run this operation");

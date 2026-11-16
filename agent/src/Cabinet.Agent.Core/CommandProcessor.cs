@@ -20,6 +20,9 @@ public sealed class CommandProcessor
         _clock = clock;
     }
 
+    public void RegisterSessionHandler(Func<SessionOpenParams, CancellationToken, Task<SessionOpenOutput>> handler) =>
+        _registry.Register(Catalog.SessionOpen, handler);
+
     /// <summary>A fixed limit for every operation (tests); when unset each operation gets <see cref="OperationRunner.NetworkTimeoutFor"/>.</summary>
     public TimeSpan? Timeout { get; init; }
 

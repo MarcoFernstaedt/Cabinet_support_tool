@@ -1,0 +1,5 @@
+{
+  "kind": "diagnostic",
+  "reason": "Find the failure",
+  "stepUpToken": "token"
+}

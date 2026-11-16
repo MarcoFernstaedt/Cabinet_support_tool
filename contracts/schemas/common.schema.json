@@ -282,7 +282,8 @@
         "system.hardware",
         "system.identity",
         "network.hosts",
-        "config.snapshot"
+        "config.snapshot",
+        "session.open"
       ]
     },
     "rejectionCode": {

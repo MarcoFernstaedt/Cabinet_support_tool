@@ -99,7 +99,10 @@
         "site.filefacts",
         "cabinet.filefacts",
         "site.apply_standards",
-        "fleet.import"
+        "fleet.import",
+        "session.open",
+        "permission.grant",
+        "permission.revoke"
       ]
     },
     "target": {

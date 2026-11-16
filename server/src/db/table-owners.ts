@@ -47,6 +47,7 @@ export const RUNTIME_TABLE_WRITES: Readonly<Record<string, readonly string[]>> =
 };
 
 export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
+  user_permissions: { owner: "services/user-permissions.ts", also: [] },
   remote_sessions: { owner: "services/session-records.ts", also: [] },
   agent_releases: { owner: "services/releases.ts", also: [] },
   alerts: { owner: "services/alerts.ts", also: ["demo/demo.ts", "demo/troubleshooting.ts", "services/client-scanner.ts", "services/crashes.ts", "services/drives.ts", "services/firewall-policy.ts", "services/replacement.ts", "services/site-outage.ts", "services/time.ts", "services/usb-sql.ts"] },

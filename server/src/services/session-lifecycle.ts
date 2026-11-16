@@ -1,6 +1,7 @@
-// Lifecycle only. No opening endpoint or relay is installed until grants, step-up and the agent are connected.
+// Durable lifecycle; each exchange checks the record and the opening operator's current grant.
 import { transaction, type Pool } from "../db/db.js";
 import { closeSessionRecord, lockedSessionRecord, touchSessionRecord, type SessionActor, type SessionEnd } from "./session-records.js";
+import { requireCabinetPermission } from "./user-permissions.js";
 import { Refused } from "./errors.js";
 
 export const SESSION_IDLE_MS = 5 * 60_000;
@@ -31,7 +32,7 @@ export class SessionLifecycle {
   }
 
   /** Every exchange re-reads and locks history; closed rows can never become live again. */
-  async authorize(cabinetId: string, sessionId: string): Promise<boolean> {
+  async authorize(cabinetId: string, sessionId: string, activity = true): Promise<boolean> {
     const allowed = await transaction(this.pool, async tx => {
       const row = await lockedSessionRecord(tx, sessionId);
       if (!row || row.cabinet_id !== cabinetId || row.closed_at) return false;
@@ -40,7 +41,14 @@ export class SessionLifecycle {
         await closeSessionRecord(tx, sessionId, expired.end, expired.reason, system);
         return false;
       }
-      await touchSessionRecord(tx, sessionId);
+      try { await requireCabinetPermission(tx, row.operator_id, cabinetId, "session.open"); }
+      catch (error) {
+        if (!(error instanceof Refused)) throw error;
+        await closeSessionRecord(tx, sessionId, "killed", "Opening operator permission revoked", system);
+        return false;
+      }
+      // Empty agent polls are transport keepalives, not diagnostic activity.
+      if (activity) await touchSessionRecord(tx, sessionId);
       return true;
     });
     if (!allowed) this.release(cabinetId, sessionId);

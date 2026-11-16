@@ -17,6 +17,7 @@ public sealed record CatalogEntry(string Name, OperationKind Kind, string Minimu
 /// </summary>
 public static class Catalog
 {
+    public const string SessionOpen = "session.open";
     public const string SystemInfo = "system.info";
     public const string EventlogChannels = "eventlog.channels";
     public const string EventlogQuery = "eventlog.query";
@@ -82,6 +83,7 @@ public static class Catalog
 
     public static IReadOnlyList<CatalogEntry> All { get; } = new[]
     {
+        Write<SessionOpenParams, SessionOpenOutput>(SessionOpen, false, Confirm.Code, "tier1"),
         Read<EmptyParams, SystemInfoOutput>(SystemInfo),
         Read<EmptyParams, EventlogChannelsOutput>(EventlogChannels),
         Read<EventlogQueryParams, EventlogQueryOutput>(EventlogQuery),

@@ -1,7 +1,7 @@
 // Persistence primitives only. Callers must enforce the catalog permission and step-up before inserting a record.
-// These are deliberately not registered as routes or connected to the relay until the lifecycle is complete.
+// Opening owns the grant and step-up checks; lifecycle owns every exchange and close.
 import { randomUUID } from "node:crypto";
-import { audit, type AuditEntry, type Queryable, type Tx } from "../db/db.js";
+import { audit, notify, type AuditEntry, type Queryable, type Tx } from "../db/db.js";
 import { Refused } from "./errors.js";
 
 export type SessionEnd = "explicit" | "idle" | "killed" | "error";
@@ -61,6 +61,8 @@ export async function closeSessionRecord(tx: Tx, id: string, end: SessionEnd, re
   if (result.rowCount === 0) return false;
   await audit(tx, { ...actor, action: end === "killed" ? "session.kill" : "session.end", targetKind: "cabinet", targetId: result.rows[0]!.cabinet_id,
     outcome: "succeeded", details: { sessionId: id, end, reason } });
+  // The feed delivers only committed rows, so console/jobs closes free every agent worker's buffers too.
+  await notify(tx, "sessions_closed", `${result.rows[0]!.cabinet_id}|${id}`);
   return true;
 }
 

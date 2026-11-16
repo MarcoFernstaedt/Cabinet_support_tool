@@ -305,9 +305,18 @@ public sealed class AgentConnection(AgentConnectionOptions o)
     private async Task<Ended> LoopsAsync(Session s, CancellationToken token)
     {
         CommandProcessor processor = o.ProcessorFor(o.Config with { CabinetId = s.Identity.CabinetId });
+        var localSessions = new LocalSessions(Path.Combine(Path.GetDirectoryName(o.Store.TokenPath)!, "sessions.jsonl"),
+            () => o.Config.SessionsEnabled && !o.Config.ReadOnlyMode,
+            () => { try { CheckCertificate(s.Identity); return true; } catch { return false; } }, TimeProvider.System);
+        processor.RegisterSessionHandler(localSessions.OpenAsync);
         using var stop = CancellationTokenSource.CreateLinkedTokenSource(token);
         var loops = new[]
         {
+            Supervise("session control", async t => {
+                try { while (!t.IsCancellationRequested) { await localSessions.PollAsync(s.Api, t).ConfigureAwait(false); await Delay(TimeSpan.FromSeconds(15), t).ConfigureAwait(false); } }
+                finally { localSessions.Close("Connection ended"); }
+                return Ended.Cancelled;
+            }, stop.Token),
             Supervise("heartbeat", t => HeartbeatLoopAsync(s, t), stop.Token),
             Supervise("command poll", t => PollLoopAsync(s, t), stop.Token),
             Supervise("command worker", t => WorkerLoopAsync(s, processor, t), stop.Token),
