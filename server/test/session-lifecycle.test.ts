@@ -52,3 +52,24 @@ test("authorization refuses missing, mismatched and closed records without refre
     assert.equal(released, true);
   }
 });
+
+test("operator termination checks ownership under the close lock and releases only after commit", async () => {
+  let owner = "other", committed = false, writes = 0;
+  const tx = { query: async (sql: string) => {
+    if (sql.startsWith("SELECT")) return { rows: [{ cabinet_id: "cabinet", operator_id: owner }], rowCount: 1 };
+    writes++;
+    return { rows: [{ cabinet_id: "cabinet", seq: "1" }], rowCount: 1 };
+  } } as unknown as Tx;
+  const pool = { transaction: async (fn: (c: Tx) => Promise<unknown>) => {
+    const result = await fn(tx); committed = true; return result;
+  } } as unknown as Pool;
+  let released = 0;
+  const lifecycle = new SessionLifecycle(pool, () => { assert.equal(committed, true); released++; });
+  await assert.rejects(lifecycle.endByOperator("session", "operator", "explicit", "Done"), /no such session/);
+  assert.equal(writes, 0);
+  assert.equal(released, 0);
+  owner = "operator";
+  assert.equal(await lifecycle.endByOperator("session", "operator", "killed", "Stop access"), true);
+  assert.equal(writes, 2, "close and audit");
+  assert.equal(released, 1);
+});

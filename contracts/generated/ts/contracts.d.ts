@@ -2074,6 +2074,10 @@ export interface SecurityAlertResolve {
   stepUpToken: string;
 }
 
+export interface SessionEnd {
+  reason: string;
+}
+
 /**
  * The sign-in list's filter, from the query string: all recent sign-ins, or only those from a network or device the account had not used before.
  */

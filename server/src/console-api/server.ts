@@ -40,8 +40,12 @@ import { upgradeRoutes } from "./upgrade-routes.js";
 import { ResultStream } from "./stream.js";
 import { manageRoutes } from "./manage-routes.js";
 import { noteError, noteResponse, routeOf } from "../services/ops-meter.js";
+import type { SessionLifecycle } from "../services/session-lifecycle.js";
+import { sessionRoutes } from "./session-routes.js";
 
 export interface ConsoleApiOptions {
+  /** Shared with the relay when the complete session authorization path is installed. */
+  sessionLifecycle?: SessionLifecycle;
   pool: Pool;
   secrets: SecretBox;
   issuingKey: IssuingKey;
@@ -155,6 +159,7 @@ export async function buildConsoleApi(o: ConsoleApiOptions): Promise<FastifyInst
   };
 
   await app.register(authRoutes, { ...o, guards });
+  await app.register(sessionRoutes, { ...o, guards });
   await app.register(fleetRoutes, { ...o, guards });
   await app.register(adminRoutes, { ...o, guards });
   await app.register(alertRoutes, { ...o, guards });

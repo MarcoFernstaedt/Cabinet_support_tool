@@ -217,6 +217,7 @@ const consoleBody = (file: string) => ref(`console/${file}.schema.json`);
 export type { KnownFixCreate };
 
 export const consoleBodies = {
+  sessionEnd: validator<{ reason: string }>("session-end", consoleBody("session-end")),
   login: validator<LoginRequest>("login-request", consoleBody("login-request")),
   code: validator<CodeRequest>("code-request", consoleBody("code-request")),
   passwordChange: validator<PasswordChange>("password-change", consoleBody("password-change")),

@@ -70,3 +70,14 @@ export async function recordSessionRefusal(db: Queryable, actor: SessionActor, c
   await audit(db, { ...actor, action: "session.refused", targetKind: "cabinet", targetId: cabinetId, outcome: "refused",
     details: { ...(sessionId ? { sessionId } : {}), reason } });
 }
+
+/** Called only for a failed session.open result, with parameters from the stored command, never from agent output. */
+export async function refuseAgentSession(tx: Tx, cabinetId: string, sessionId: string, reason: string): Promise<boolean> {
+  const row = await lockedSessionRecord(tx, sessionId);
+  if (!row || row.cabinet_id !== cabinetId) throw new Refused("unknown_session", 404, "no such session for this cabinet");
+  if (row.closed_at) return false;
+  const actor: SessionActor = { actorKind: "agent", actorId: cabinetId };
+  await recordSessionRefusal(tx, actor, cabinetId, reason, sessionId);
+  await closeSessionRecord(tx, sessionId, "error", reason, actor);
+  return true;
+}

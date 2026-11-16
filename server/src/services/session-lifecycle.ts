@@ -1,6 +1,7 @@
 // Lifecycle only. No opening endpoint or relay is installed until grants, step-up and the agent are connected.
 import { transaction, type Pool } from "../db/db.js";
 import { closeSessionRecord, lockedSessionRecord, touchSessionRecord, type SessionActor, type SessionEnd } from "./session-records.js";
+import { Refused } from "./errors.js";
 
 export const SESSION_IDLE_MS = 5 * 60_000;
 export const SESSION_MAX_MS = 30 * 60_000;
@@ -16,6 +17,18 @@ export function sessionExpiry(opened: Date, seen: Date, now: Date): { end: Sessi
 
 export class SessionLifecycle {
   constructor(private readonly pool: Pool, private readonly release: (cabinetId: string, sessionId: string) => void) {}
+
+  /** A signed-in operator may stop their own session without acquiring more access. */
+  async endByOperator(sessionId: string, operatorId: string, end: "explicit" | "killed", reason: string): Promise<boolean> {
+    const result = await transaction(this.pool, async tx => {
+      const row = await lockedSessionRecord(tx, sessionId);
+      if (!row || row.operator_id !== operatorId) throw new Refused("not_found", 404, "no such session");
+      const changed = await closeSessionRecord(tx, sessionId, end, reason, { actorKind: "user", actorId: operatorId });
+      return { cabinetId: row.cabinet_id, changed };
+    });
+    this.release(result.cabinetId, sessionId);
+    return result.changed;
+  }
 
   /** Every exchange re-reads and locks history; closed rows can never become live again. */
   async authorize(cabinetId: string, sessionId: string): Promise<boolean> {

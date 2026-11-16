@@ -12,6 +12,7 @@ import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recove
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
 import { searchText } from "./reading-search-text.js";
+import { refuseAgentSession } from "./session-records.js";
 
 export const MAX_COMMANDS_PER_POLL = 50;
 
@@ -157,8 +158,8 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
   let afterCommit: (() => Promise<unknown>) | null = null;
   await transaction(pool, async c => {
     afterCommit = null;
-    const command = (await c.query<{ operation: string; status: string; delivered: number }>(
-      "SELECT operation, status, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered FROM commands WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND cabinet_id = $2", [result.commandId, cabinetId])).rows[0];
+    const command = (await c.query<{ operation: string; status: string; delivered: number; params: Record<string, unknown> }>(
+      "SELECT operation, status, params, CASE WHEN delivered_at IS NOT NULL THEN 1 ELSE 0 END AS delivered FROM commands WITH (UPDLOCK, ROWLOCK) WHERE id = $1 AND cabinet_id = $2", [result.commandId, cabinetId])).rows[0];
     if (!command) throw new Refused("unknown_command", 404, "no such command for this cabinet");
     // A command offered again after its lease (Protocol 1.1) may reach an agent that already had it; an agent without a stored result
     // for it refuses the repeat as replayed. That says only that the cabinet had it: it counts as the acknowledgement, never as the
@@ -180,6 +181,12 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
     const text = result.status === "succeeded" ? searchText(command.operation, result.output) : null;
     await c.query("UPDATE commands SET status = $2, result = $3, result_at = SYSUTCDATETIME(), search_text = $4 WHERE id = $1",
       [result.commandId, result.status, safeJson(result), text]);
+    if (command.operation === "session.open" && result.status !== "succeeded") {
+      const sessionId = command.params.sessionId;
+      if (typeof sessionId !== "string") throw new Refused("invalid_session_record", 400, "session command has no session ID");
+      // Do not retain arbitrary agent error text as a transition reason.
+      await refuseAgentSession(c, cabinetId, sessionId, "Agent refused or failed session.open");
+    }
     // What the cabinet says about its make and model keeps the model baseline applying to it.
     if (result.status === "succeeded" && command.operation === "system.hardware") {
       const hw = result.output as { manufacturer?: string | null; model?: string | null };

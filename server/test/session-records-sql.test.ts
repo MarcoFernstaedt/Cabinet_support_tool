@@ -3,7 +3,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { verifyAuditChain } from "../src/db/db.js";
-import { closeSessionRecord, insertSessionRecord, recordSessionRefusal, sessionRecord } from "../src/services/session-records.js";
+import { closeSessionRecord, insertSessionRecord, recordSessionRefusal, refuseAgentSession, sessionRecord } from "../src/services/session-records.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { SessionLifecycle, SESSION_IDLE_MS, SESSION_MAX_MS } from "../src/services/session-lifecycle.js";
 import { SessionRelay } from "../src/agent-api/session-relay.js";
@@ -115,5 +115,33 @@ test("idle expiry closes without a frame; fresh activity cannot bypass the absol
   assert.deepEqual((await entries(maximum)).map(e => e.action), ["session.open", "session.kill"]);
   assert.ok(released.includes(idle));
   assert.ok(released.includes(maximum));
+  assert.equal((await verifyAuditChain(db!.app)).ok, true);
+});
+
+test("operator transitions enforce ownership and agent refusal closes durably without repeating its audits", async () => {
+  const released: string[] = [];
+  const lifecycle = new SessionLifecycle(db!.app, (_c, s) => released.push(s));
+  const id = await open("Console transition integration");
+  await assert.rejects(lifecycle.endByOperator(id, randomUUID(), "killed", "Not the owner"), /no such session/);
+  assert.equal((await sessionRecord(db!.app, id))!.closed_at, null);
+  assert.deepEqual(await entries(id).then(rows => rows.map(r => r.action)), ["session.open"]);
+  assert.deepEqual(released, []);
+  assert.equal(await lifecycle.endByOperator(id, operator, "explicit", "Operator finished"), true);
+  assert.equal(await lifecycle.endByOperator(id, operator, "killed", "Repeated stop"), false);
+  assert.equal((await sessionRecord(db!.app, id))!.close_reason, "Operator finished");
+  assert.deepEqual(await entries(id).then(rows => rows.map(r => r.action)), ["session.open", "session.end"]);
+
+  const refused = await open("Local policy refusal");
+  await assert.rejects(db!.app.transaction(tx => refuseAgentSession(tx, randomUUID(), refused, "Wrong cabinet")), /no such session/);
+  await assert.rejects(db!.app.transaction(async tx => {
+    await refuseAgentSession(tx, cabinet, refused, "Rolled back refusal");
+    throw new Error("abort refusal");
+  }), /abort refusal/);
+  assert.equal((await sessionRecord(db!.app, refused))!.closed_at, null);
+  assert.deepEqual(await entries(refused).then(rows => rows.map(r => r.action)), ["session.open"]);
+  assert.equal(await db!.app.transaction(tx => refuseAgentSession(tx, cabinet, refused, "Local policy forbids sessions")), true);
+  assert.equal(await db!.app.transaction(tx => refuseAgentSession(tx, cabinet, refused, "Repeated refusal")), false);
+  assert.equal((await sessionRecord(db!.app, refused))!.end_kind, "error");
+  assert.deepEqual(await entries(refused).then(rows => rows.map(r => r.action)), ["session.open", "session.refused", "session.end"]);
   assert.equal((await verifyAuditChain(db!.app)).ok, true);
 });
