@@ -6,7 +6,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
-## D100. A development-only operator shell over the session transport (2026-11-15)
+## D101. A development-only operator shell over the session transport (2026-11-15)
 
 **Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
 is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development
@@ -30,7 +30,7 @@ log for every session, and a process rather than a script runner.
 
 ---
 
-## D99. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
+## D100. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
 
 **Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
 presses Next and sees another page of the same amount. So the rule is the screenful, not a number - neither the 25 that
@@ -53,12 +53,12 @@ pins the *rule* instead - the page holds what fits and Next shows the next page 
 the test drives.
 
 **Proof.** `docs/spec/06-console-spec.md:27` states the behaviour rather than the number, and D81's "each page of 25"
-records that D99 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
+records that D100 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
 it fail on a viewport whose screenful is not that constant.
 
 ---
 
-## D98. Opening a remote session needs a grant and a step-up code (2026-11-15)
+## D99. Opening a remote session needs a grant and a step-up code (2026-11-15)
 
 **What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
 the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`
@@ -117,6 +117,42 @@ rather than by the server alone.
 
 ---
 
+## D98. The disk-filling forecast closes its alert through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** When the system drive stops filling, `checkDiskForecast` in `server/src/services/drives.ts:79-87` closed the cabinet's
+  unresolved `disk-forecast` alert itself, inside `inTransaction`, with its own
+  `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'disk-forecast' AND state <> 'resolved'`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `drive-forecast`, with `cabinetId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `drives.ts` raises the alert through `upsertAlert` and writes
+  `alerts` nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is the close by signature that `closeSignatureAlert` holds. `drives.ts` now calls it
+  with closer `drive-forecast`, the cabinet, `disk-forecast` and the same sentence.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `drive-forecast`, with `automatic: true`,
+  in the caller's transaction or a new one.
+- **Imports.** `drives.ts` drops `auditMany` and `inTransaction`, which nothing else there used.
+- **One difference in what is recorded.** The audit details now also carry `verifiedFix`, as every automatic close does
+  (`automatic-close.ts`, F18.R1). It names the platform fix that explains the close, or null. Nothing reads its absence.
+- **Unchanged:** which alert closes and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/drives.ts` entry for `alerts` comes off, which leaves 83 on main after #292.
+
+**Proof:**
+- **Behaviour.** `server/test/drives.test.ts`, "the disk-filling forecast resolves itself once the system drive stops filling", asserts
+  the alert closes and is audited once by the system with `automatic: true`. It passes through the new call.
+- **Red checks** (`drives`, `table-ownership`, `audit-sweep`, `import-cycles`; 20 tests):
+  - With `drives.ts` as on main, `table-ownership.test.ts` fails.
+  - With the signature passed as `disk_forecast`, the forecast test fails, so it watches this close.
+  - Restored and `cmp` identical, 20 of 20 pass.
+- **Neighbours.** The 25 files that test `drives.ts` and the modules that call it (`cabinets.ts`, `maintenance.ts`, the reading routes,
+  the demo) pass: 291 of 298, with 7 skipped that need `TEST_AGENT_DLL`.
+
+---
+
+---
+
 ## D97. The baseline-alert ordering test locks the alert by its id (2026-11-15)
 
 **What the test did** (`server/test/network-troubleshooting.test.ts:270`, at `2f45af4`, after D93):
@@ -150,6 +186,38 @@ rather than by the server alone.
 - **Red check:** with `finishDiagnosis` moved before `reconcileBaselineAlert` in `network.ts`, the fixed test fails. Restored and `cmp`
   identical, it passes 3 of 3.
 - **The whole file:** 13 of 13.
+
+---
+
+## D96. The heartbeat closes a reboot-loop alert through alerts.ts, the alerts' owner (2026-11-15)
+
+**What the code did** (on #284's head, `467d79f`; an entry on the ownership debt list, F21.R2):
+- **The write.** `bootFromHeartbeat` in `server/src/services/crashes.ts:67` closed the cabinet's unresolved `reboot_loop` alert once the
+  cabinet had run for 2 hours, with its own `UPDATE alerts … WHERE cabinet_id = $1 AND signature = 'reboot_loop' AND state <> 'resolved'`
+  passed to `closeAutomatically`, resolution "Running for 2 hours without restarting."
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `crashes.ts` raises through `upsertAlert` and writes `alerts`
+  nowhere else.
+
+**The decision:**
+- **The owner function from D94.** The statement is exactly the close by signature that `closeSignatureAlert` holds, so `crashes.ts`
+  calls it with closer `reboot-loop`, the cabinet, `reboot_loop` and the same sentence. The close is still audited as `alert.resolve` by
+  `reboot-loop` through `closeAutomatically`. `crashes.ts` drops its now-unused `automatic-close.js` import.
+- **Unchanged:** which alert closes and when, the audit, and the input check, which is `closeSignatureAlert`'s (D94).
+- **No new owner code and no existing assertion changed.**
+- **Debt list:** the `services/crashes.ts` entry for `alerts` comes off, which leaves 84 after #285.
+- **Depends on #284**, which adds `closeSignatureAlert`. This branch started from #284's head; main, with #284 and #285, is merged in.
+
+**Proof:**
+- **Behaviour:** `server/test/crashes.test.ts` "3 in an hour is a reboot loop, 2 hours up ends it" asserts the loop alert is resolved
+  after 2 hours up. It passes through the new call.
+- **Red checks** (`crashes`, `table-ownership`, `audit-sweep`, `import-cycles`; 27 tests):
+  - With `crashes.ts` as on #284's head, `table-ownership.test.ts` fails.
+  - With the signature passed as `reboot-loop` instead of `reboot_loop`, the 2-hour test and the went-quiet test fail, so the existing
+    tests watch this close.
+  - Restored and `cmp` identical, 27 of 27 pass.
+- **Neighbours:** `crashes`, `alerts-sql`, `fleet-patterns`, `scale` and `signature-alert-writes` pass, 62 of 62.
+
+---
 
 ---
 
@@ -682,7 +750,7 @@ count against a batch, and a pause would still need an Admin to resume a rollout
 - **Anything else is refused with 400.** That includes an unknown parameter, a repeated one and a leading zero. Left out, it is 200
   from the first, as before, so every other caller is unchanged.
 - **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. (The number is
-  superseded by D99: the page carries the screenful, and Next shows the next page of the same size.) While the next page loads, the site
+  superseded by D100: the page carries the screenful, and Next shows the next page of the same size.) While the next page loads, the site
   stays on screen, so the panels below it keep what is being typed in them.
 - **Both network standard panels are given `cabinetCount`.**
 
