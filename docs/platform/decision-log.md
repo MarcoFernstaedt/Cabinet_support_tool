@@ -6,6 +6,30 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D100. A development-only operator shell over the session transport (2026-11-15)
+
+**Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
+is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development
+branch, never on `main`, never touched by `main`.
+
+**What was considered.** The alternative I put to him was the product path: every read I run on a cabinet becomes a
+narrow typed operation with its own allowlist entry and its own audit row, which keeps `02-security-model.md:13` intact
+and would still give live diagnostics. He chose the shell and scoped it to the branch. That route is not cancelled by
+this: it stays the way a capability reaches `main`.
+
+**What it costs, said plainly.** On `feat/remote-access-tunnel` the product's central promise is false: that branch can
+run arbitrary commands on a cabinet as SYSTEM. Everything the promise protects - the security review brief, the
+compiled catalog as the only source of operations, the signed agent upgrade as the only way to add one - is untouched
+on `main`, and the branch must never be merged. A build on a real customer estate would be a different decision with
+its own review, not an extension of this one.
+
+**The guard.** The agent serves it only when its configuration names it; that key is absent from every shipped release
+and from the release packing script; a build without the key behaves exactly as today. The rest is in
+`docs/codex-tasks/session-shell-dev-only.md`: a named frame kind rather than a generic pipe, an audit row and a command
+log for every session, and a process rather than a script runner.
+
+---
+
 ## D99. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
 
 **Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
