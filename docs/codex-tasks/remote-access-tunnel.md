@@ -1,9 +1,16 @@
-# Remote access to a cabinet, through the product (F22) — revision 3
+# Remote access to a cabinet, through the product (F22) — revision 4
 
 **Branch:** `feat/remote-access-tunnel` (off `main`; do not work on `main`).
 **Owner's instruction (2026-11-15):** build the tunnel so the operator can reach any machine the agent runs on, whatever
 network it is on, to find out why it failed and fix it — and installing an agent is what enables that access. This branch
 becomes the deployed build.
+
+**Revision 4 (2026-11-16).** Revision 3's rule "Do not create any file outside the ones the task names" was read —
+correctly — as banning `contracts/schemas/operations/session.open.schema.json`, which item 2 cannot be built without:
+`server/src/contracts.ts:326` builds every operation's validator from `operations/<name>.schema.json`, and
+`docs/spec/03-protocol.md:3` makes those schema files the source of truth. The rule now says what it means, under
+"Files you may add" below, and nothing else changed. The run that stopped was right to stop: it named the file it needed
+instead of guessing.
 
 **Revision 3 (2026-11-16).** Revision 2's item 3 asked for "a remote PowerShell session on the cabinet". The spec forbids
 exactly that, and the run stopped on it rather than build it. The rules it stopped on, quoted:
@@ -118,8 +125,12 @@ in your report which of the six is outstanding — build passed, tests green, no
 - Red/green only, and no non-zero exit hidden. What the sandbox cannot do (SQL Server on `127.0.0.1:11433`, Windows-only
   agent paths, a real cabinet) must be named with the exact command the reviewer should run, never faked.
 - The agent stays `net10.0-windows` and keeps publishing both `win-x64` and `win-x86`.
-- **Do not commit.** Leave the change in the working tree; the reviewer reads the whole diff first and commits. Do not
-  create any file outside the ones the task names, and no report file: your final message is the report.
+- **Do not commit.** Leave the change in the working tree; the reviewer reads the whole diff first and commits.
+- **Files you may add.** Source, schema, migration, configuration and test files are the run's to add and change as the
+  work requires — a new operation means a new `contracts/schemas/operations/<name>.schema.json` beside its neighbours, and
+  whatever the console, the agent or the installer needs. Generated build output is expected too. What you must not
+  create is a report, a log, a scratch note, or any file outside this repository: your final message is the report, and
+  the sandbox cannot write outside the repo anyway.
 
 ## Not in this task
 
