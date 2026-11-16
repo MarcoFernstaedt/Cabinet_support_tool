@@ -1,0 +1,98 @@
+# Session lifecycle, records and audit (F22, phase 2)
+
+**Branch:** `feat/remote-access-tunnel` (off `main`; do not work on `main`). Phase 1 of
+`docs/codex-tasks/remote-access-tunnel.md` is on this branch and is described below.
+
+**Owner's instruction (2026-11-15):** the operator must be able to reach any machine the agent runs on, whatever network it
+is on, to find out why it failed and fix it. A general shell is forbidden by the spec
+(`docs/spec/02-security-model.md:13`, `docs/spec/11-security-review-brief.md:29`) and is out of scope; the capability the
+spec allows is phase 3. **This phase builds the thing that makes the transport safe to switch on at all: the durable,
+audited session record that every access is checked against.** Without it the transport must stay dead — and today it is.
+
+## What already exists on this branch (read it; do not re-do it, do not restyle it)
+
+Phase 1 landed a working relay and nothing more, all of it inert:
+
+- `server/src/agent-api/session-relay.ts` — transport only. `authorize(cabinetId, sessionId)` is injected and consulted on
+  **every** exchange; a failed authorize deletes the queue **and its buffered frames**; 16 KiB per frame each way; 16 queued
+  frames each way then `429 relay_backpressure`; at most 16 live queue keys fleet-wide then `503 relay_capacity`; `close()`
+  frees. Review decisions to keep: never drop or overwrite a frame silently; a revoked session's buffered bytes are
+  destroyed; the transport's caps stay independent of the session service's caps (defence in depth).
+- `server/src/agent-api/server.ts` (~line 659) — `POST /agent/v1/sessions/:sessionId/frames`, which returns **404 while no
+  relay is installed** (fails closed), 413 over the frame limit, and maps `RelayError` to its status plus `retry-after`.
+- `contracts/schemas/envelopes/session-frame.schema.json` with `contracts/examples/envelopes/session-frame/`
+  (`valid/bytes.json`, `invalid/operation.json`) — `additionalProperties: false`, so a frame carrying an `operation` field
+  is refused by the contract. That is deliberate: it is the reason this transport can never carry an execution.
+- `agent/src/Cabinet.Agent.Core/Server/AgentApiClient.cs` — `ExchangeSessionFrameAsync`, an outbound POST only, 16 KiB
+  bounded both ways. Nothing calls it yet.
+- `server/test/session-relay.test.ts` (4 tests) and `agent/tests/Cabinet.Agent.Core.Tests/SessionTransportTests.cs`, which
+  snapshots the machine's active TCP listeners before and after a frame and asserts they are unchanged.
+
+## The job for this phase: the record that every access is checked against
+
+1. **The durable session record.** A table (with its migration, in the repository's existing style) holding: session id,
+   cabinet id, the operator who opened it, the kind, why it was opened, opened-at, last-seen-at, closed-at, how it ended
+   (explicit, idle, killed, error), and the reason recorded on close. One row per session, never deleted by this feature.
+2. **The audited transitions.** Every state change writes an audit row through the repository's existing audit path: opened,
+   each command or frame exchanged is **not** audited individually (that is the transcript's job and it would drown the
+   audit), but opened, closed, killed, refused and the reason are. Name in the report which existing audit helper you used.
+3. **Who may open, and how it is proven.** Opening is behind the console's existing permission for it **and** a step-up
+   token: `consumeStepUpToken(db, token, userId, action, target)` (`server/src/auth/stepup.ts:37`), taken from the body and
+   wrapped by the route as `server/src/console-api/admin-routes.ts:21` does. A role without the permission is refused by
+   the server, not hidden in the UI.
+4. **The bounds, all of them enforced server-side and tested.** One live session per cabinet; an idle timeout; a maximum
+   session length; a small fleet-wide cap; and an operator-issued end from the console that frees the cabinet immediately
+   (the relay's `close()` already exists for this). A cabinet must not be able to hold a session open past the maximum by
+   exchanging frames.
+5. **Opening on the cabinet.** The server sends the `session.open` command over the agent's existing command channel (the
+   envelope in `docs/spec/03-protocol.md`), carrying the session id and kind. The agent refuses when its **local policy**
+   forbids sessions, when a session is already live on that cabinet, or when its certificate is not valid, and it reports
+   the refusal. The agent also writes the session to its **local record**, which must survive the session and be readable
+   by the on-site engineer (phase 3 gives it somewhere to surface; a durable file is enough here).
+6. **Wire it up, still fail-closed.** Construct the relay in the server's composition root and pass in an `authorize` that
+   reads the record (existence, not closed, not idle-expired, cabinet matches). The route must keep returning 404 while the
+   feature is switched off on the server side — the switch is the record's own existence and the permission, not a new flag
+   invented here.
+
+## Prove it
+
+At minimum, and named in your report with the command that ran each one:
+
+- A session cannot start without a step-up token, and cannot start for a role without the permission.
+- Opening writes the audit row and the record; closing writes the close row and stamps the reason; killing writes its own.
+- An idle session ends by itself, and a session cannot be held past the maximum by exchanging frames.
+- A second live session on the same cabinet is refused.
+- The agent refuses when its local policy is off, and reports that refusal rather than failing silently.
+- A closed or revoked session's next exchange is refused by `authorize` and its buffered frames are gone.
+- The authorization path is exercised against the **real** schema and the real table, not a mocked repository.
+
+## Environment (verified on this host)
+
+- `dotnet` is off the default PATH: `export PATH=$HOME/.dotnet:$PATH` first. `dotnet build agent/Cabinet.Agent.sln -c Release`
+  then succeeds (verified: 0 warnings, 0 errors).
+- SQL Server for the server suite listens on `127.0.0.1:11433`; `TEST_DATABASE_ADMIN_URL` is exported by the gate script at
+  line 7 (`/home/marco/.hermes/scripts/gate-run.sh`) and you do not have it: write the tests, run what you can, and name the
+  server suite in your report as the reviewer's command. A missing binary is this section, not the brief being wrong.
+- The suite commands are the repository's own: `npm --prefix server test`, `npm --prefix console test`,
+  `npm --prefix contracts test`, and `dotnet test agent/tests/Cabinet.Agent.Core.Tests/Cabinet.Agent.Core.Tests.csproj -c Release`.
+  Note the directory is `agent/tests/`, not `agent/test/`.
+
+## Rules that are not negotiable
+
+- Nothing works when the cabinet's local policy is off, or when the operator's step-up is missing.
+- No shell, no script runner, no arbitrary command, no general file transfer (phase 3 defines the capability;
+  `docs/spec/02-security-model.md:13`). No hidden channel, no credential harvesting, no bypass of the console's session and
+  role checks, no path that skips the audit.
+- Do not weaken a test assertion to fit, and do not delete another feature's test to make room. If an assertion has to
+  change, name it and say why.
+- Red/green only, no non-zero exit hidden. What you cannot run here must be named with the exact reviewer command.
+- The agent stays `net10.0-windows` and keeps publishing both `win-x64` and `win-x86`.
+- **Files you may add.** Source, schema, migration, configuration and test files are yours to add. Generated build output
+  is expected. Do not create reports, logs, scratch notes, or any file outside this repository: your final message is the
+  report. **Do not commit** — leave the change in the working tree for review.
+
+## If the brief is wrong
+
+Stop and report rather than guessing: name the file and line that contradicts the brief. A stop is a finding, not a failed
+run. Phase 1's first three attempts stopped for exactly this reason and every stop was worth more than the code that
+followed it.
