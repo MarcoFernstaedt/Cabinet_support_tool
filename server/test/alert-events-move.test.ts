@@ -60,7 +60,7 @@ test("a move in a transaction that rolls back leaves the events where they were"
   assert.deepEqual(await of(id), { alert_id: from, matched_rule: null });
 });
 
-test("anything but three uuids, two alerts that differ, is refused before the database is touched", async () => {
+test("anything but three uuids is refused before the database is touched", async () => {
   const a = randomUUID(), b = randomUUID(), r = randomUUID();
   const bad = [undefined, null, "", "not-an-id", `${a}'; DROP TABLE events; --`, 42, [a]];
   let refused = 0;
@@ -70,6 +70,16 @@ test("anything but three uuids, two alerts that differ, is refused before the da
   for (const v of bad) await refuse(moveAlertEvents(untouched, v as never, b, r), /alert to move from must be a uuid/, `from ${String(v)}`);
   for (const v of bad) await refuse(moveAlertEvents(untouched, a, v as never, r), /alert to move to must be a uuid/, `to ${String(v)}`);
   for (const v of bad) await refuse(moveAlertEvents(untouched, a, b, v as never), /rule must be a uuid/, `rule ${String(v)}`);
-  await refuse(moveAlertEvents(untouched, a, a.toUpperCase(), r), /not moved onto the same alert/, "the same alert in other letter case");
-  assert.equal(refused, 22);
+  assert.equal(refused, 21);
+});
+
+test("an alert folded into itself keeps its events and records the rule, and the activation goes on (D105)", async () => {
+  const k = await cabinet();
+  const same = await alert(k), other = await alert(k);
+  const rule = randomUUID();
+  const mine = [await event(k, same), await event(k, same, randomUUID())], theirs = await event(k, other);
+  // The same alert in other letter case, as an id read back from the database can be.
+  assert.equal(await moveAlertEvents(db.app, same, same.toUpperCase(), rule), 2);
+  for (const id of mine) assert.deepEqual(await of(id), { alert_id: same, matched_rule: rule });
+  assert.deepEqual(await of(theirs), { alert_id: other, matched_rule: null });
 });
