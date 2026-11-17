@@ -6,6 +6,51 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D112. A batch's event links are written by events.ts, the events' owner (2026-11-17)
+
+Numbered D112 because #271 takes D111 (D110 went to #306).
+
+**What the code did** (at `e67dc55`; an entry on the ownership debt list, F21.R2):
+- **The write.** `processBatch` in `server/src/services/alerts.ts:215-219` ended by recording, for every event of the batch that raised,
+  joined or resolved an alert or matched a rule, that alert and rule, with its own `UPDATE events … FROM OPENJSON(…)`.
+- **Who owns that table.** `events` belongs to `services/events.ts`. This was the last entry on its debt list.
+- **Who calls it.** `processBatch` has one caller, `storeEvents` in `events.ts`, in the same transaction.
+
+**The decision:**
+- **`alerts.ts` decides, `events.ts` writes.** `processBatch` returns the links (`{ e, a, r }`, only those with an alert or a rule) with its
+  outcomes. `storeEvents` passes them to a new `linkEventsToAlerts(c, cabinetId, links)` in the same transaction.
+  - `alerts.ts` imports nothing new.
+  - `events.ts` already imported `alerts.ts`, so no new import cycle.
+- **What the function checks** before the database is touched, each with its own message:
+  - the cabinet is a uuid;
+  - the links are a list of at most 100, one per event in a batch (the event batch contract's `maxItems`);
+  - each link's event is a uuid, and its alert and rule are each a uuid or null, never both null;
+  - no event is linked twice.
+
+  An empty list writes nothing.
+- **One thing it adds.** The statement touches only the given cabinet's events. The old one matched on the event id alone. A batch's
+  events are always its own cabinet's, so nothing that happens today changes.
+- **Debt count:** the `services/alerts.ts` entry for `events` comes off, which leaves 43.
+
+**Proof:**
+- **`server/test/event-links.test.ts`** (new, 3 tests, against the database):
+  - **Links.** An event raised, one suppressed and one resolved each get their alert and rule. An event not named is untouched, and
+    another cabinet's event named under this cabinet is untouched.
+  - **Rollback.** A link in a transaction that rolls back leaves the event as it was.
+  - **Hostile input.** 17 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`event-links`, `alerts` and `table-ownership`, 31 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | An `events` write back in `alerts.ts` | The ownership test |
+  | `storeEvents` not recording the links | `alerts.test.ts` "an unrecognized error is mapped … and the next one raises the issue" |
+  | The statement not limited to the cabinet | The links test |
+  | The duplicate, size or empty-link check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 31 of 31 pass.
+
+---
+
 ## D110. A failed migration's alert is raised by security.ts, and the command line asks for it (2026-11-17)
 
 **What the code did** (at `568a693`; an entry on the ownership debt list, F21.R2):

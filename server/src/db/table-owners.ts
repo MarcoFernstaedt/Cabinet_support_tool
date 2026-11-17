@@ -91,7 +91,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   enrollment_baselines: { owner: "services/baselines.ts", also: [] },
   enrollment_requests: { owner: "services/enrollment.ts", also: [] },
   error_daily: { owner: "services/error-trends.ts", also: [], accepted: ["demo/demo.ts", "demo/troubleshooting.ts"] },
-  events: { owner: "services/events.ts", also: ["services/alerts.ts"], accepted: ["demo/demo.ts"] },
+  events: { owner: "services/events.ts", also: [], accepted: ["demo/demo.ts"] },
   firewall_changes: { owner: "services/commands.ts", also: [], accepted: ["demo/demo.ts"] },
   fleet_job_targets: { owner: "services/fleet-jobs.ts", also: [], accepted: ["demo/demo.ts"] },
   fleet_jobs: { owner: "services/fleet-jobs.ts", also: [], accepted: ["demo/demo.ts"] },

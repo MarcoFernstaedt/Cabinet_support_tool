@@ -90,7 +90,9 @@ function unrecognizedTitle(e: Pick<Event, "kind" | "source"> & { detail?: Event[
 }
 
 /** What one batch led to: an outcome per event, and how often each rule matched (counted into memory once the batch committed). */
-export interface Processed { outcomes: Outcome[]; ruleHits: Map<string, number> }
+/** An event and the alert it raised, joined or resolved, and the rule that matched it; events.ts writes these (linkEventsToAlerts). */
+export interface EventLink { e: string; a: string | null; r: string | null }
+export interface Processed { outcomes: Outcome[]; ruleHits: Map<string, number>; links: EventLink[] }
 
 // One step of a batch, in event order. Alert writes between two resolves are folded per signature and written together.
 type Step =
@@ -104,11 +106,11 @@ type Step =
  */
 export async function processBatch(c: Tx, cabinetId: string, events: readonly Event[], rulesVersion?: string | null): Promise<Processed> {
   const ruleHits = new Map<string, number>();
-  if (events.length === 0) return { outcomes: [], ruleHits };
+  if (events.length === 0) return { outcomes: [], ruleHits, links: [] };
   const config = await ruleConfig(c, rulesVersion);
   const rules = liveNow(config);
   const outcomes: (Outcome | undefined)[] = new Array(events.length);
-  const links = new Map<string, { e: string; a: string | null; r: string | null }>();
+  const links = new Map<string, EventLink>();
   const steps: Step[] = [];
   const hit = (ruleId: string) => ruleHits.set(ruleId, (ruleHits.get(ruleId) ?? 0) + 1);
   const now = Date.now();
@@ -212,12 +214,8 @@ export async function processBatch(c: Tx, cabinetId: string, events: readonly Ev
     }
   }
 
-  // Every event that got an alert or a rule learns it in one statement.
-  const linked = [...links.values()].filter(l => l.a !== null || l.r !== null);
-  if (linked.length > 0)
-    await c.query(`UPDATE e SET alert_id = j.a, matched_rule = j.r FROM events e
-                     JOIN OPENJSON($1) WITH (e uniqueidentifier '$.e', a uniqueidentifier '$.a', r uniqueidentifier '$.r') j ON e.event_id = j.e`, [JSON.stringify(linked)]);
-  return { outcomes: outcomes.map(o => o ?? { kind: "stored" }), ruleHits };
+  // Every event that got an alert or a rule: its caller, events.ts, the events' owner, records them in one statement (D112).
+  return { outcomes: outcomes.map(o => o ?? { kind: "stored" }), ruleHits, links: [...links.values()].filter(l => l.a !== null || l.r !== null) };
 }
 
 const SERVICE_NAME = /^[A-Za-z0-9_.$-](?:[A-Za-z0-9_.$ -]{0,78}[A-Za-z0-9_.$-])?$/;
