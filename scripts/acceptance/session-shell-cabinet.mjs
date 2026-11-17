@@ -333,6 +333,26 @@ try {
     assert.ok(firstOutput.includes('CHILD_STDOUT'), 'First child stdout missing');
     assert.ok(firstOutput.includes('CHILD_STDERR'), 'First child stderr missing');
     await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
+    // Consecutive plain shell commands in the session's own cmd.exe, three of them, each
+    // answering with a computed value the typed line does not contain, so input echo cannot
+    // satisfy it. This is the instrument for the consecutive-command defect: the PowerShell
+    // checks above complete, while the third command typed into one session has been observed
+    // to be delivered, echoed in fragments, and never run. It runs before the whoami check
+    // only while that defect is open; move it after when the defect is fixed.
+    async function shellLine(line, expect, label) {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`${line}\r`).toString('base64') }, operator);
+      return await until(async () => {
+        const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
+        const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        return output.includes(expect) ? output : null;
+      }, label);
+    }
+    for (let n = 0; n < 3; n++) {
+      const a = 100 + Math.floor(Math.random() * 800);
+      const b = 100 + Math.floor(Math.random() * 800);
+      await shellLine(`set /a ${a}+${b}`, String(a + b), `plain consecutive command ${n + 1} of 3`);
+    }
     await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -match '^NT AUTHORITY\\') -or ($identity -match ('^' + [regex]::Escape($env:COMPUTERNAME) + '\\')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
     await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
     const desktopMarker = runId + '.txt';
