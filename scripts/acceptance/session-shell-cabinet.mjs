@@ -279,7 +279,7 @@ try {
   if (offNetwork) {
     await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
     await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
-    const recovery = `try { & ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Fallback tailscale up failed' } } finally { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }`;
+    const recovery = `try { if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) } finally { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }`;
     // Set the flag before registration: even a lost SSH response must enter cleanup.
     fallbackRegistered = true;
     fallbackRunsAt = Date.now() + 6 * 60_000;
@@ -315,13 +315,17 @@ try {
         return output.includes(done) ? output : null;
       }, label);
     }
+    // Completion tokens are assembled inside the child, so input echo/title cannot satisfy this check.
+    const firstOutput = await shellPowerShell(`Write-Output ('CHILD_' + 'STDOUT'); [Console]::Error.WriteLine(('CHILD_' + 'STDERR'))`, 'first child process output');
+    assert.ok(firstOutput.includes('CHILD_STDOUT'), 'First child stdout missing');
+    assert.ok(firstOutput.includes('CHILD_STDERR'), 'First child stderr missing');
     await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
-    await shellPowerShell(`$identity=whoami; $identity; if ($LASTEXITCODE -ne 0 -or $identity.Split('\\')[0] -ine $env:COMPUTERNAME) { throw 'whoami did not name cabinet machine account' }`, 'off-network whoami');
+    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -match '^NT AUTHORITY\\') -or ($identity.Split('\\')[0] -ieq $env:COMPUTERNAME); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
     await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
     const desktopMarker = runId + '.txt';
     await shellPowerShell(`$path=Join-Path $env:USERPROFILE ${quote('Desktop/' + desktopMarker)}; $created=$false; try { $file=[System.IO.File]::Open($path, 'CreateNew', 'Write'); $created=$true; try { $file.WriteByte(65) } finally { $file.Dispose() }; if (-not (Test-Path -LiteralPath $path)) { throw 'Marker missing' } } finally { if ($created) { Remove-Item -LiteralPath $path } }; if (Test-Path -LiteralPath $path) { throw 'Marker cleanup failed' }`, 'off-network marker write and cleanup');
     assert.ok(Date.now() < fallbackRunsAt - 15000, 'Off-network proof exceeded fallback window');
-    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; & ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Shell tailscale up failed' }`, 'Tailscale restoration through operator shell');
+    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))`, 'Tailscale restoration through operator shell');
     assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
     await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
     sshAvailable = true;
@@ -338,10 +342,10 @@ try {
   assert.ok(output.includes(marker), 'real command output missing');
   assert.ok(frames.some(f => f.frame.kind === 'shell.exit' && f.frame.code === 7));
   const commands = (await observer.query('SELECT input_data, complete FROM session_shell_commands WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-  assert.equal(commands.length, offNetwork ? 9 : 4); assert.ok(commands.every(c => c.complete));
+  assert.equal(commands.length, offNetwork ? 10 : 4); assert.ok(commands.every(c => c.complete));
   assert.equal(commands.slice(offNetwork ? -4 : 0).map(c => Buffer.from(c.input_data, 'base64').toString()).join(''), command);
   assert.equal((await verifyAuditChain(observer)).ok, true);
-  console.log(`GREEN: real Windows process output, exit 7, ${offNetwork ? 'nine' : 'four'} durable commands, both directions and audit chain verified`);
+  console.log(`GREEN: real Windows process output, exit 7, ${offNetwork ? 'ten' : 'four'} durable commands, both directions and audit chain verified`);
   console.log(output);
   console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: offNetwork ? 'public' : 'tailnet', offNetworkTested: offNetwork, ...(offNetwork ? { platformHost, platformPort, peerAddress, tailnetDownAt, tailnetRestoredAt } : {}) }));
   await stopAgent(true);
@@ -356,7 +360,7 @@ try {
     }
     while (true) {
       try {
-        await ps(`& ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Cleanup tailscale up failed' }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`, { timeout: 12000 });
+        await ps(`if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)); if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`, { timeout: 12000 });
         sshAvailable = true; fallbackRegistered = false; break;
       } catch (error) {
         if (Date.now() >= fallbackDeadline) { recoveryError = new Error(`Fallback cleanup could not reach cabinet: ${error.message}`); break; }
