@@ -279,7 +279,11 @@ try {
   if (offNetwork) {
     await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
     await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
-    const recovery = `try { if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) } finally { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }`;
+    // `tailscale down` stops the node, not the service, so starting the service is a no-op
+    // when only the node is down: restart it (the recovery measured on the lab cabinet) and
+    // confirm the node is back before the safety net is allowed to remove itself.
+    const tailscaleNodeRestore = `$ts=${quote(tailscale)}; & $ts up *> $null; Start-Sleep -Seconds 3; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { Restart-Service Tailscale -Force; Start-Sleep -Seconds 12 }; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node did not come back' }; if ((Get-Service Tailscale).Status -ne 'Running') { (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }`;
+    const recovery = `try { ${tailscaleNodeRestore} } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false } }`;
     // Set the flag before registration: even a lost SSH response must enter cleanup.
     fallbackRegistered = true;
     fallbackRunsAt = Date.now() + 6 * 60_000;
@@ -320,12 +324,12 @@ try {
     assert.ok(firstOutput.includes('CHILD_STDOUT'), 'First child stdout missing');
     assert.ok(firstOutput.includes('CHILD_STDERR'), 'First child stderr missing');
     await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
-    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -match '^NT AUTHORITY\\') -or ($identity.Split('\\')[0] -ieq $env:COMPUTERNAME); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
+    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -match '^NT AUTHORITY\\') -or ($identity -match ('^' + [regex]::Escape($env:COMPUTERNAME) + '\\')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
     await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
     const desktopMarker = runId + '.txt';
     await shellPowerShell(`$path=Join-Path $env:USERPROFILE ${quote('Desktop/' + desktopMarker)}; $created=$false; try { $file=[System.IO.File]::Open($path, 'CreateNew', 'Write'); $created=$true; try { $file.WriteByte(65) } finally { $file.Dispose() }; if (-not (Test-Path -LiteralPath $path)) { throw 'Marker missing' } } finally { if ($created) { Remove-Item -LiteralPath $path } }; if (Test-Path -LiteralPath $path) { throw 'Marker cleanup failed' }`, 'off-network marker write and cleanup');
     assert.ok(Date.now() < fallbackRunsAt - 15000, 'Off-network proof exceeded fallback window');
-    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))`, 'Tailscale restoration through operator shell');
+    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; ${tailscaleNodeRestore}`, 'Tailscale restoration through operator shell');
     assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
     await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
     sshAvailable = true;
