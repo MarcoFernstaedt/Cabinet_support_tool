@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword, MIN_PASSWORD_LENGTH } from "../auth/passw
 import { createSession, endOtherSessions, endSession, nextStage, setStage, type SessionUser } from "../auth/sessions.js";
 import { networkOf, raiseSecurityAlertNow } from "../services/security.js";
 import { recordAuthFailure } from "../services/auth-failures.js";
+import { clearAuthFailures, enableAuthenticator, markTourCompleted, pendingAuthenticatorSecret, recordSignedIn, setOwnPassword, spendCodeStep, spendSignInStep } from "../services/users.js";
 import { ownSignIns, sessionSignIn } from "../services/sign-ins.js";
 import { DEVICE_MAX_AGE_SECONDS, forgetTrustedDevices, recordSignIn, trustDevice, trustedAccounts } from "../auth/devices.js";
 import { DEVICE_COOKIE, readCookie, setCookie } from "../auth/cookies.js";
@@ -98,12 +99,12 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const id = await transaction(o.pool, async c => {
       // The failure count is cleared only when sign-in needs no authenticator code. Otherwise it is cleared by a correct
       // code: a correct password must not reset the count, or someone holding it could guess codes without ever locking.
-      if (stage !== "totp") await c.query("UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1", [user.id]);
+      if (stage !== "totp") await clearAuthFailures(c, user.id, { unlock: true });
       const signIn = await recordSignIn(c, { userId: user.id, username: body.username, address: request.ip, userAgent: request.headers["user-agent"],
         deviceCookie: readCookie(request, DEVICE_COOKIE) });
       // An account without an authenticator has passed its whole sign-in; one with an authenticator is trusted only once the code is right.
       if (stage !== "totp") await trustDevice(c, user.id, signIn.deviceValue);
-      if (stage === "complete") await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [user.id]);
+      if (stage === "complete") await recordSignedIn(c, user.id);
       await audit(c, { actorKind: "user", actorId: user.id, action: "auth.login", outcome: "succeeded",
         details: { stage, source: request.ip, newNetwork: signIn.newNetwork, newDevice: signIn.newDevice } });
       return { session: await createSession(c, user.id, stage, request.ip, policy, signIn.signInId), device: signIn.deviceValue };
@@ -143,9 +144,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     const stage = nextStage({ totpEnabled: true, role: u.role, mustChangePassword: u.mustChangePassword }, true);
     await transaction(o.pool, async c => {
       // Claimed with a conditional update, so two requests racing with the same code cannot both pass.
-      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 = 1 THEN SYSUTCDATETIME() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
-        [u.userId, step, stage === "complete"]);
-      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
+      if (!(await spendSignInStep(c, u.userId, step, stage === "complete"))) throw new Refused("invalid_code", 401, "that code was already used");
       await setStage(c, u.sessionHash, stage);
       await trustDevice(c, u.userId, readCookie(request, DEVICE_COOKIE));
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp", outcome: "succeeded", details: { source: request.ip } });
@@ -159,11 +158,9 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (!(u.stage === "totp_setup" || (u.stage === "complete" && !u.totpEnabled))) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
     // A GET changes nothing a person could lose: the pending secret is created once and shown again on every later
     // request until setup completes (an Admin's reset clears it), so no link or request can swap it under them.
-    const row = (await o.pool.query<{ totp_secret_enc: Buffer | null }>(
-      "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) OUTPUT inserted.totp_secret_enc WHERE id = $1 AND totp_enabled = 0",
-      [u.userId, o.secrets.seal(totp.newSecret())])).rows[0];
-    if (!row?.totp_secret_enc) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
-    const secret = o.secrets.open(row.totp_secret_enc);
+    const pending = await pendingAuthenticatorSecret(o.pool, u.userId, o.secrets.seal(totp.newSecret()));
+    if (!pending) throw new Refused("wrong_stage", 409, "authenticator setup is not available now");
+    const secret = o.secrets.open(pending);
     return { secret: totp.base32(secret), otpauthUri: totp.otpauthUri(secret, u.username) };
   });
 
@@ -177,7 +174,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
     if (step === null) return reply.code(401).send({ error: "invalid_code" });
     const stage = u.stage === "complete" ? "complete" : nextStage({ totpEnabled: true, role: u.role, mustChangePassword: u.mustChangePassword }, true);
     await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET totp_enabled = 1, totp_last_step = $2 WHERE id = $1", [u.userId, step]);
+      await enableAuthenticator(c, u.userId, step);
       await setStage(c, u.sessionHash, stage);
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.totp.enable", targetKind: "user", targetId: u.userId, outcome: "succeeded" });
     });
@@ -203,7 +200,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       throw new Refused("weak_password", 400, "choose a different, longer password");
     const hash = await hashPassword(body.newPassword);
     await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [u.userId, hash]);
+      await setOwnPassword(c, u.userId, hash);
       // Every other session of this user ends; this one continues.
       await endOtherSessions(c, u.userId, u.sessionHash);
       // Every other browser must pass the full sign-in again before it counts as this account's own.
@@ -228,7 +225,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
 
   app.post("/api/auth/tour-complete", async request => {
     const u = await o.guards.role(request, "tier1");
-    await o.pool.query("UPDATE users SET tour_completed = 1 WHERE id = $1", [u.userId]);
+    await markTourCompleted(o.pool, u.userId);
     return { ok: true };
   });
 
@@ -247,8 +244,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       return reply.code(401).send({ error: "invalid_code" });
     }
     const token = await transaction(o.pool, async c => {
-      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [u.userId, step]);
-      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 401, "that code was already used");
+      if (!(await spendCodeStep(c, u.userId, step))) throw new Refused("invalid_code", 401, "that code was already used");
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.step_up", outcome: "succeeded",
         details: { action: body.action, target: body.target, ...(body.paramsHash ? { paramsHash: body.paramsHash } : {}) } });
       return issueStepUpToken(c, u.userId, body.action, body.target, body.paramsHash);
@@ -275,7 +271,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
       return reply.code(401).send({ error: "invalid_password" });
     }
     const token = await transaction(o.pool, async c => {
-      await c.query("UPDATE users SET failed_logins = 0 WHERE id = $1", [u.userId]);
+      await clearAuthFailures(c, u.userId, { unlock: false });
       await audit(c, { actorKind: "user", actorId: u.userId, action: "auth.confirm_password", outcome: "succeeded",
         details: { action: body.action, target: body.target, paramsHash: body.paramsHash } });
       return issueStepUpToken(c, u.userId, body.action, body.target, body.paramsHash);
