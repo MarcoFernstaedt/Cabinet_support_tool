@@ -1,4 +1,4 @@
-// Removing a settings row, the counterpart of upsertSetting, now the one place a row is removed (F21.R2, decision-log D117): it removes
+// Removing a settings row, the counterpart of upsertSetting, the way another module removes one (F21.R2, decision-log D117): it removes
 // only the key it names, says whether there was one, rolls back with its transaction, and checks the key before the database is touched.
 import test from "node:test";
 import assert from "node:assert/strict";

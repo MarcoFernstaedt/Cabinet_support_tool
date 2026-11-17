@@ -22,7 +22,7 @@ const SETTING_KEY = /^[A-Za-z0-9._:-]{1,200}$/;
 
 /**
  * Removes one row of the settings table, so the level below applies again (the built-in default, or nothing set): the counterpart of
- * upsertSetting, and the one place a row is removed (F21.R2, decision-log D117). Call it inside a transaction: the key is locked by name,
+ * upsertSetting, the way another module removes one (F21.R2, decision-log D117). Call it inside a transaction: the key is locked by name,
  * as upsertSetting locks it, so a removal and a write of the same key cannot interleave. The key is checked before the database is
  * touched. Returns whether a row was there to remove.
  */
