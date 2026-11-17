@@ -308,12 +308,17 @@ test("a failed migration leaves one open operations alert, naming the migration 
 });
 
 test("a failed migration's alert is raised through security.ts: audited and announced like every other operations alert (D110)", async () => {
-  const seqBefore = Number((await q<{ s: string | null }>("SELECT MAX(seq) AS s FROM audit_log")).rows[0]!.s ?? 0);
-  const noteBefore = Number((await q<{ n: number }>("SELECT COUNT(*) AS n FROM notifications WHERE channel = 'security_alerts'")).rows[0]!.n);
+  const owner = await connectOwner(db.ownerUrl);
+  // The open alert this one folds into is opened here, so the test holds whatever order the file runs in.
+  let seqBefore = 0, noteBefore = 0;
   // A version name that is hostile and longer than a title holds: stored as text, cut to fit, never run.
   const hostile = `0098_x'; DROP TABLE security_alerts; --${"y".repeat(300)}`;
-  const owner = await connectOwner(db.ownerUrl);
-  try { assert.equal(await alertMigrationFailed(owner, hostile), true); } finally { await owner.close(); }
+  try {
+    assert.equal(await alertMigrationFailed(owner, "0097_first"), true);
+    seqBefore = Number((await q<{ s: string | null }>("SELECT MAX(seq) AS s FROM audit_log")).rows[0]!.s ?? 0);
+    noteBefore = Number((await q<{ n: number }>("SELECT COUNT(*) AS n FROM notifications WHERE channel = 'security_alerts'")).rows[0]!.n);
+    assert.equal(await alertMigrationFailed(owner, hostile), true);
+  } finally { await owner.close(); }
   const open = await openAlerts("ops_migration");
   assert.equal(open.length, 1, "it folds into the one open migration alert");
   assert.ok(open[0]!.title.startsWith("Database migration 0098_x'; DROP TABLE security_alerts; --"), open[0]!.title.slice(0, 80));
