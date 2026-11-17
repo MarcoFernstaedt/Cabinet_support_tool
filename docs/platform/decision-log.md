@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D108. The demo simulator and usb-sql.ts are accepted writers, not debt (2026-11-17)
+
+**What the code did** (at `4e84a42`; the ownership debt list, F21.R2):
+- **The list.** `server/src/db/table-owners.ts` named every file other than a table's owner that writes it, as debt to move behind the
+  owner: 76 entries.
+- **Thirty of them were not meant to move.**
+  - `demo/demo.ts` (24 tables), `demo/troubleshooting.ts` (4) and `demo/config.ts` (1) are the demo simulator, which seeds its own
+    simulated cabinets' rows across the schema. The file's own header already said its reach is listed "so it stays visible".
+  - `services/usb-sql.ts` (alerts and settings) keeps the USB layer's statements as data, in a module with no database driver, so
+    `usb-sql.test.ts` checks each one against the migrations without a database; `usb-store.ts` runs them. Moving them behind
+    `alerts.ts` would end that check.
+
+**The decision** (the owner's, asked 2026-11-17: accept them as exceptions):
+- **Accepted, with a reason.** Each table that one of these files writes lists it under a new `accepted`, and `ACCEPTED_WRITERS` names
+  the reason for each of the four files. They are no longer counted as debt.
+- **Still checked.** `table-ownership.test.ts` treats an accepted writer as allowed, holds it to the same "no longer writes" rule as debt,
+  and adds a test: every accepted file has a reason, every reason is used by a table, no file is both debt and accepted, and no owner is
+  accepted for its own table. A new write by one of these files to a table that does not accept it still fails the ownership test.
+- **Debt list:** 46 entries on main after #302 (45 once #303 merges), with 30 accepted. Spec 01 "Module boundaries" says so.
+
+**Proof** (`table-ownership.test.ts`, 6 tests):
+- With usb-sql.ts's reason removed, with a reason no table uses, or with `demo/troubleshooting.ts` listed for `case_notes` as both debt
+  and accepted, the new test fails.
+- With a file accepted for a table it does not write, the "no longer writes" test fails.
+- With `usb-sql.ts` taken off the `alerts` table's accepted list, the unlisted-write test fails.
+- Restored and `cmp` identical, 6 of 6 pass.
+
+---
+
 ## D106. The time zone and clock alerts open and close through alerts.ts, by named condition (2026-11-17)
 
 **What the code did** (at `ee44fe6`; an entry on the ownership debt list, F21.R2):
