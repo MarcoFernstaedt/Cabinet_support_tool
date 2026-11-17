@@ -6,6 +6,52 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D106. The time zone and clock alerts open and close through alerts.ts, by named condition (2026-11-17)
+
+**What the code did** (at `ee44fe6`; an entry on the ownership debt list, F21.R2):
+- **The writes.** `evaluateTime` in `server/src/services/time.ts:42-67` opened each cabinet's minor time-zone or clock alert with its own
+  `MERGE alerts`, and closed it with its own `UPDATE alerts` through `closeAutomatically`. Both statements were assembled in `time.ts`
+  from its own condition text (`ZONE_WRONG`, `CLOCK_OFF`) and a scope fragment.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. Moving the statements there as they were would have meant
+  `alerts.ts` taking SQL from its callers.
+
+**The decision** (the owner's, asked 2026-11-17; spec 09 "Where the time zone, clock and firewall alerts live"):
+- **Named conditions.** The condition texts move to a new `services/cabinet-conditions.ts`, which imports nothing. `alerts.ts` gains
+  `foldCabinetCondition(db, name, scope, { open, close })`: the caller names the condition (`timeZone` or `clock`) and a typed scope (one
+  cabinet, site or client by id, or all), and `alerts.ts` builds the same MERGE and close from its own table of conditions. No caller
+  passes SQL.
+- **What `time.ts` keeps.** The lock-free read a heartbeat makes first, which says whether either statement is needed, and the zone
+  rules. It re-exports `SITE_ZONE_SQL` and `CLOCK_TOLERANCE_SECONDS`, so `fleet-jobs.ts`, `replacement-reapply.ts` and
+  `diagnose/cabinet.ts` are unchanged.
+- **Checked before the database.** The name must be one of the table's own (not an inherited name such as `toString`), the scope's id a
+  uuid, and the open and close flags booleans.
+- **Load order.** `alerts.ts` and `rules.ts` import each other, and the table names `rules.ts`'s `ISSUE`, so it is built on first use, as
+  D104 did for the event insert. With it built at load, a process that loads `rules.js` first stops.
+- **Unchanged:** which cabinets get or lose an alert and when, the minor severity, the sentences, the closer (`time-check`), the audit and
+  the transaction. No existing assertion changed.
+- **Debt list:** the `services/time.ts` entry for `alerts` comes off, which leaves 76 on main after #300.
+
+**Proof:**
+- **The owner function.** `server/test/cabinet-condition-alerts.test.ts`, against the database:
+  - A cabinet in the wrong zone gets one minor alert; one in the right zone, one not heard from in the offline window, and a cabinet at
+    another site do not. Again, the alert is kept, not doubled. Put right, it closes, audited once by `time-check` with its sentence.
+  - A clock 300 seconds off opens the clock alert (119 seconds does not, nor the zone's). Asked only to close, nothing opens; asked only
+    to open, nothing closes. A removed cabinet's alert closes.
+  - A fold in a transaction that rolls back leaves no alert.
+  - 27 hostile inputs (unknown and inherited names, a SQL fragment as a name, an injection string as an id, malformed scopes and flags)
+    are refused before a connection that throws if used, each by its own message. Asked to run neither, nothing reaches the database.
+- **Load order.** `module-load-order.test.ts` now also loads `time.js` and `cabinet-conditions.js` first; all five orders pass.
+- **Red checks** (`cabinet-condition-alerts`, `module-load-order`, `table-ownership`; 14 tests):
+  - With `time.ts` as on main, `table-ownership.test.ts` fails.
+  - With the table of conditions built at load, the `rules.js` load-order case fails.
+  - With the MERGE's scope, or its offline window, dropped, the zone test fails.
+  - Each of the three input checks disabled on its own fails the hostile-input test.
+  - Restored and `cmp` identical, 14 of 14 pass.
+- **Neighbours.** The 20 non-browser files that import `services/time.js`, `services/alerts.js` or `services/cabinet-conditions.js`
+  (chosen by that exact import), with `module-load-order`, `table-ownership`, `audit-sweep` and `import-cycles`: 172 of 172.
+
+---
+
 ## D105. An alert folded into itself keeps its events, as before D104 (2026-11-16)
 
 **What the code did** (at `ee44fe6`, since #300):

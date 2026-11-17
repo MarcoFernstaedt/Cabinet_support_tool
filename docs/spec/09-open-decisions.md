@@ -998,3 +998,21 @@ Every client's data is in one database. The line it would split along is written
 "Per-client databases: the path", decision-log D62). Not decided: whether any client's data moves to a database of its own, and what
 would trigger it (a client's requirement, or one client's share of the database). Until the owner decides, the second half of F21.R5
 (the connection resolved per client) is built so that every client resolves to the one database, which changes nothing in service.
+
+## Where the time zone, clock and firewall alerts live, and who adjusts them (F21.R2, 2026-11-17, decided in part)
+
+Asked how the time zone, clock and firewall alerts should move into alerts.ts, the owner chose the recommendation: alerts.ts holds the
+statements and a fixed set of named conditions, and the checks name the condition and the scope, never SQL (decision-log D106 for the
+zone and the clock; the firewall follows). The owner added:
+
+- The alerts stay on the cabinet, as minor alerts. That is how they are raised today, and the move keeps it.
+- What they judge must be adjustable site by site, not only fleet-wide. The time zone already is (the site's own, else its client's,
+  else the fleet's; 05-server-spec.md "Site policies"), and so is the firewall policy (the site's, else the client's, else the fleet's).
+  The clock tolerance is not: it is one fleet-wide 120 seconds (`CLOCK_TOLERANCE_SECONDS`). A tolerance set per site, with the client's
+  and the fleet's as fallbacks, is to build as its own piece: a new write, with its contract, permission, read-back and rollback.
+
+Still open: the owner said these alerts should reach a higher level "if more appropriate". Not decided: whether a site where every active
+cabinet has the same condition (all clocks off, all firewalls differing) should raise one site-level alert as well as, or instead of,
+the cabinets' own, and at what severity. Until the owner decides, each cabinet keeps its own minor alert and nothing is raised for the
+site.
+

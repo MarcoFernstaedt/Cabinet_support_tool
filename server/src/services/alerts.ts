@@ -15,6 +15,7 @@ import { isBootRecord, recordBoot } from "./crashes.js";
 import { insertNote } from "./case-notes.js";
 import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
 import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { CLOCK_OFF_SQL, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
 import { resolutionNoteText } from "./resolutions.js";
 import { saveKnownFix } from "./known-fixes.js";
 
@@ -876,4 +877,58 @@ export async function closeReplacedCabinetAlerts(db: Queryable, userId: string, 
   await auditMany(db, closed.map(a => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: a.id, outcome: "succeeded" as const,
     details: { issueTypeId: a.issue, resolution, automatic: true, replacedBy } })));
   return closed;
+}
+
+/** A cabinet condition alerts.ts raises and clears alerts for (cabinet-conditions.ts), named by its caller. */
+export type CabinetConditionName = "timeZone" | "clock";
+/** Which cabinets a condition is judged for: one, a site's, a client's, or every cabinet. */
+export type CabinetScope = { cabinetId: string } | { siteId: string } | { clientId: string } | "all";
+
+interface CabinetCondition { issueTypeId: string; sql: string; closer: string; fixed: string }
+// Built when first used, not when this module loads: alerts.ts and rules.ts import each other, and ISSUE is rules.ts's (D104).
+let cabinetConditions: Readonly<Record<CabinetConditionName, CabinetCondition>> | null = null;
+const conditionsTable = (): Readonly<Record<CabinetConditionName, CabinetCondition>> => cabinetConditions ??= {
+  timeZone: { issueTypeId: ISSUE.timeZone, sql: ZONE_WRONG_SQL, closer: "time-check", fixed: "The cabinet is in its site's time zone again." },
+  clock: { issueTypeId: ISSUE.clock, sql: CLOCK_OFF_SQL, closer: "time-check", fixed: "The cabinet's clock is within two minutes of the server's again." },
+};
+
+/**
+ * Opens the condition's minor alert on each active cabinet in scope that has it, heard from within the offline window, and closes it on
+ * each that no longer has it or is no longer active (F21.R2, decision-log D106). The statements are the ones time.ts ran; the caller
+ * says which of the two to run (a heartbeat's lock-free read usually finds neither is needed). Opening folds into the cabinet's
+ * unresolved alert of the issue; each close is audited through closeAutomatically. The condition is named, never SQL: its text comes from
+ * cabinet-conditions.ts. The name, the scope and its id, and what to run are checked before the database is touched.
+ */
+export async function foldCabinetCondition(db: Queryable, name: CabinetConditionName, scope: CabinetScope, run: { open: boolean; close: boolean }): Promise<{ opened: number; resolved: number }> {
+  const table = conditionsTable();
+  if (typeof name !== "string" || !Object.prototype.hasOwnProperty.call(table, name)) throw new Error("not a cabinet condition alerts.ts knows");
+  const c = table[name];
+  const id = scope === "all" ? null : typeof scope === "object" && scope !== null
+    ? ("cabinetId" in scope ? scope.cabinetId : "siteId" in scope ? scope.siteId : "clientId" in scope ? scope.clientId : undefined) : undefined;
+  if (id === undefined || (id !== null && (typeof id !== "string" || !ALERT_ID.test(id)))) throw new Error("a condition's scope is one cabinet, site or client by id, or all");
+  if (!run || typeof run !== "object" || typeof run.open !== "boolean" || typeof run.close !== "boolean") throw new Error("say whether to open and whether to close");
+  if (!run.open && !run.close) return { opened: 0, resolved: 0 };
+  // The scope's own id is the last parameter of each statement, so its number is given when the statement is written.
+  const at = (n: number) => scope === "all" ? "1 = 1" : "cabinetId" in scope ? `k.id = $${n}` : "siteId" in scope ? `k.site_id = $${n}` : `s.client_id = $${n}`;
+  const args = id === null ? [] : [id];
+  const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [c.issueTypeId])).rows[0];
+  if (!issue) return { opened: 0, resolved: 0 };
+  // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
+  const o = !run.open ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
+    `DECLARE @o TABLE (act nvarchar(10));
+     MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
+     USING (SELECT k.id AS cabinet_id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+             WHERE k.status = 'active' AND ${at(6)} AND k.last_heartbeat_at > DATEADD(second, -$4, SYSUTCDATETIME()) AND ${c.sql}) AS src
+        ON t.cabinet_id = src.cabinet_id AND t.signature = $3 AND t.state <> 'resolved'
+      WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
+           VALUES (src.cabinet_id, CAST($1 AS uniqueidentifier), $2, $3, $5, SYSUTCDATETIME(), SYSUTCDATETIME())
+      OUTPUT $action INTO @o (act);
+     SELECT act FROM @o;`, [c.issueTypeId, issue.severity, `issue:${c.issueTypeId}`, Math.round(OFFLINE_AFTER_MS / 1000), issue.name, ...args]);
+  const r = !run.close ? [] : await closeAutomatically(db, c.closer,
+    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
+       FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+      WHERE a.issue_type_id = CAST($1 AS uniqueidentifier) AND a.state <> 'resolved' AND ${at(3)}
+        AND (k.status <> 'active' OR NOT (${c.sql}))`, [c.issueTypeId, c.fixed, ...args]);
+  return { opened: o.rows.filter(x => x.act === "INSERT").length, resolved: r.length };
 }
