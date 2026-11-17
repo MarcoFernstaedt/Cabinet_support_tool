@@ -2,6 +2,7 @@
 // Uses an isolated database, a new CNG identity, and a temporary Windows host running the production agent connection.
 // Existing cabinet services, configuration and enrollment are not changed. No public endpoint is simulated.
 import assert from 'node:assert/strict';
+import { BlockList, isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
@@ -24,12 +25,38 @@ import { openSession } from '../../server/dist/src/services/session-opening.js';
 import { opsMeter, splitKey } from '../../server/dist/src/services/ops-meter.js';
 import { createPool, verifyAuditChain } from '../../server/dist/src/db/db.js';
 const sshConfig = ['-F', join(homedir(), '.ssh/config'), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
+const offNetwork = process.env.SHELL_OFF_NETWORK === '1';
+const platformPort = Number(process.env.SHELL_PLATFORM_PORT ?? 18443);
+// A Docker TCP forwarder can publish the public port and target a different local listener.
+const platformListenPort = Number(process.env.SHELL_PLATFORM_LISTEN_PORT ?? platformPort);
+if (offNetwork) {
+  assert.ok(process.env.SHELL_PLATFORM_HOST, 'SHELL_OFF_NETWORK requires SHELL_PLATFORM_HOST=<public address>');
+  assert.equal(platformPort, 8443, 'SHELL_OFF_NETWORK requires SHELL_PLATFORM_PORT=8443');
+}
 const cabinetHost = process.env.SHELL_CABINET_SSH ?? 'deviceb';
 const platformHost = process.env.SHELL_PLATFORM_HOST ?? Object.entries(networkInterfaces()).filter(([name]) => name.startsWith('tailscale')).flatMap(([, addresses]) => addresses ?? []).find(a => a.family === 'IPv4')?.address;
 assert.ok(platformHost, 'No tailnet interface found; export SHELL_PLATFORM_HOST as this host’s cabinet-reachable tailnet address');
 const work = mkdtempSync(join(tmpdir(), 'shell-cabinet-'));
 const runId = 'shell-' + randomUUID();
 let observer, db, api, notifier, feed, remote, agentProcess;
+let fallbackRegistered = false, fallbackDeadline = 0, fallbackRunsAt = 0, containerStopped = false;
+let tailnetDownAt, tailnetRestoredAt, peerAddress;
+const taskName = 'cabinet-acceptance-tailscale-restore';
+const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
+const connections = new Map();
+const tlsSockets = new Set();
+let preDropSockets = new Set();
+const signalHandlers = new Map();
+if (offNetwork) for (const signal of ['SIGINT', 'SIGTERM']) {
+  const handler = () => { interrupted = new Error(`Interrupted by ${signal}`); };
+  signalHandlers.set(signal, handler); process.on(signal, handler);
+}
+function tailnetAddress(address) {
+  const tailnet = new BlockList();
+  tailnet.addSubnet('100.64.0.0', 10, 'ipv4');
+  assert.ok(isIP(address), `Agent API returned an invalid peer address: ${address}`);
+  return tailnet.check(address, isIP(address) === 6 ? 'ipv6' : 'ipv4');
+}
 async function run(binary, args, options = {}) {
   // SSH must yield: this process also serves TLS, database callbacks and lag sampling.
   try {
@@ -40,8 +67,9 @@ async function run(binary, args, options = {}) {
   }
 }
 const quote = text => "'" + text.replaceAll("'", "''") + "'";
-async function ps(source) { return await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop';" + source, 'utf16le').toString('base64')]); }
+async function ps(source, options = {}) { return await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop';" + source, 'utf16le').toString('base64')], options); }
 const shedReasons = new Map();
+let sshAvailable = true, interrupted;
 let admissionDiagnostics = () => null;
 function serverDiagnostics() {
   // No reporter drains this in-process acceptance server's meter. Restore after
@@ -59,7 +87,7 @@ function serverDiagnostics() {
 }
 async function agentDiagnostics() {
   serverDiagnostics();
-  if (!remote) return;
+  if (!remote || !sshAvailable) return;
   try {
     console.error(await ps(['agent.log', 'run.out', 'run.err'].map(name =>
       `$f=Join-Path ${quote(remote)} ${quote(name)}; Write-Output ${quote('--- ' + name + ' ---')}; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { Write-Output '(missing)' }`).join(';')));
@@ -97,7 +125,8 @@ async function startAgent(server) {
 async function until(read, label, { expectExit = false } = {}) {
   const end = Date.now() + 120000;
   while (Date.now() < end) {
-    if (agentProcess && !expectExit) await requireAgent(label);
+    if (interrupted) throw interrupted;
+    if (sshAvailable && agentProcess && !expectExit) await requireAgent(label);
     let value;
     try { value = await read(); }
     catch (error) { await agentDiagnostics(); throw error; }
@@ -131,8 +160,25 @@ try {
     tls, longPollMs: 1000, logger: true,
     onAdmissionDiagnostics: read => { admissionDiagnostics = read; },
     onAdmissionShed: reason => shedReasons.set(reason, (shedReasons.get(reason) ?? 0) + 1) });
-  await api.listen({ host: '0.0.0.0', port: Number(process.env.SHELL_PLATFORM_PORT ?? 18443) });
-  const server = `https://${platformHost}:${api.server.address().port}`;
+  if (offNetwork) {
+    const running = await run('docker', ['inspect', '--format', '{{.State.Running}}', 'cabinet-server-1']);
+    if (running === 'true') {
+      containerStopped = true;
+      await run('docker', ['stop', 'cabinet-server-1']);
+    }
+    api.server.on('secureConnection', socket => {
+      tlsSockets.add(socket); socket.once('close', () => tlsSockets.delete(socket));
+    });
+    // requireCabinet authenticates in onRequest. Observe before the handler can
+    // hold a long-poll open: a completed response is not required for connectivity.
+    api.addHook('preHandler', async (request) => {
+      if (request.cabinet && !request.raw.socket.destroyed && !preDropSockets.has(request.raw.socket)) connections.set(request.raw.socket, {
+        cabinetId: request.cabinet.id, peerAddress: request.raw.socket.remoteAddress,
+      });
+    });
+  }
+  await api.listen({ host: '0.0.0.0', port: platformListenPort });
+  const server = `https://${platformHost}:${platformPort}`;
   const operator = randomUUID();
   await observer.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'shell-acceptance', 'Shell acceptance operator', 'tier2')", [operator]);
   await observer.transaction(tx => grantPermission(tx, operator, operator, 'session.open', 'fleet', null));
@@ -140,7 +186,7 @@ try {
   writeFileSync(join(work, 'bootstrap-token'), bootstrap.token);
   await upload(join(work, 'bootstrap-token'), remote + '\\bootstrap-token');
   const config = { cabinetId: null, readOnlyMode: false, cabinetRole: null, scanner: { hardwareIds: [] }, syncCabinet: { address: null },
-    platformServer: { host: platformHost, port: api.server.address().port }, allowedTcpPorts: [], localHarness: false, sessionsEnabled: true };
+    platformServer: { host: platformHost, port: platformPort }, allowedTcpPorts: [], localHarness: false, sessionsEnabled: true };
   async function stopAgent(removeKey = false) {
     if (!agentProcess) return;
     await ps(`${removeKey ? `New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null;` : ''} New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`);
@@ -165,11 +211,61 @@ try {
   writeFileSync(join(work, 'agent-config.json'), JSON.stringify(config)); await upload(join(work, 'agent-config.json'), remote + '\\agent-config.json');
   await startAgent(server);
   await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND development_shell = 1', [cabinetId])).rows[0], 'opt-in capability');
+  if (offNetwork) {
+    await until(async () => [...connections].some(([socket, c]) => !socket.destroyed && c.cabinetId === cabinetId), 'authenticated baseline agent connection');
+    await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
+    const recovery = `try { & ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Fallback tailscale up failed' } } finally { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }`;
+    // Set the flag before registration: even a lost SSH response must enter cleanup.
+    fallbackRegistered = true;
+    fallbackRunsAt = Date.now() + 6 * 60_000;
+    fallbackDeadline = fallbackRunsAt + 60_000;
+    await ps(`$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ${quote('-NoProfile -NonInteractive -EncodedCommand ' + Buffer.from("$ErrorActionPreference='Stop';" + recovery, 'utf16le').toString('base64'))}; $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(6); Register-ScheduledTask -TaskName ${quote(taskName)} -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null`);
+    // Losing SSH here is expected. No SSH probes or diagnostics until shell restoration.
+    sshAvailable = false;
+    try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { timeout: 15000 }); }
+    catch (error) { console.error('tailscale down SSH result (shell must verify stopped state):', error.message); }
+    tailnetDownAt = new Date().toISOString();
+    // Evict every pre-drop TLS connection; a later successful authenticated request
+    // must use a new socket. The API observes the socket peer, never forwarded headers.
+    preDropSockets = new Set(tlsSockets);
+    for (const socket of preDropSockets) socket.destroy();
+    connections.clear();
+    const connection = await until(async () => [...connections].find(([socket, c]) => !socket.destroyed && c.cabinetId === cabinetId)?.[1], 'fresh public agent reconnect after tailscale down');
+    peerAddress = connection.peerAddress;
+    assert.ok(peerAddress && !tailnetAddress(peerAddress), `Agent API observed tailnet peer: ${peerAddress}`);
+  }
   const greenToken = await issueStepUpToken(observer, operator, 'session.open', cabinetId);
-  const { sessionId } = await openSession(observer, operator, cabinetId, { kind: 'shell', reason: 'Recorded real-cabinet acceptance over tailnet', stepUpToken: greenToken });
+  const { sessionId } = await openSession(observer, operator, cabinetId, { kind: 'shell', reason: offNetwork ? 'Recorded real-cabinet acceptance over public internet' : 'Recorded real-cabinet acceptance over tailnet', stepUpToken: greenToken });
   await until(async () => (await observer.query("SELECT id FROM commands WHERE cabinet_id = $1 AND operation = 'session.open' AND status = 'succeeded'", [cabinetId])).rows[0], 'agent session opening');
   const shell = new SessionShell(observer);
   await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.resize', columns: 100, rows: 30 }, operator);
+  if (offNetwork) {
+    async function shellPowerShell(source, label) {
+      const done = 'DONE_' + randomUUID().replaceAll('-', '');
+      const failed = 'FAIL_' + randomUUID().replaceAll('-', '');
+      const encoded = Buffer.from(`$ErrorActionPreference='Stop'; try { ${source}; Write-Output ('DONE_' + '${done.slice(5)}') } catch { Write-Output $_; Write-Output ('FAIL_' + '${failed.slice(5)}'); exit 1 }`, 'utf16le').toString('base64');
+      await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`).toString('base64') }, operator);
+      return await until(async () => {
+        const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
+        const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        assert.ok(!output.includes(failed), `${label} failed through operator shell: ${output}`);
+        return output.includes(done) ? output : null;
+      }, label);
+    }
+    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
+    await shellPowerShell(`$identity=whoami; $identity; if ($LASTEXITCODE -ne 0 -or $identity.Split('\\')[0] -ine $env:COMPUTERNAME) { throw 'whoami did not name cabinet machine account' }`, 'off-network whoami');
+    await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
+    const desktopMarker = runId + '.txt';
+    await shellPowerShell(`$path=Join-Path $env:USERPROFILE ${quote('Desktop/' + desktopMarker)}; $created=$false; try { $file=[System.IO.File]::Open($path, 'CreateNew', 'Write'); $created=$true; try { $file.WriteByte(65) } finally { $file.Dispose() }; if (-not (Test-Path -LiteralPath $path)) { throw 'Marker missing' } } finally { if ($created) { Remove-Item -LiteralPath $path } }; if (Test-Path -LiteralPath $path) { throw 'Marker cleanup failed' }`, 'off-network marker write and cleanup');
+    assert.ok(Date.now() < fallbackRunsAt - 15000, 'Off-network proof exceeded fallback window');
+    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; & ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Shell tailscale up failed' }`, 'Tailscale restoration through operator shell');
+    assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
+    await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
+    sshAvailable = true;
+    tailnetRestoredAt = new Date().toISOString();
+    await ps(`Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`);
+    fallbackRegistered = false;
+  }
   const marker = 'CABINET_SHELL_' + randomUUID().replaceAll('-', '');
   const command = `echo ${marker}\rwhoami\rhostname\rexit 7\r`;
   await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(command).toString('base64') }, operator);
@@ -179,21 +275,46 @@ try {
   assert.ok(output.includes(marker), 'real command output missing');
   assert.ok(frames.some(f => f.frame.kind === 'shell.exit' && f.frame.code === 7));
   const commands = (await observer.query('SELECT input_data, complete FROM session_shell_commands WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-  assert.equal(commands.length, 4); assert.ok(commands.every(c => c.complete));
-  assert.equal(commands.map(c => Buffer.from(c.input_data, 'base64').toString()).join(''), command);
+  assert.equal(commands.length, offNetwork ? 9 : 4); assert.ok(commands.every(c => c.complete));
+  assert.equal(commands.slice(offNetwork ? -4 : 0).map(c => Buffer.from(c.input_data, 'base64').toString()).join(''), command);
   assert.equal((await verifyAuditChain(observer)).ok, true);
-  console.log('GREEN: real Windows process output, exit 7, four durable commands, both directions and audit chain verified');
+  console.log(`GREEN: real Windows process output, exit 7, ${offNetwork ? 'nine' : 'four'} durable commands, both directions and audit chain verified`);
   console.log(output);
-  console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: 'tailnet', offNetworkTested: false }));
+  console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: offNetwork ? 'public' : 'tailnet', offNetworkTested: offNetwork, ...(offNetwork ? { platformHost, platformPort, peerAddress, tailnetDownAt, tailnetRestoredAt } : {}) }));
   await stopAgent(true);
 } finally {
-  if (agentProcess && remote) {
+  let recoveryError;
+  if (fallbackRegistered) {
+    // Keep the API alive while recovery is pending. Do not remove the safety net
+    // before it has restored connectivity on a failed off-network run.
+    if (!sshAvailable) {
+      console.error('Waiting for scheduled fallback before SSH cleanup after failed off-network proof');
+      while (Date.now() < fallbackRunsAt) await new Promise(r => setTimeout(r, Math.min(1000, fallbackRunsAt - Date.now())));
+    }
+    while (true) {
+      try {
+        await ps(`& ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Cleanup tailscale up failed' }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`, { timeout: 12000 });
+        sshAvailable = true; fallbackRegistered = false; break;
+      } catch (error) {
+        if (Date.now() >= fallbackDeadline) { recoveryError = new Error(`Fallback cleanup could not reach cabinet: ${error.message}`); break; }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+    }
+  }
+  if (agentProcess && remote && sshAvailable) {
     try { await ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`); } catch { /* primary failure remains non-zero */ }
   }
-  await api?.close(); await notifier?.stop(); feed?.stop();
+  await api?.close();
+  if (containerStopped) {
+    try { await run('docker', ['start', 'cabinet-server-1']); } catch (error) { recoveryError ??= error; }
+  }
+  await notifier?.stop(); feed?.stop();
   // Keep the actual database session/audit record for review; do not erase the evidence.
   await observer?.end();
   await db?.app.end();
   rmSync(work, { recursive: true, force: true });
-  if (db) console.log(`Acceptance records retained in ${db.name}; off-network acceptance still needs a public platform endpoint.`);
+  if (db) console.log(`Acceptance records retained in ${db.name}${offNetwork ? '' : '; off-network acceptance still needs a public platform endpoint'}.`);
+  for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
+  if (recoveryError) throw recoveryError;
+  if (interrupted) throw interrupted;
 }
