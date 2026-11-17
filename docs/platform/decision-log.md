@@ -30,7 +30,9 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - the role is tier1, tier2 or admin;
   - the password hash is 1 to 1024 characters with no spaces.
 - **What changes for an operator.** `user add` with a username the table would refuse now gets the rule in words, not the constraint error.
-  A name made only of spaces, or one with a control character, is now refused; the table allowed both.
+  A name with a control character is refused now; that one the table accepted. A name made only of spaces is refused in words too, where
+  the table refused it already with a constraint error, because its length check ignores trailing spaces and counts a name of spaces as none,
+  and the command line refused an empty one before the table was reached.
 - **Behaviour kept as it was.** The command line's `user resume-writes` still resumes whatever paused the person (unlike the console's,
   which refuses when they are not paused), and its `user add` still relies on the table's unique key for a username already used.
 - **Debt count:** the `cli.ts` entry for `users` comes off, which leaves 40. The console sign-in routes (`auth-routes.ts`) are the last
