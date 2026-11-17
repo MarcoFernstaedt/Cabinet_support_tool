@@ -15,6 +15,7 @@ import { connectOwner, migrate } from "./db/migrate.js";
 import { alertMigrationFailed } from "./services/security.js";
 import { upsertSetting } from "./services/settings.js";
 import { setClientPauseByCli } from "./services/writes.js";
+import { addUserFromCommandLine, resumeWritesByUsername, setTemporaryPasswordByUsername, spendCodeStep } from "./services/users.js";
 import { formatHealth, healthSummary } from "./services/ops-health.js";
 import { listCabinets, revokeCabinet } from "./services/cabinets.js";
 import { commandRecord } from "./services/commands.js";
@@ -112,8 +113,7 @@ function authorizer(pool: Pool, secrets: () => SecretBox, command: string) {
       throw new Refused("invalid_code", 2, "that code is not right");
     }
     await transaction(pool, async c => {
-      const claimed = await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [row.id, step]);
-      if (claimed.rowCount !== 1) throw new Refused("invalid_code", 2, "that code was already used");
+      if (!(await spendCodeStep(c, row.id, step))) throw new Refused("invalid_code", 2, "that code was already used");
       await audit(c, { actorKind: "user", actorId: row.id, action: "cli.authenticate", outcome: "succeeded", details });
     });
     return row.id;
@@ -293,9 +293,9 @@ async function main(argv: string[]): Promise<void> {
         if (!values.username) throw new Refused("usage", 2, USAGE);
         const adminId = await authorize(values.as, "admin", values.code);
         await transaction(pool, async c => {
-          const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [values.username]);
-          if (!r.rows[0]) throw new Refused("not_found", 1, "no such user");
-          await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: r.rows[0].id, outcome: "succeeded", details: { via: "cli" } });
+          const resumed = await resumeWritesByUsername(c, values.username!);
+          if (!resumed) throw new Refused("not_found", 1, "no such user");
+          await audit(c, { actorKind: "user", actorId: adminId, action: "writes.user_resumed", targetKind: "user", targetId: resumed, outcome: "succeeded", details: { via: "cli" } });
         });
         console.log(`Writes resumed for ${values.username}.`);
         return;
@@ -309,8 +309,7 @@ async function main(argv: string[]): Promise<void> {
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
-          await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, 1)",
-            [id, values.username, values.name, values.role, hash]);
+          await addUserFromCommandLine(c, { id, username: values.username!, name: values.name!, role: values.role!, passwordHash: hash });
           await audit(c, { actorKind: by ? "user" : "system", actorId: by ?? "platform-admin", action: "user.create", targetKind: "user", targetId: id, outcome: "succeeded",
             details: { username: values.username, role: values.role, via: "cli", ...(by ? {} : { bootstrap: true }) } });
         });
@@ -324,12 +323,10 @@ async function main(argv: string[]): Promise<void> {
         const temporary = randomBytes(12).toString("base64url");
         const hash = await hashPassword(temporary);
         await transaction(pool, async c => {
-          const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = 1, failed_logins = 0, locked_until = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1",
-            [values.username, hash]);
-          const target = r.rows[0];
+          const target = await setTemporaryPasswordByUsername(c, values.username!, hash);
           if (!target) throw new Refused("not_found", 1, "no such user");
-          await endAllSessions(c, target.id);
-          await audit(c, { actorKind: "user", actorId: adminId, action: "user.password.reset", targetKind: "user", targetId: target.id, outcome: "succeeded" });
+          await endAllSessions(c, target);
+          await audit(c, { actorKind: "user", actorId: adminId, action: "user.password.reset", targetKind: "user", targetId: target, outcome: "succeeded" });
         });
         console.log(`Temporary password for ${values.username} (shown once): ${temporary}`);
         return;

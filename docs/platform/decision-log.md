@@ -6,6 +6,66 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D115. The command line's account writes go through users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `c1a1c6d`; an entry on the ownership debt list, F21.R2):
+- **Four writes.** `server/src/cli.ts` wrote the `users` table four times with its own statements:
+  - spending an authenticator step for a command proved with `--code` (`cli.ts:115`);
+  - `user resume-writes` (`cli.ts:296`);
+  - `user add` (`cli.ts:312`);
+  - `user reset-password` (`cli.ts:327`).
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+- **No input check.** None of the four checked what it was given. A malformed username or name reached the table, whose check
+  constraint refused it with a database error.
+
+**The decision:**
+- **Each statement moves into `users.ts`, unchanged.** The new functions are `spendCodeStep`, `resumeWritesByUsername`,
+  `addUserFromCommandLine` and `setTemporaryPasswordByUsername`. The command line still authorizes each command, audits it and ends
+  sessions as before.
+- **What each checks** before the database is touched, with a plain error the command line prints (exit code 1):
+  - the account id is a uuid;
+  - the step is a whole number, 0 or more;
+  - the username follows the table's rule;
+  - the name is 1 to 128 characters with no control characters;
+  - the role is tier1, tier2 or admin;
+  - the password hash is 1 to 1024 characters with no spaces.
+- **What changes for an operator.** `user add` with a username the table would refuse now gets the rule in words, not the constraint error.
+  A name with a control character is refused now; that one the table accepted. A name made only of spaces is refused in words too, where
+  the table refused it already with a constraint error, because its length check ignores trailing spaces and counts a name of spaces as none,
+  and the command line refused an empty one before the table was reached.
+- **Behaviour kept as it was.** The command line's `user resume-writes` still resumes whatever paused the person (unlike the console's,
+  which refuses when they are not paused), and its `user add` still relies on the table's unique key for a username already used.
+- **Debt count:** the `cli.ts` entry for `users` comes off, which leaves 40. The console sign-in routes (`auth-routes.ts`) are the last
+  writer of `users` outside `users.ts`.
+
+**Proof:**
+- **`server/test/cli-account-writes.test.ts`** (new, 4 tests, against the database):
+  - **Steps.** A step is spent once and only when newer, and clears the failure count. Another account is untouched, and an unknown
+    account answers false.
+  - **Resume.** Resuming by username clears the pause and its reason. An unknown username is not found, and a capitalised one is refused.
+  - **Add and reset.** An added account must change its temporary password. A temporary password clears the lock and touches no other
+    account.
+  - **Hostile input.** 21 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`cli-account-writes`, `cli-authority` and `table-ownership`, 22 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `cli.ts` | The ownership test |
+  | A spent step taken again | The first new test |
+  | Resuming that keeps the reason | The second new test |
+  | A new account that need not change its password | The third new test |
+  | A temporary password that keeps the lock | The third new test |
+  | The username check skipped | The second and fourth new tests (TypeScript reported a type error but still built) |
+  | The step check or the name check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 22 of 22 pass.
+- **One check that stays green.** The command line ignoring a step already spent fails no test.
+  - `totp.verify` already refuses a step not newer than the last one spent, so a code used twice in a row is refused before the
+    statement runs (`cli-authority` "a code is used once" holds either way).
+  - The statement's own condition matters only for two uses of one code at once. The first new test holds that condition.
+
+---
+
 ## D114. A person over their write limit is paused by users.ts, the users' owner (2026-11-17)
 
 **What the code did** (at `7b97ddc`; an entry on the ownership debt list, F21.R2):

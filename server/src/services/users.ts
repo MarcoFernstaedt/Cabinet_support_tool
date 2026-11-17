@@ -62,6 +62,57 @@ export async function pauseUserWritesForLimit(c: Queryable, id: string): Promise
   return { username: who.username, writeLimit: who.write_limit };
 }
 
+// ---- The operator command line's account writes (src/cli.ts; F21.R2, decision-log D115) ---------------------------------------------
+// The command line authorizes and audits each of these itself; the users table is written here. Each checks what it is given before the
+// database is touched, with a plain error: the command line prints it and exits 1. A username is matched exactly (binary), as sign-in does.
+
+const ROLES: readonly string[] = ["tier1", "tier2", "admin"];
+const checkUsername = (username: unknown): void => {
+  if (typeof username !== "string" || !USERNAME_PATTERN.test(username))
+    throw new Error("a username is 2 to 64 characters: lower-case letters, digits, dot, dash or underscore");
+};
+const checkPasswordHash = (hash: unknown): void => {
+  if (typeof hash !== "string" || hash.length < 1 || hash.length > 1024 || /\s/.test(hash)) throw new Error("a password hash is 1 to 1024 characters with no spaces");
+};
+
+/**
+ * Spends an authenticator step for a command that proves itself with a code: only a step newer than the last one spent is taken, and
+ * the failure count is cleared. Returns false when the step was already spent (the code was used before).
+ */
+export async function spendCodeStep(c: Queryable, id: string, step: number): Promise<boolean> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  if (typeof step !== "number" || !Number.isSafeInteger(step) || step < 0) throw new Error("an authenticator step is a whole number, 0 or more");
+  return (await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [id, step])).rowCount === 1;
+}
+
+/** Lets a person write again, whatever paused them, from the command line. Returns the account's id, or null when there is no such username. */
+export async function resumeWritesByUsername(c: Queryable, username: string): Promise<string | null> {
+  checkUsername(username);
+  const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [username]);
+  return r.rows[0]?.id ?? null;
+}
+
+/** Adds an account from the command line, with a temporary password that must be changed at first sign-in. */
+export async function addUserFromCommandLine(c: Queryable, u: { id: string; username: string; name: string; role: string; passwordHash: string }): Promise<void> {
+  if (typeof u !== "object" || u === null) throw new Error("an account to add is an object");
+  if (typeof u.id !== "string" || !USER_ID.test(u.id)) throw new Error("the account must be a uuid");
+  checkUsername(u.username);
+  if (typeof u.name !== "string" || u.name.trim().length < 1 || u.name.length > 128 || /[\u0000-\u001f\u007f]/.test(u.name)) throw new Error("a name is 1 to 128 characters with no control characters");
+  if (typeof u.role !== "string" || !ROLES.includes(u.role)) throw new Error("a role is tier1, tier2 or admin");
+  checkPasswordHash(u.passwordHash);
+  await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, 1)",
+    [u.id, u.username, u.name, u.role, u.passwordHash]);
+}
+
+/** Gives a person a temporary password from the command line and clears their lock. Returns the account's id, or null when there is no such username. */
+export async function setTemporaryPasswordByUsername(c: Queryable, username: string, passwordHash: string): Promise<string | null> {
+  checkUsername(username);
+  checkPasswordHash(passwordHash);
+  const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = 1, failed_logins = 0, locked_until = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1",
+    [username, passwordHash]);
+  return r.rows[0]?.id ?? null;
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;
