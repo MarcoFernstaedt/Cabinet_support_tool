@@ -7,7 +7,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { RUNTIME_TABLE_WRITES, TABLE_OWNERS } from "../src/db/table-owners.js";
+import { ACCEPTED_WRITERS, RUNTIME_TABLE_WRITES, TABLE_OWNERS } from "../src/db/table-owners.js";
 import { migrationTables, runtimeTableWrites, tableWriters } from "./table-writes.js";
 
 // dist/test/ -> server/
@@ -39,7 +39,7 @@ test("no file writes a table it does not own unless the debt list names it", () 
   const unlisted: string[] = [];
   for (const [table, files] of writers) {
     const o = TABLE_OWNERS[table]!;
-    for (const f of files) if (f !== o.owner && !o.also.includes(f)) unlisted.push(`${f} writes ${table} (owned by ${o.owner})`);
+    for (const f of files) if (f !== o.owner && !o.also.includes(f) && !(o.accepted ?? []).includes(f)) unlisted.push(`${f} writes ${table} (owned by ${o.owner})`);
   }
   assert.deepEqual(unlisted.sort(), [], "a new write across a module boundary: go through the owning module, or list it as debt with a reason in D56");
 });
@@ -48,10 +48,23 @@ test("the debt list shrinks: a listed writer that no longer writes the table mus
   const stale: string[] = [];
   for (const [table, o] of Object.entries(TABLE_OWNERS)) {
     const files = writers.get(table) ?? new Set<string>();
-    for (const f of o.also) if (!files.has(f)) stale.push(`${f} no longer writes ${table}`);
+    for (const f of [...o.also, ...(o.accepted ?? [])]) if (!files.has(f)) stale.push(`${f} no longer writes ${table}`);
     if (files.size > 0 && !files.has(o.owner)) stale.push(`${o.owner} owns ${table} but does not write it`);
   }
   assert.deepEqual(stale.sort(), []);
+});
+
+test("an accepted writer has its reason, a reason no table uses comes off, and no file is both debt and accepted (D108)", () => {
+  const used = new Set<string>();
+  const problems: string[] = [];
+  for (const [table, o] of Object.entries(TABLE_OWNERS)) for (const f of o.accepted ?? []) {
+    used.add(f);
+    if (!ACCEPTED_WRITERS[f]?.trim()) problems.push(`${f} is accepted for ${table} without a reason in ACCEPTED_WRITERS`);
+    if (o.also.includes(f)) problems.push(`${f} is both debt and accepted for ${table}`);
+    if (f === o.owner) problems.push(`${f} owns ${table}; an owner is not accepted, it owns`);
+  }
+  for (const f of Object.keys(ACCEPTED_WRITERS)) if (!used.has(f)) problems.push(`${f} has a reason in ACCEPTED_WRITERS but no table accepts it`);
+  assert.deepEqual(problems.sort(), []);
 });
 
 test("the reader finds writes however they are spelled, through an alias too, and nothing that only reads", () => {
