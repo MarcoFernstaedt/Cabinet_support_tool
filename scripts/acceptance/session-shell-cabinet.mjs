@@ -42,6 +42,7 @@ const runId = 'shell-' + randomUUID();
 let observer, db, api, notifier, feed, remote, agentProcess;
 let fallbackRegistered = false, fallbackDeadline = 0, fallbackRunsAt = 0, containerStopped = false;
 let tailnetDownAt, tailnetRestoredAt, peerAddress;
+const shellCommandEvidence = [];
 const taskName = 'cabinet-acceptance-tailscale-restore';
 const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
 const platformContainer = runId + '-platform';
@@ -123,7 +124,7 @@ async function startAgent(server) {
   }
   await requireAgent('detached startup (one second after launch)');
 }
-async function until(read, label, { expectExit = false } = {}) {
+async function until(read, label, { expectExit = false, deadlineError = () => new Error(`Timed out: ${label}`) } = {}) {
   const end = Date.now() + 120000;
   while (Date.now() < end) {
     if (interrupted) throw interrupted;
@@ -135,7 +136,7 @@ async function until(read, label, { expectExit = false } = {}) {
     await new Promise(r => setTimeout(r, 250));
   }
   await agentDiagnostics();
-  throw new Error(`Timed out: ${label}`);
+  throw deadlineError();
 }
 async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`]); }
 // This bootstrap runs inside the built server image. The control listener is
@@ -312,21 +313,33 @@ try {
   await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.resize', columns: 100, rows: 30 }, operator);
   if (offNetwork) {
     async function shellPowerShell(source, label) {
-      const done = 'DONE_' + randomUUID().replaceAll('-', '');
-      const failed = 'FAIL_' + randomUUID().replaceAll('-', '');
-      const encoded = Buffer.from(`$ErrorActionPreference='Stop'; try { ${source}; Write-Output ('DONE_' + '${done.slice(5)}') } catch { Write-Output $_; Write-Output ('FAIL_' + '${failed.slice(5)}'); exit 1 }`, 'utf16le').toString('base64');
+      const id = randomUUID().replaceAll('-', '');
+      const start = 'START_' + id;
+      const done = 'DONE_' + id;
+      const failed = 'FAIL_' + id;
+      const flush = '[Console]::Out.Flush(); [Console]::Error.Flush()';
+      const encoded = Buffer.from(`$ErrorActionPreference='Stop'; [Console]::Out.WriteLine(('START_' + '${id}')); ${flush}; try { ${source}; [Console]::Out.WriteLine(('DONE_' + '${id}')); ${flush} } catch { Write-Output $_; [Console]::Out.WriteLine(('FAIL_' + '${id}')); ${flush}; exit 1 } finally { Start-Sleep -Milliseconds 250 }`, 'utf16le').toString('base64');
       // A Windows console drops input typed while the previous child is still tearing down:
       // its exit flushes the pending input buffer, so keystrokes sent the instant DONE_ prints
       // never reach the shell. Wait for the console to settle before typing the next command -
       // what an operator does when waiting for a prompt - so each check runs in its own child.
       await new Promise((resolve) => setTimeout(resolve, 1500));
       await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`).toString('base64') }, operator);
-      return await until(async () => {
-        const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-        const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-        assert.ok(!output.includes(failed), `${label} failed through operator shell: ${output}`);
-        return output.includes(done) ? output : null;
-      }, label);
+      const evidence = { label, id, startReceived: false, outcome: null, result: 'execution unconfirmed' };
+      shellCommandEvidence.push(evidence);
+      try {
+        return await until(async () => {
+          const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
+          const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+          evidence.startReceived = output.includes(start);
+          evidence.outcome = output.includes(failed) ? failed : output.includes(done) ? done : null;
+          evidence.result = evidence.outcome ? `finished (${evidence.outcome})` : evidence.startReceived ? 'started, no outcome received' : 'execution unconfirmed';
+          assert.ok(!output.includes(failed), `${label} failed through operator shell: ${output}`);
+          return output.includes(done) ? output : null;
+        }, label, { deadlineError: () => new Error(`${label}: ${evidence.result}`) });
+      } finally {
+        console.log(`${label}: ${evidence.result}`);
+      }
     }
     // Completion tokens are assembled inside the child, so input echo/title cannot satisfy this check.
     const firstOutput = await shellPowerShell(`Write-Output ('CHILD_' + 'STDOUT'); [Console]::Error.WriteLine(('CHILD_' + 'STDERR'))`, 'first child process output');
@@ -383,6 +396,7 @@ try {
   console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: offNetwork ? 'public' : 'tailnet', offNetworkTested: offNetwork, ...(offNetwork ? { platformHost, platformPort, peerAddress, tailnetDownAt, tailnetRestoredAt } : {}) }));
   await stopAgent(true);
 } finally {
+  if (shellCommandEvidence.length) console.log(JSON.stringify({ sessionShellCommands: shellCommandEvidence }));
   let recoveryError;
   if (fallbackRegistered) {
     // Keep the API alive while recovery is pending. Do not remove the safety net

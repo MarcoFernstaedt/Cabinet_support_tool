@@ -16,7 +16,9 @@ function Write-Log($m) { "$(Get-Date -Format s) $m" | Out-File -Append -Encoding
 function Get-State { try { (& $ts status --json | ConvertFrom-Json).BackendState } catch { "error: $($_.Exception.Message)" } }
 
 Write-Log "driver start; BackendState=$(Get-State)"
-[int][double]::Parse((Get-Date -UFormat %s)) | Out-File -Encoding ascii C:\tailscale-watchdog.hold
+# PID-bearing hold: the watchdog honours it only while this process is alive and the window
+# is current, so a killed or stalled run cannot strand the node.
+"pid=$PID;ts=$([int][double]::Parse((Get-Date -UFormat %s)))" | Out-File -Encoding ascii C:\tailscale-watchdog.hold
 Write-Log "hold written with the cabinet clock"
 # Own the network state rather than assuming it: run as the signed-in user, down and up
 # both work here, and the repro requires the node down. Assuming it was down is what made

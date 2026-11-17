@@ -19,7 +19,7 @@ public sealed class SessionShellTests : IDisposable
     private static JsonElement Frame(object frame) => JsonSerializer.SerializeToElement(frame);
     private sealed class Terminal : ISessionTerminal
     {
-        public Stream Input { get; } = new MemoryStream();
+        public Stream Input { get; init; } = new MemoryStream();
         public Stream Output { get; } = new MemoryStream();
         public Func<bool> ReadHasExited = () => false;
         public Func<int> ReadExitCode = () => 0;
@@ -65,6 +65,80 @@ public sealed class SessionShellTests : IDisposable
         Assert.Null(local.Active);
         Assert.Contains(data, File.ReadAllText(PathName));
         Assert.Contains("Process died", File.ReadAllText(PathName));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Input_preserves_the_full_line_with_small_writes_unless_the_stream_breaks_its_contract(bool discardTail)
+    {
+        using var input = new SmallWriteStream(discardTail);
+        var terminal = new Terminal { Input = input };
+        var local = new LocalSessions(PathName, () => true, () => true, TimeProvider.System, () => true, () => terminal);
+        await local.OpenAsync(new(Guid.NewGuid(), "shell"), CancellationToken.None);
+        byte[] line = Encoding.UTF8.GetBytes("powershell.exe -NoProfile -EncodedCommand " + new string('A', 1240) + "\r");
+        try
+        {
+            await local.HandleShellFrameAsync(Frame(new {
+                kind = "shell.in", data = Convert.ToBase64String(line)
+            }), CancellationToken.None);
+            Assert.Equal(1, input.WriteCalls);
+            Assert.Equal(1, input.FlushCalls);
+            Assert.Equal(input.ToArray(), input.BytesAtFlush);
+            if (discardTail)
+            {
+                // A deliberately invalid Stream can reproduce truncation, but WriteAsync
+                // returns no byte count with which LocalSessions could detect or resume it.
+                Assert.Equal(line[..3], input.ToArray());
+                Assert.DoesNotContain((byte)'\r', input.ToArray());
+            }
+            else
+            {
+                Assert.True(input.SmallWrites > 1);
+                Assert.Equal(line, input.ToArray());
+                Assert.Equal((byte)'\r', input.ToArray()[^1]);
+            }
+        }
+        finally { local.Close("Test cleanup"); }
+    }
+
+    private sealed class SmallWriteStream(bool discardTail) : MemoryStream
+    {
+        public int WriteCalls { get; private set; }
+        public int SmallWrites { get; private set; }
+        public int FlushCalls { get; private set; }
+        public byte[]? BytesAtFlush { get; private set; }
+
+        public override ValueTask WriteAsync(ReadOnlyMemory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            WriteCalls++;
+            // The underlying sink accepts at most three bytes per call. A conforming
+            // Stream must finish the supplied buffer before reporting success.
+            while (!buffer.IsEmpty)
+            {
+                int accepted = Accept(buffer.Span);
+                buffer = buffer[accepted..];
+                if (discardTail) break;
+            }
+            return ValueTask.CompletedTask;
+        }
+
+        private int Accept(ReadOnlySpan<byte> buffer)
+        {
+            int count = Math.Min(3, buffer.Length);
+            base.Write(buffer[..count]);
+            SmallWrites++;
+            return count;
+        }
+
+        public override Task FlushAsync(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            FlushCalls++;
+            BytesAtFlush = ToArray();
+            return Task.CompletedTask;
+        }
     }
 
     [Theory]
