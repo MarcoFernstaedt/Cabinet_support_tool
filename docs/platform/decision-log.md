@@ -6,6 +6,74 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D116. The console sign-in's account writes go through users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `b2fb6f0`; the last entry on the `users` table's debt list, F21.R2):
+- **Nine writes.** `server/src/console-api/auth-routes.ts` wrote the `users` table with its own statements, none of which checked
+  what it was given:
+
+  | Line | Write |
+  |---|---|
+  | 101 | Clearing the failure count and lifting a lock (a sign-in that needs no code) |
+  | 106 | Recording a finished sign-in |
+  | 146 | Spending a sign-in code's step, and recording the sign-in when it completes |
+  | 163 | Keeping the authenticator secret being set up |
+  | 180 | Turning the authenticator on |
+  | 206 | Setting a password the person chose |
+  | 231 | Marking the tour done |
+  | 250 | Spending a step-up code's step |
+  | 278 | Clearing the failure count after a confirmed password |
+
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+
+**The decision:**
+- **Each statement moves into `users.ts`, unchanged.** The new functions are `clearAuthFailures` (with `unlock`), `recordSignedIn`,
+  `spendSignInStep`, `pendingAuthenticatorSecret`, `enableAuthenticator`, `setOwnPassword` and `markTourCompleted`. The step-up claim was
+  already the same statement as D115's `spendCodeStep`, which it now uses. The routes still decide every stage, audit it and manage
+  sessions and devices.
+- **What each checks** before the database is touched, with a plain error:
+  - the account id is a uuid;
+  - the step is a whole number, 0 or more;
+  - the flags are booleans;
+  - the sealed secret is 1 to 1024 bytes;
+  - the password hash is 1 to 1024 characters with no spaces.
+
+  Every value comes from the session, the database or the server's own hashing, so no sign-in that works today is refused.
+- **Debt count:** the `console-api/auth-routes.ts` entry comes off, which leaves 39. The `users` table has no debt entry left; only the
+  accepted demo simulator writes it outside `users.ts`.
+
+**Proof:**
+- **`server/test/sign-in-account-writes.test.ts`** (new, 5 tests, against the database). Each function writes only the account it names.
+  - **Clearing the count.** It lifts the lock only when asked.
+  - **Sign-in steps.** A step is spent once and only when newer, clears the count, and records the sign-in only when it completes.
+  - **Authenticator setup.** It keeps the first pending secret and then turns the authenticator on; after that nothing is pending.
+  - **Password and tour.** A chosen password no longer has to be changed.
+  - **Hostile input.** 18 inputs are refused, each with its own reason, on a connection that throws if used.
+- **`server/test/sign-in-route-writes.test.ts`** (new, 3 tests, through the real routes). The first red-check pass found that no test
+  checked three of the routes' own writes, before this change or after it. The new tests check them:
+  - a sign-in that needs no code clears the count and lifts a lock that has run out;
+  - a sign-in finished with a code records it, and a correct password alone does not clear the count when a code follows;
+  - a confirmed password clears the count.
+- **Red checks** (the two new files, `console-api` and `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in the routes | The ownership test |
+  | Clearing that always lifts the lock | The clearing test |
+  | A code step that always records the sign-in | The step test |
+  | A code step taken again | The step test |
+  | The pending secret swapped | The setup test, and `console-api` "authenticator setup shows the same secret until it is confirmed" |
+  | Enabling that forgets the step | The setup test |
+  | A chosen password that must still be changed | The password test |
+  | The login route not clearing the count | The first route test |
+  | The confirm-password route not clearing the count | The third route test |
+  | The code route never recording a finished sign-in | The second route test |
+  | The account, step or secret check disabled | The hostile-input test |
+
+  The three route edits failed no test until the route tests were added. Restored and `cmp` identical, all pass.
+
+---
+
 ## D115. The command line's account writes go through users.ts, the users' owner (2026-11-17)
 
 **What the code did** (at `c1a1c6d`; an entry on the ownership debt list, F21.R2):

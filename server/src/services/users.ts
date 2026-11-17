@@ -113,6 +113,78 @@ export async function setTemporaryPasswordByUsername(c: Queryable, username: str
   return r.rows[0]?.id ?? null;
 }
 
+// ---- The console's sign-in writes (src/console-api/auth-routes.ts; F3, F21.R2, decision-log D116) ------------------------------------
+// The routes decide each step of a sign-in, audit it and manage the session; the users table is written here. Each checks what it is
+// given before the database is touched, with a plain error. A step-up code is spent with spendCodeStep above.
+
+const checkAccount = (id: unknown): void => {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+};
+const checkStep = (step: unknown): void => {
+  if (typeof step !== "number" || !Number.isSafeInteger(step) || step < 0) throw new Error("an authenticator step is a whole number, 0 or more");
+};
+
+/**
+ * Clears the account's failure count once a sign-in step has proved the person; with `unlock`, a lock is lifted too (a sign-in that
+ * needs no authenticator code). A correct password alone must not clear it when a code follows: the route decides.
+ */
+export async function clearAuthFailures(c: Queryable, id: string, o: { unlock: boolean }): Promise<void> {
+  checkAccount(id);
+  if (typeof o !== "object" || o === null || typeof o.unlock !== "boolean") throw new Error("say whether the lock is lifted too");
+  await c.query(o.unlock ? "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1" : "UPDATE users SET failed_logins = 0 WHERE id = $1", [id]);
+}
+
+/** Records that the person finished signing in now. */
+export async function recordSignedIn(c: Queryable, id: string): Promise<void> {
+  checkAccount(id);
+  await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [id]);
+}
+
+/**
+ * Spends the authenticator step of a sign-in code: only a step newer than the last one spent is taken, so two requests racing with one
+ * code cannot both pass; the failure count is cleared, and with `complete` the sign-in is recorded as finished. Returns false when the
+ * step was already spent.
+ */
+export async function spendSignInStep(c: Queryable, id: string, step: number, complete: boolean): Promise<boolean> {
+  checkAccount(id);
+  checkStep(step);
+  if (typeof complete !== "boolean") throw new Error("say whether the sign-in is complete");
+  return (await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 = 1 THEN SYSUTCDATETIME() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+    [id, step, complete])).rowCount === 1;
+}
+
+/**
+ * The sealed secret of an authenticator being set up: the one already pending, else `sealed`, kept from now on until setup completes
+ * (or an Admin resets it), so no later request swaps it. Returns null when the account's authenticator is already on, or there is no such
+ * account.
+ */
+export async function pendingAuthenticatorSecret(c: Queryable, id: string, sealed: Buffer): Promise<Buffer | null> {
+  checkAccount(id);
+  if (!Buffer.isBuffer(sealed) || sealed.length < 1 || sealed.length > 1024) throw new Error("a sealed secret is 1 to 1024 bytes");
+  return (await c.query<{ totp_secret_enc: Buffer | null }>(
+    "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) OUTPUT inserted.totp_secret_enc WHERE id = $1 AND totp_enabled = 0", [id, sealed])).rows[0]?.totp_secret_enc ?? null;
+}
+
+/** Turns the person's authenticator on, with the step of the code that proved it as the last one spent. */
+export async function enableAuthenticator(c: Queryable, id: string, step: number): Promise<void> {
+  checkAccount(id);
+  checkStep(step);
+  await c.query("UPDATE users SET totp_enabled = 1, totp_last_step = $2 WHERE id = $1", [id, step]);
+}
+
+/** Sets the password the person chose; it no longer has to be changed. */
+export async function setOwnPassword(c: Queryable, id: string, passwordHash: string): Promise<void> {
+  checkAccount(id);
+  checkPasswordHash(passwordHash);
+  await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [id, passwordHash]);
+}
+
+/** Records that the person finished the console's tour. */
+export async function markTourCompleted(db: Queryable, id: string): Promise<void> {
+  checkAccount(id);
+  await db.query("UPDATE users SET tour_completed = 1 WHERE id = $1", [id]);
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;
