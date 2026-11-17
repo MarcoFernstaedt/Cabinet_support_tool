@@ -912,11 +912,12 @@ const isFleetPolicy = (v: unknown): boolean => typeof v === "object" && v !== nu
   && FIREWALL_PROFILES.every(k => (v as Record<string, unknown>)[k] === "on" || (v as Record<string, unknown>)[k] === "off");
 
 /**
- * Opens the condition's minor alert on each active cabinet in scope that has it, heard from within the offline window, and closes it on
- * each that no longer has it or is no longer active (F21.R2, decision-log D106). The statements are the ones time.ts ran; the caller
- * says which of the two to run (a heartbeat's lock-free read usually finds neither is needed). Opening folds into the cabinet's
- * unresolved alert of the issue; each close is audited through closeAutomatically. The condition is named, never SQL: its text comes from
- * cabinet-conditions.ts. The name, the scope and its id, and what to run are checked before the database is touched.
+ * Opens the condition's minor alert on each active cabinet in scope that has it, and closes it on each that no longer has it or is no
+ * longer active (F21.R2, decision-log D106, D107). The offline window narrows the opening to the conditions that ask for it, and the
+ * statements are the ones time.ts and firewall-policy.ts ran; the caller says which of the two to run (a heartbeat's lock-free read
+ * usually finds neither is needed). Opening folds into the cabinet's unresolved alert of the issue; each close is audited through
+ * closeAutomatically. The condition is named, never SQL: its text comes from cabinet-conditions.ts. The name, the scope and its id, and
+ * what to run are checked before the database is touched.
  */
 export async function foldCabinetCondition(db: Queryable, name: CabinetConditionName, scope: CabinetScope, run: { open: boolean; close: boolean },
   values: ConditionValues = {}): Promise<{ opened: number; resolved: number }> {

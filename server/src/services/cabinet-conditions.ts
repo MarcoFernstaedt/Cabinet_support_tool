@@ -1,5 +1,5 @@
 // The cabinet conditions alerts.ts opens and closes alerts for, as fixed SQL over cabinet k joined to its site s and client cl (F21.R2,
-// decision-log D106). A condition is named, never passed in: alerts.ts builds every statement from these texts and a typed scope, so no
+// decision-log D106, D107). A condition is named, never passed in: alerts.ts builds every statement from these texts and a typed scope, so no
 // caller hands it SQL. This module imports nothing, so it can be loaded first, last or from inside an import cycle (D104).
 
 /** The settings row that holds the fleet default zone, as {"timeZone": ...}. */
