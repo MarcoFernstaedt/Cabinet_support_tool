@@ -110,7 +110,7 @@ Built (October 2026):
 
 - **Operations.** `time.status` (read, Tier 1): the cabinet's zone, local time, Windows Time's state, source, last successful sync, and whether Group Policy sets it. `time.setZone` (write, Tier 1, a click): only the seven United States zones compiled into the agent, run by the broker as `tzutil.exe /s <zone>`. `time.sync` (write, Tier 1, a click): `w32tm.exe /resync`, never changing the source. Both programs are started by full path with argument arrays.
 - **Heartbeat.** Every heartbeat carries the cabinet's zone; its clock offset was already there.
-- **Sites.** Each site may set the zone its cabinets should use (Tier 2). A cabinet in another zone gets a minor "Wrong time zone" alert; a clock more than two minutes off gets "Clock is off". Both close on their own.
+- **Sites.** Each site may set the zone its cabinets should use (Tier 2). A cabinet in another zone gets a minor "Wrong time zone" alert; a clock more than two minutes off gets "Clock is off" (two minutes unless the site, its client or the fleet sets a tighter tolerance, 10 to 120 seconds; decision-log D109). Both close on their own.
 - **Console.** A Time section on every cabinet, with the findings and the fixes; the zone setting on the site page.
 - **Demo.** Three cabinets in the wrong zone (Arizona, California, Texas) and one drifting clock (New York).
 

@@ -1008,8 +1008,11 @@ zone and the clock, D107 for the firewall). The owner added:
 - The alerts stay on the cabinet, as minor alerts. That is how they are raised today, and the move keeps it.
 - What they judge must be adjustable site by site, not only fleet-wide. The time zone already is (the site's own, else its client's,
   else the fleet's; 05-server-spec.md "Site policies"), and so is the firewall policy (the site's, else the client's, else the fleet's).
-  The clock tolerance is not: it is one fleet-wide 120 seconds (`CLOCK_TOLERANCE_SECONDS`). A tolerance set per site, with the client's
-  and the fleet's as fallbacks, is to build as its own piece: a new write, with its contract, permission, read-back and rollback.
+  The clock tolerance was one fleet-wide 120 seconds (`CLOCK_TOLERANCE_SECONDS`). It is now set per site, with the client's and the
+  fleet's as fallbacks (decision-log D109; 05-server-spec.md "Site policies"). Taken as recommended, since the spec gave no range: each
+  level may set 10 to 120 seconds. Not above 120, because the agent refuses a command issued more than two minutes ahead of its own clock,
+  so a looser tolerance would hide a clock that already breaks commands; not below 10, because the offset a heartbeat reports includes
+  its own round trip.
 
 Still open: the owner said these alerts should reach a higher level "if more appropriate". Not decided: whether a site where every active
 cabinet has the same condition (all clocks off, all firewalls differing) should raise one site-level alert as well as, or instead of,

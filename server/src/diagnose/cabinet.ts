@@ -11,7 +11,7 @@ import { issueFromConsole, type Role } from "../services/console-commands.js";
 import { OFFLINE_AFTER_MS } from "../services/cabinets.js";
 import { scannerIdsFor } from "../services/fleet.js";
 import { scannerUsedFor } from "../services/client-scanner.js";
-import { SITE_ZONE_SQL } from "../services/time.js";
+import { SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL } from "../services/time.js";
 import { fixesForFindings, type KnownFixView } from "../services/known-fixes.js";
 import { effectiveRunbook, runbookSummaries } from "../services/runbooks.js";
 import { issueResolutions } from "../services/resolutions.js";
@@ -105,10 +105,10 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
     net = d?.state === "done" && d.findings ? { findings: d.findings } : { failure: d?.failure ?? "the network checks did not finish in time" };
   } else net = { failure: "the network checks could not start" };
 
-  const k = (await pool.query<{ name: string; role: string; zone: string | null }>(
-    `SELECT k.name, k.role, ${SITE_ZONE_SQL} AS zone FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
+  const k = (await pool.query<{ name: string; role: string; zone: string | null; tolerance: number }>(
+    `SELECT k.name, k.role, ${SITE_ZONE_SQL} AS zone, ${SITE_CLOCK_TOLERANCE_SQL} AS tolerance FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) throw new Error("the cabinet is gone");
-  const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, now: Date.now(),
+  const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, clockToleranceSeconds: k.tolerance, now: Date.now(),
     scannerUsed: issued.some(i => i.key === "peripheral") };
   for (const key of ["info", "smart", "performance", "peripheral", "usb", "devices", "services", "updates", "time", "systemLog", "appLog"] as const) {
     const r = read<never>(key);

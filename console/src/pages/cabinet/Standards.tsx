@@ -8,7 +8,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { Badge } from "../../components/ui";
 import { describePolicy, type Policy } from "../../components/FirewallPolicy";
 import { ScannerIdsEditor } from "../../components/DeviceSettings";
-import { SiteFirewallPolicy, SiteNetwork, SiteTimeZone, WatchedServices, type SiteDetail } from "../Fleet";
+import { SiteClockTolerance, SiteFirewallPolicy, SiteNetwork, SiteTimeZone, WatchedServices, type SiteDetail } from "../Fleet";
 import { CabinetSyncLine, SiteSync } from "../../components/SyncCabinets";
 import { zoneName, type CabinetTime } from "./Time";
 import { Link } from "../../lib/router";
@@ -87,6 +87,13 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       key: "timezone", label: "Time zone", source: SOURCE[s.timeZoneApplies?.source ?? "none"]!, standard: s.timeZoneApplies?.zone ? zoneName(s.timeZoneApplies.zone) : "Not set",
       actual: zone ? zoneName(zone.timeZoneId) : "Not reported yet", state: !s.timeZoneApplies?.zone ? "unset" : !zone ? "unknown" : zone.zoneWrong ? "differs" : "matches",
       detail: <>{levelsText(origin("timeZone"))}<SiteTimeZone siteId={s.id} name={s.name} current={s.timeZone} applies={s.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
+        <p><Link to={`/cabinets/${cabinet.id}/time`}>Open this cabinet's time</Link></p></>,
+    });
+    if (s.clockTolerance) lines.push({
+      key: "clocktolerance", label: "Clock tolerance", source: SOURCE[s.clockTolerance.source]!, standard: `${s.clockTolerance.seconds} seconds`,
+      actual: zone?.clockSkewSeconds != null ? `${Math.abs(zone.clockSkewSeconds)} seconds off` : "Not reported yet",
+      state: !zone || zone.clockSkewSeconds == null ? "unknown" : zone.clockOff ? "differs" : "matches",
+      detail: <>{levelsText(origin("clockTolerance"))}<SiteClockTolerance siteId={s.id} name={s.name} tolerance={s.clockTolerance} editable={atLeast(me, "tier2")} onSaved={reloadAll} />
         <p><Link to={`/cabinets/${cabinet.id}/time`}>Open this cabinet's time</Link></p></>,
     });
     const sync = cabinet.sync;

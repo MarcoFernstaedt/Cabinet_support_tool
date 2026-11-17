@@ -462,6 +462,11 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "An existing site keeps its own firewall policy and time zone; an approval does not change them.",
     fix: "Approve without the site's policies, and change them on the site's page.",
   },
+  invalid_tolerance: {
+    title: "Clock tolerance out of range",
+    detail: "A clock tolerance is a whole number of seconds from 10 to 120. Above 120, a cabinet would refuse commands before its clock alert opened.",
+    fix: "Enter 10 to 120 seconds, or leave it empty to use the level above.",
+  },
   not_replaceable: {
     title: "That cabinet cannot be replaced",
     detail: "Only an active cabinet can be replaced; this one has been replaced or removed already.",

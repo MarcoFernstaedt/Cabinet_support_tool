@@ -1,6 +1,7 @@
 // Fleet views, cabinet commands and the console-managed settings.
 import { boundTo } from "../auth/stepup.js";
-import { cabinetTime, fleetTimeZone, setClientTimeZone, setFleetTimeZone, setSiteTimeZone, type TimeZoneId } from "../services/time.js";
+import { cabinetTime, clientClockTolerance, fleetClockTolerance, fleetTimeZone, setClientTimeZone, setClockTolerance, setFleetTimeZone, setSiteTimeZone,
+  siteClockTolerance, type TimeZoneId } from "../services/time.js";
 import { applySiteStandards, siteStandards, type StandardPart } from "../services/site-standards.js";
 import { settingOrigins } from "../services/setting-origins.js";
 import { setNetworkBaseline } from "../services/network-baseline.js";
@@ -186,6 +187,30 @@ export async function fleetRoutes(app: FastifyInstance, o: ConsoleApiOptions & {
     const body = consoleBodies.siteTimeZone.parse(request.body);
     await setFleetTimeZone(o.pool, u.userId, body.timeZone as TimeZoneId | null);
     return { timeZone: body.timeZone };
+  });
+
+  /**
+   * How far a cabinet's clock may be off before its alert opens (D109): a site's own and a client's default (Tier 2 and up), the fleet
+   * default (Admin). Each answers with what applies once it is written, read back from the database.
+   */
+  app.put("/api/sites/:id/clock-tolerance", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const body = consoleBodies.clockTolerance.parse(request.body);
+    await setClockTolerance(o.pool, u.userId, { siteId: id(request) }, body.seconds);
+    return siteClockTolerance(o.pool, id(request));
+  });
+  app.put("/api/clients/:id/clock-tolerance", async request => {
+    const u = await o.guards.role(request, "tier2");
+    const body = consoleBodies.clockTolerance.parse(request.body);
+    await setClockTolerance(o.pool, u.userId, { clientId: id(request) }, body.seconds);
+    return { seconds: await clientClockTolerance(o.pool, id(request)) };
+  });
+  app.get("/api/settings/clock-tolerance", async request => { await o.guards.role(request, "tier1"); return { seconds: await fleetClockTolerance(o.pool) }; });
+  app.put("/api/settings/clock-tolerance", async request => {
+    const u = await o.guards.role(request, "admin");
+    const body = consoleBodies.clockTolerance.parse(request.body);
+    await setClockTolerance(o.pool, u.userId, "fleet", body.seconds);
+    return { seconds: await fleetClockTolerance(o.pool) };
   });
 
   app.put("/api/sites/:id/sync", async request => {

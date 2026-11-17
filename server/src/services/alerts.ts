@@ -903,7 +903,7 @@ const conditionsTable = (): Readonly<Record<CabinetConditionName, CabinetConditi
   timeZone: { issueTypeId: ISSUE.timeZone, sql: () => ZONE_WRONG_SQL, params: () => [], recentOnly: true, closer: "time-check",
     fixed: "The cabinet is in its site's time zone again." },
   clock: { issueTypeId: ISSUE.clock, sql: () => CLOCK_OFF_SQL, params: () => [], recentOnly: true, closer: "time-check",
-    fixed: "The cabinet's clock is within two minutes of the server's again." },
+    fixed: "The cabinet's clock is within its site's tolerance of the server's again." },
   // Only the three profiles are passed on, whatever else the stored policy holds.
   firewall: { issueTypeId: ISSUE.firewallPolicy, sql: firewallDiffersSql, recentOnly: false, closer: "firewall-policy", fixed: "The firewall matches its policy again.",
     params: v => [JSON.stringify(Object.fromEntries(FIREWALL_PROFILES.map(k => [k, v.fleetPolicy![k]])))] },
