@@ -209,7 +209,7 @@ test("a clock sync job verifies each clock from the cabinet's next heartbeat", a
   const drift = await scenarioIds("clock_drift");
   const j = await runToEnd(t1, "time.sync", drift, 5);
   assert.deepEqual(j.counts, { verified: 1 });
-  assert.match(j.cabinets[0].detail, /within two minutes/);
+  assert.match(j.cabinets[0].detail, /within its site's tolerance/);
   assert.ok(!(await openAlert(drift[0]!, ISSUE.clock)));
 });
 

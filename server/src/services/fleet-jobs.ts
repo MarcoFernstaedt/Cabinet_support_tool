@@ -19,7 +19,7 @@ import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
-import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
+import { SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
 import { queueBulkCommand, withdrawJobCommands } from "./commands.js";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
@@ -387,7 +387,7 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
 
 const verifiedText: Record<JobOperation, string> = {
   "time.setZone": "Verified: the cabinet reports its site's time zone.",
-  "time.sync": "Verified: the cabinet's clock is within two minutes of the server's.",
+  "time.sync": "Verified: the cabinet's clock is within its site's tolerance of the server's.",
   "firewall.applyPolicy": "Verified: the cabinet's firewall matches its policy.",
   "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
   "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
@@ -422,12 +422,14 @@ async function networkVerified(pool: Pool, creator: { userId: string; role: Role
 /** Whether a cabinet's own report after the change shows it; also used by a replacement's re-apply (replacement-reapply.ts). */
 export async function verified(db: Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
   if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") return networkVerified(db, creator, operation, a);
-  const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: string | null }>(
-    "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS [last], firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
+  const k = (await db.query<{ zone: string | null; skew: number | null; tolerance: number; last: Date | null; profiles: string | null }>(
+    `SELECT k.time_zone_id AS zone, k.clock_skew_seconds AS skew, ${SITE_CLOCK_TOLERANCE_SQL} AS tolerance, k.last_heartbeat_at AS [last], k.firewall_profiles AS profiles
+       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [a.cabinet_id])).rows[0];
   // Only a report made after the change counts.
   if (!k?.last || k.last.getTime() < a.at.getTime()) return false;
   if (operation === "time.setZone") return k.zone === a.params.timeZoneId;
-  if (operation === "time.sync") return k.skew !== null && Math.abs(k.skew) <= CLOCK_TOLERANCE_SECONDS;
+  // The same tolerance the cabinet's clock alert uses, so a sync reported as verified also closes it (D109).
+  if (operation === "time.sync") return k.skew !== null && Math.abs(k.skew) <= k.tolerance;
   const want = a.params.profiles as Record<string, boolean>;
   const have = parseJson<Record<string, boolean>>(k.profiles);
   return !!have && ["domain", "private", "public"].every(p => have[p] === want[p]);

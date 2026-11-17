@@ -1,9 +1,11 @@
 // Time zone and clock (docs/spec/13-roadmap.md module 21). The zone a site's cabinets should use is the site's own, else its
-// client's, else the fleet default (05-server-spec.md "Site policies"); each cabinet reports its zone and its clock offset in every heartbeat. A cabinet in the wrong zone, or whose clock is more than two
-// minutes off, gets a minor alert, which closes on its own when the heartbeat shows it right again.
+// client's, else the fleet default (05-server-spec.md "Site policies"); each cabinet reports its zone and its clock offset in every heartbeat. A cabinet in the wrong zone, or whose clock is further off
+// than its site's tolerance (the site's own, else the client's, else the fleet's, else two minutes; D109), gets a minor alert, which closes on its own when the
+// heartbeat shows it right again.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { foldCabinetCondition, type CabinetScope } from "./alerts.js";
-import { CLOCK_OFF_SQL, CLOCK_TOLERANCE_SECONDS, FLEET_ZONE_KEY, SITE_ZONE_SQL, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
+import { CLOCK_OFF_SQL, CLOCK_TOLERANCE_SECONDS, FLEET_CLOCK_TOLERANCE_KEY, FLEET_CLOCK_TOLERANCE_READ_SQL, FLEET_ZONE_KEY, isClockTolerance,
+  SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
 import { upsertSetting } from "./settings.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
@@ -12,7 +14,7 @@ export const TIME_ZONES = ["Eastern Standard Time", "Central Standard Time", "Mo
   "Pacific Standard Time", "Alaskan Standard Time", "Hawaiian Standard Time"] as const;
 export type TimeZoneId = (typeof TIME_ZONES)[number];
 // The conditions themselves live in cabinet-conditions.ts, where alerts.ts reads them too (D106); these stay importable from here.
-export { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL };
+export { CLOCK_TOLERANCE_SECONDS, SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL };
 
 /** Opens and closes the time zone and clock alerts for the cabinets in scope. Only cabinets heard from recently count. */
 export async function evaluateTime(db: Queryable, scope: CabinetScope): Promise<{ opened: number; resolved: number }> {
@@ -88,14 +90,72 @@ export async function writeSiteTimeZone(c: Queryable, userId: string, siteId: st
 
 /** The time facts the console shows for one cabinet. */
 export async function cabinetTime(db: Queryable, cabinetId: string) {
-  const k = (await db.query<{ time_zone_id: string | null; clock_skew_seconds: number | null; site_zone: string | null; last_heartbeat_at: Date | null }>(
-    `SELECT k.time_zone_id, k.clock_skew_seconds, ${SITE_ZONE_SQL} AS site_zone, k.last_heartbeat_at
+  const k = (await db.query<{ time_zone_id: string | null; clock_skew_seconds: number | null; site_zone: string | null; tolerance: number; last_heartbeat_at: Date | null }>(
+    `SELECT k.time_zone_id, k.clock_skew_seconds, ${SITE_ZONE_SQL} AS site_zone, ${SITE_CLOCK_TOLERANCE_SQL} AS tolerance, k.last_heartbeat_at
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!k) return null;
   return {
     timeZoneId: k.time_zone_id, siteTimeZone: k.site_zone, clockSkewSeconds: k.clock_skew_seconds,
     zoneWrong: !!k.time_zone_id && !!k.site_zone && k.time_zone_id !== k.site_zone,
-    clockOff: k.clock_skew_seconds !== null && Math.abs(k.clock_skew_seconds) > CLOCK_TOLERANCE_SECONDS,
+    clockOff: k.clock_skew_seconds !== null && Math.abs(k.clock_skew_seconds) > k.tolerance, clockToleranceSeconds: k.tolerance,
     reportedAt: k.last_heartbeat_at?.toISOString() ?? null,
   };
+}
+
+/** The fleet's clock tolerance, or null when none is set (the built-in 120 seconds then applies). */
+export async function fleetClockTolerance(db: Queryable): Promise<number | null> {
+  return (await db.query<{ seconds: number | null }>(FLEET_CLOCK_TOLERANCE_READ_SQL)).rows[0]?.seconds ?? null;
+}
+
+/** A site's own clock tolerance, its client's and the fleet's, and the one that applies with where it comes from (D109). */
+export async function siteClockTolerance(db: Queryable, siteId: string) {
+  const r = (await db.query<{ own: number | null; client: number | null }>(
+    "SELECT s.clock_tolerance_seconds AS own, cl.clock_tolerance_seconds AS client FROM sites s JOIN clients cl ON cl.id = s.client_id WHERE s.id = $1 AND s.removed_at IS NULL",
+    [siteId])).rows[0];
+  if (!r) throw new Refused("not_found", 404, "no such site");
+  const fleet = await fleetClockTolerance(db);
+  return { own: r.own, client: r.client, fleet, seconds: r.own ?? r.client ?? fleet ?? CLOCK_TOLERANCE_SECONDS,
+    source: r.own !== null ? "site" as const : r.client !== null ? "client" as const : fleet !== null ? "fleet" as const : "default" as const };
+}
+
+/** A client's own clock tolerance (null when it sets none). */
+export async function clientClockTolerance(db: Queryable, clientId: string): Promise<number | null> {
+  const r = (await db.query<{ own: number | null }>("SELECT clock_tolerance_seconds AS own FROM clients WHERE id = $1 AND removed_at IS NULL", [clientId])).rows[0];
+  if (!r) throw new Refused("not_found", 404, "no such client");
+  return r.own;
+}
+
+/** Refuses a tolerance no level may set, before anything is written; null clears the level so the one above applies. */
+function checkTolerance(seconds: unknown): asserts seconds is number | null {
+  if (seconds !== null && !isClockTolerance(seconds))
+    throw new Refused("invalid_tolerance", 400, `a clock tolerance is a whole number of seconds from 10 to ${CLOCK_TOLERANCE_SECONDS}, or null`);
+}
+
+/**
+ * Sets (or clears, with null) the clock tolerance at one level, audits the change with what it replaced, and judges the cabinets it
+ * reaches again in the same transaction: a clock now outside the tolerance gets its alert, one now inside has it closed. Anything that
+ * fails rolls the whole change back. The caller checked the role: Tier 2 and up for a site or a client, Admin for the fleet.
+ */
+export async function setClockTolerance(pool: Pool, userId: string, level: { siteId: string } | { clientId: string } | "fleet", seconds: number | null): Promise<void> {
+  checkTolerance(seconds);
+  await transaction(pool, async c => {
+    if (level === "fleet") {
+      const before = await fleetClockTolerance(c);
+      if (seconds === null) await c.query(`DELETE FROM settings WHERE [key] = '${FLEET_CLOCK_TOLERANCE_KEY}'`);
+      else await upsertSetting(c, FLEET_CLOCK_TOLERANCE_KEY, { seconds }, userId);
+      await audit(c, { actorKind: "user", actorId: userId, action: "fleet.clock_tolerance", outcome: "succeeded", details: { before, seconds } });
+      await evaluateTime(c, "all");
+      return;
+    }
+    const site = "siteId" in level;
+    // Two fixed statements, so the table each writes is in the text (table-ownership.test.ts reads it).
+    const r = await c.query<{ before: number | null }>(site
+      ? "UPDATE sites SET clock_tolerance_seconds = $2 OUTPUT deleted.clock_tolerance_seconds AS before WHERE id = $1 AND removed_at IS NULL"
+      : "UPDATE clients SET clock_tolerance_seconds = $2 OUTPUT deleted.clock_tolerance_seconds AS before WHERE id = $1 AND removed_at IS NULL",
+      [site ? level.siteId : level.clientId, seconds]);
+    if (r.rowCount !== 1) throw new Refused("not_found", 404, site ? "no such site" : "no such client");
+    await audit(c, { actorKind: "user", actorId: userId, action: site ? "site.clock_tolerance" : "client.clock_tolerance", targetKind: site ? "site" : "client",
+      targetId: site ? level.siteId : level.clientId, outcome: "succeeded", details: { before: r.rows[0]!.before, seconds } });
+    await evaluateTime(c, site ? { siteId: level.siteId } : { clientId: level.clientId });
+  });
 }

@@ -10,7 +10,7 @@ import { Badge, Empty, KeyValues, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { refusalText, type BatchOutcome } from "../../lib/error-explanations";
 import { WatchListEditor } from "../cabinet/Services";
-import { TimeZoneEditor } from "../Fleet";
+import { CLOCK_TOLERANCE_DEFAULT, ClockToleranceEditor, TimeZoneEditor } from "../Fleet";
 import { InstallAgent, type SetupState } from "./Setup";
 import type { SyncCabinetRef } from "../../components/SyncCabinets";
 import { choiceFrom, EMPTY_FIELDS, ScannerServiceFields, type ScannerFields } from "../../components/ClientScanner";
@@ -313,6 +313,7 @@ export function ScannerDefault() {
   const scanner = useLoad<{ hardwareIds: string[] | null }>("/api/settings/scanner");
   const firewall = useLoad<{ policy: Policy }>("/api/admin/firewall-policy");
   const zone = useLoad<{ timeZone: string | null }>("/api/settings/time-zone");
+  const tolerance = useLoad<{ seconds: number | null }>("/api/settings/clock-tolerance");
   const ports = useLoad<{ ports: number[] | null }>("/api/settings/sync-ports");
   const watched = useLoad<{ names: string[] | null }>("/api/admin/watched-services");
   return (
@@ -337,6 +338,8 @@ export function ScannerDefault() {
       </section>
       {zone.data && <TimeZoneEditor id="fleet-tz" heading="Time zone (fleet default)" endpoint="/api/settings/time-zone" current={zone.data.timeZone} inherited={null}
         what="sites whose client sets none either" editable onSaved={zone.reload} />}
+      {tolerance.data && <ClockToleranceEditor id="fleet-tol" heading="Clock tolerance (fleet default)" endpoint="/api/settings/clock-tolerance"
+        current={tolerance.data.seconds} inherited={{ seconds: CLOCK_TOLERANCE_DEFAULT, from: "the built-in default" }} editable onSaved={tolerance.reload} />}
       <section className="panel" aria-labelledby="fleet-watched">
         <h2 id="fleet-watched">Watched services (fleet default)</h2>
         {watched.data && <WatchListEditor endpoint="/api/admin/watched-services" own={watched.data.names} inherited="no services are watched."

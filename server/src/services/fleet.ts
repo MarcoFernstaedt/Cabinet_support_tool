@@ -6,7 +6,7 @@ import { parseJson } from "./settings.js";
 import { fleetScannerIds, fleetSyncPorts, scannerIdsFor as resolveScanner, scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { cabinetSync, LIVE_LINK, siteSyncCabinets } from "./sync-cabinets.js";
 import { clientScanner, scannerUsedFor } from "./client-scanner.js";
-import { fleetTimeZone } from "./time.js";
+import { CLOCK_TOLERANCE_SECONDS, fleetClockTolerance, fleetTimeZone } from "./time.js";
 import { reapplyStatus } from "./replacement-reapply.js";
 import { lastKnownHealthy } from "./cabinet-health.js";
 
@@ -111,8 +111,8 @@ export async function clients(db: Queryable) {
 }
 
 export async function client(db: Queryable, id: string) {
-  const c = (await db.query<{ id: string; name: string; demo: boolean; write_paused: boolean; scanner_hardware_ids: string[] | null; sync_ports: number[] | null; time_zone: string | null }>(
-    "SELECT id, name, demo, write_paused, scanner_hardware_ids, sync_ports, time_zone FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
+  const c = (await db.query<{ id: string; name: string; demo: boolean; write_paused: boolean; scanner_hardware_ids: string[] | null; sync_ports: number[] | null; time_zone: string | null; clock_tolerance_seconds: number | null }>(
+    "SELECT id, name, demo, write_paused, scanner_hardware_ids, sync_ports, time_zone, clock_tolerance_seconds FROM clients WHERE id = $1 AND removed_at IS NULL", [id])).rows[0];
   if (!c) return null;
   const sites = (await db.query<{ id: string; name: string; cabinets: string; offline: string; open_alerts: string; open_major: string }>(
     `SELECT s.id, s.name, SUM(CASE WHEN k.status = 'active' THEN 1 ELSE 0 END) AS cabinets,
@@ -126,6 +126,8 @@ export async function client(db: Queryable, id: string) {
     syncPorts: { ports: c.sync_ports, fleetPorts },
     // The client's default zone for its sites, and the fleet's it falls back to.
     timeZone: { own: c.time_zone, fleet: await fleetTimeZone(db) },
+    // The client's clock tolerance for its sites, and the fleet's (null: the built-in 120 seconds) it falls back to (D109).
+    clockTolerance: { own: c.clock_tolerance_seconds, fleet: await fleetClockTolerance(db) },
     fingerprintScanner: await clientScanner(db, c.id),
     sites: sites.map(s => ({ id: s.id, name: s.name, cabinets: Number(s.cabinets), offline: Number(s.offline),
     openAlerts: Number(s.open_alerts), openMajor: Number(s.open_major) })) };
@@ -135,9 +137,18 @@ export async function client(db: Queryable, id: string) {
  * A site, with one page of its cabinets. `cabinetCount` says how many cabinets the site has and `cabinetsPage.hasMore` whether this page is
  * the whole list, so a site with more cabinets than a page still answers quickly and says so.
  */
+/** The clock tolerance that applies from a site's own and its client's, with the fleet's and the built-in one after them. */
+async function toleranceAt(db: Queryable, own: number | null, client: number | null) {
+  const fleet = own === null && client === null ? await fleetClockTolerance(db) : null;
+  return { own, client, seconds: own ?? client ?? fleet ?? CLOCK_TOLERANCE_SECONDS,
+    source: own !== null ? "site" as const : client !== null ? "client" as const : fleet !== null ? "fleet" as const : "default" as const };
+}
+
 export async function site(db: Queryable, id: string, page: Page = {}) {
-  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; client_zone: string | null; network_baseline: unknown }>(
-    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, c.time_zone AS client_zone, s.network_baseline
+  const s = (await db.query<{ id: string; name: string; client_id: string; client_name: string; scanner_hardware_ids: string[] | null; client_scanner: string | null; time_zone: string | null; client_zone: string | null; network_baseline: unknown;
+    tolerance: number | null; client_tolerance: number | null }>(
+    `SELECT s.id, s.name, s.client_id, c.name AS client_name, s.scanner_hardware_ids, c.scanner_hardware_ids AS client_scanner, s.time_zone, c.time_zone AS client_zone, s.network_baseline,
+            s.clock_tolerance_seconds AS tolerance, c.clock_tolerance_seconds AS client_tolerance
        FROM sites s JOIN clients c ON c.id = s.client_id WHERE s.id = $1`, [id])).rows[0];
   if (!s) return null;
   const { limit, offset } = pageWindow(page);
@@ -153,6 +164,8 @@ export async function site(db: Queryable, id: string, page: Page = {}) {
   return { id: s.id, name: s.name, client: { id: s.client_id, name: s.client_name }, timeZone: s.time_zone, networkBaseline: s.network_baseline,
     // The zone its cabinets are held to and where it comes from: the site's own, else the client's, else the fleet's (null: none is checked).
     timeZoneApplies: { zone: zone.zone, source: zone.source },
+    // How far its cabinets' clocks may be off: the site's own, else the client's, else the fleet's, else 120 seconds (D109).
+    clockTolerance: await toleranceAt(db, s.tolerance, s.client_tolerance),
     sync: { ports: ports.site, effectivePorts: ports.effective, portsSource: ports.source, syncCabinets: syncCabinets.cabinets, unassignedSatellites: syncCabinets.unassigned },
     scanner: { hardwareIds: s.scanner_hardware_ids, clientHardwareIds: parseJson<string[]>(s.client_scanner), fleetHardwareIds: await fleetScannerIds(db) },
     cabinets: await pageRows(db, cabinets), cabinetCount: count, cabinetsPage: { limit, offset, hasMore: offset + cabinets.length < count } };

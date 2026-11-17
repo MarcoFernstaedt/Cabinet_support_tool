@@ -6,6 +6,61 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D109. The clock tolerance is set site by site, from 10 to 120 seconds (2026-11-17)
+
+**What the code did** (at `6aef428`):
+- **One fleet-wide tolerance.** "Clock is off" opened when a cabinet's clock was more than `CLOCK_TOLERANCE_SECONDS` (120) from the
+  server's (`server/src/services/cabinet-conditions.ts:15-21`).
+- **Copied in five places.** The same 120 was written out again in the heartbeat's decision to check the time (`cabinets.ts:20`, its own
+  copy "to avoid a circular import"), a fleet sync's verification (`fleet-jobs.ts:430`), the cabinet's time facts (`time.ts:98`) and the
+  diagnosis (`cabinet-findings.ts:360`).
+
+**The decision** (the owner's, spec 09 "Where the time zone, clock and firewall alerts live, and who adjusts them": what these alerts judge
+must be adjustable site by site):
+- **Three levels and a default, like the zone.** `sites.clock_tolerance_seconds` and `clients.clock_tolerance_seconds` (migration 0034)
+  and the settings row `time.clockTolerance` give the site's own, else the client's, else the fleet's, else 120 seconds. All five users
+  read one expression, `SITE_CLOCK_TOLERANCE_SQL`. `cabinet-conditions.ts` imports nothing, so `cabinets.ts` drops its copy.
+- **10 to 120 seconds, taken as recommended** (the spec gives no range):
+  - Not above 120, because the agent refuses a command issued more than two minutes ahead of its own clock (03-protocol.md). A looser
+    tolerance would hide a clock that already breaks commands.
+  - Not below 10, because the offset a heartbeat reports includes its own round trip.
+- **Where the range is checked.** The contract (`clock-tolerance`), the service before it opens a transaction, and the column checks as
+  the backstop. A fleet row outside the range, edited outside the platform, is ignored, so 120 applies.
+- **Who sets each level.** Tier 2 and up for a site or a client, the same as the zone; an Admin for the fleet.
+- **What a write does.**
+  - It is audited with what it replaced: `{before, seconds}`.
+  - It judges the cabinets it reaches again in the same transaction, so their alerts open or close at once.
+  - It answers with what applies, read back from the database.
+  - A failure rolls the whole change back. Undoing a change is setting the `before` its audit entry names.
+- **Also changed.** The setting-origins read lists the tolerance after the time zone, and the console edits it on the site page, the
+  client page, the Admin device defaults and the cabinet's Standards tab. The diagnosis gives an offset under two minutes in seconds
+  (it said "0 minutes"). The closing sentence and a sync's verified text say "within its site's tolerance" in place of "within two minutes".
+- **Unchanged:** the alert is still the cabinet's own and minor. With nothing set, every cabinet is judged at 120 as before.
+- **No new debt.** `time.ts` was already listed for `sites`, `clients` and `settings`.
+
+**Proof:**
+- **`server/test/clock-tolerance.test.ts`** (new, 7 tests, against the database):
+  - **The levels.** Each level applies in turn, and the alert opens with the site's write and closes when the site's own is cleared.
+  - **The heartbeat.** A heartbeat checks the clock against the site's 20 seconds.
+  - **Sync and diagnosis.** A fleet sync is verified only within the site's 30, and the diagnosis says "45 seconds ahead".
+  - **Permissions.** Each refused role, and nobody signed in, writes nothing.
+  - **Audit.** Each change is audited with its before.
+  - **Hostile values.** 15 bodies are refused on each of the three routes, and 3 hostile site ids. Eight values reach the service on a
+    connection that throws if used, and each is refused with its own message.
+  - **Backstop.** The column checks refuse values outside the range, and five fleet rows edited outside the platform are ignored.
+- **Red checks.** Each of these 11 edits fails that file:
+  - the alert, the heartbeat, the verification or the diagnosis back on a fixed 120;
+  - the title back to minutes;
+  - the service check disabled;
+  - the site route at Tier 1, or the fleet route at Tier 2;
+  - the fleet row's range guard removed;
+  - the audit's `before` dropped;
+  - the site route answering what it was sent instead of reading back.
+
+  Restored and `cmp` identical, 7 of 7 pass.
+
+---
+
 ## D107. The firewall alert opens and closes through alerts.ts, by named condition (2026-11-17)
 
 **What the code did** (at D106's head, `b7b9c8b`; an entry on the ownership debt list, F21.R2):
