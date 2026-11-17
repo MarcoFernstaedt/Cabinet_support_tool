@@ -6,6 +6,52 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D107. The firewall alert opens and closes through alerts.ts, by named condition (2026-11-17)
+
+**What the code did** (at D106's head, `b7b9c8b`; an entry on the ownership debt list, F21.R2):
+- **The writes.** `evaluateDrift` in `server/src/services/firewall-policy.ts:93-117` opened each cabinet's minor "Firewall differs from
+  client policy" alert with its own `MERGE alerts`, and closed it with its own `UPDATE alerts` through `closeAutomatically`, both built
+  from its own condition text (`DIFFERS_SQL`, with the fleet policy as `$1`).
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`.
+
+**The decision** (the owner's, as for D106; spec 09 "Where the time zone, clock and firewall alerts live"):
+- **A third named condition.** The condition text moves to `cabinet-conditions.ts` as `firewallDiffersSql(n)` and `firewallPolicySql(n)`,
+  where `n` numbers the fleet policy's placeholder. At `n = 1` both are the same text as before, compared character for character.
+  `firewall-policy.ts` builds its own reads (the heartbeat's pre-read, the bulk candidates) from them at `$1`, as before.
+- **The fleet policy is a value, not SQL.** `foldCabinetCondition` takes it as `{ fleetPolicy }` and checks it before the database is
+  touched: an object whose three profiles are each "on" or "off". A stored policy can hold more keys (`isPolicy` in `firewall-policy.ts`
+  allows them); only the three profiles are passed on, and nothing that holds them is refused.
+- **What each condition judges.** The time checks judge only cabinets heard from within the offline window; the firewall check judges
+  every active cabinet, as it did. Each condition says which (`recentOnly`).
+- **Per cabinet, adjustable per site.** The alert stays the cabinet's own, minor. The policy it is judged against is the site's own, else
+  its client's, else the fleet's, so it is set site by site, as the owner asked.
+- **Unchanged:** which cabinets get or lose the alert, the sentence, the closer (`firewall-policy`), the audit and the transaction.
+- **One existing assertion changed:** D106's hostile-input test listed "firewall" among the names `alerts.ts` does not know. It now
+  knows it, so that case names "firewallPolicy" instead; the count of 27 there is unchanged, and nine firewall refusals are added (36).
+- **Debt list:** the `services/firewall-policy.ts` entry for `alerts` comes off, which leaves 75 once D106 has merged.
+
+**Proof:**
+- **The owner function.** `server/test/cabinet-condition-alerts.test.ts`, new firewall tests, against the database:
+  - A site with its own all-on policy: both of its cabinets that differ get a minor alert, one of them not heard from in the offline
+    window. A site following the fleet's all-off policy judges its all-on cabinet against that. Put right, the first site's alerts close,
+    each audited by `firewall-policy` with its sentence, and the other client's alert stays.
+  - A fleet policy holding a fourth key is judged on the three profiles, and a matching cabinet gets no alert.
+  - Nine malformed fleet policies (missing, null, two profiles, "yes", booleans, a JSON string, an array) are refused before a connection
+    that throws if used.
+- **Load order.** `module-load-order.test.ts` also loads `firewall-policy.js` first; all six orders pass.
+- **Red checks** (`cabinet-condition-alerts`, `firewall-policy`, `table-ownership`, `module-load-order`; 23 tests):
+  - With `firewall-policy.ts` as at D106's head, `table-ownership.test.ts` fails.
+  - With the firewall judged only on cabinets heard from recently, the site test fails.
+  - With the site's own policy left out of `firewallPolicySql`, the site test fails.
+  - With the fleet-policy check disabled, the hostile-input test fails.
+  - With a policy of more than three keys refused, the fourth-key test fails.
+  - Restored and `cmp` identical, 23 of 23 pass.
+- **Neighbours.** The 21 non-browser files that import `services/firewall-policy.js`, `services/alerts.js` or
+  `services/cabinet-conditions.js` (chosen by that exact import), with `module-load-order`, `table-ownership`, `audit-sweep` and
+  `import-cycles`: 185 of 185.
+
+---
+
 ## D106. The time zone and clock alerts open and close through alerts.ts, by named condition (2026-11-17)
 
 **What the code did** (at `ee44fe6`; an entry on the ownership debt list, F21.R2):

@@ -93,13 +93,51 @@ test("anything but a known condition, a scope by id or all, and what to run is r
     await assert.rejects(p, (e: Error) => why.test(e.message), what); refused++;
   };
   // Not a name it knows: unknown, inherited from Object, a SQL fragment, other case, not a string.
-  for (const n of [undefined, null, "", "firewall", "toString", "__proto__", "constructor", "1 = 1", "TIMEZONE", 3])
+  for (const n of [undefined, null, "", "firewallPolicy", "toString", "__proto__", "constructor", "1 = 1", "TIMEZONE", 3])
     await refuse(foldCabinetCondition(untouched, n as never, "all", BOTH), /not a cabinet condition/, `name ${String(n)}`);
   for (const s of [undefined, null, "", "ALL", {}, { cabinetId: "x" }, { siteId: `${id}'; DROP TABLE alerts; --` }, { clientId: 7 }, { other: id }, [id]])
     await refuse(foldCabinetCondition(untouched, "clock", s as never, BOTH), /scope is one cabinet, site or client/, `scope ${JSON.stringify(s)}`);
   for (const r of [undefined, null, {}, { open: true }, { open: "yes", close: true }, { open: true, close: 1 }, "both"])
     await refuse(foldCabinetCondition(untouched, "clock", { cabinetId: id }, r as never), /whether to open and whether to close/, `run ${JSON.stringify(r)}`);
-  assert.equal(refused, 27);
+  // The firewall condition is judged against the fleet's policy, each of the three profiles on or off.
+  for (const v of [undefined, null, {}, { fleetPolicy: null }, { fleetPolicy: { domain: "on", private: "on" } }, { fleetPolicy: { domain: "on", private: "on", public: "yes" } },
+    { fleetPolicy: { domain: true, private: false, public: false } }, { fleetPolicy: "{\"domain\":\"on\"}" }, { fleetPolicy: ["on", "on", "on"] }])
+    await refuse(foldCabinetCondition(untouched, "firewall", { cabinetId: id }, BOTH, v as never), /needs the fleet's policy/, `firewall values ${JSON.stringify(v)}`);
+  assert.equal(refused, 36);
   // Asked to run neither: nothing reaches the database either.
   assert.deepEqual(await foldCabinetCondition(untouched, "clock", { cabinetId: id }, { open: false, close: false }), { opened: 0, resolved: 0 });
 });
+
+const OFF = { domain: "off", private: "off", public: "off" } as const;
+const allOn = '{"domain":true,"private":true,"public":true}';
+
+test("a firewall that differs from its site's policy opens the cabinet's minor alert, and the site's own policy is the one judged (D107)", async () => {
+  const strict = await site([["LOOSE", "Eastern Standard Time", 0, 1], ["QUIET", "Eastern Standard Time", 0, 60]]);
+  const plain = await site([["DEFAULT", "Eastern Standard Time", 0, 1]]);
+  // The strict site has its own policy, every profile on; the plain one follows the fleet's, every profile off.
+  await db.app.query(`UPDATE sites SET firewall_policy = '{"domain":"on","private":"on","public":"on"}' WHERE id = $1`, [strict.site]);
+  await db.app.query(`UPDATE cabinets SET firewall_profiles = '{"domain":true,"private":false,"public":true}' WHERE id IN ($1, $2)`, strict.ids);
+  await db.app.query("UPDATE cabinets SET firewall_profiles = $2 WHERE id = $1", [plain.ids[0], allOn]);
+  assert.deepEqual(await foldCabinetCondition(db.app, "firewall", { siteId: strict.site }, BOTH, { fleetPolicy: OFF }), { opened: 2, resolved: 0 });
+  const [loose, quiet] = strict.ids;
+  assert.equal((await open(loose!, ISSUE.firewallPolicy))[0]!.severity, "minor", "the cabinet's own alert, minor");
+  // As before, the firewall check judges every active cabinet, not only those heard from in the offline window.
+  assert.equal((await open(quiet!, ISSUE.firewallPolicy)).length, 1);
+  // The plain site's cabinet has every profile on against the fleet's all-off: it differs too, judged on its own site's scope.
+  assert.deepEqual(await foldCabinetCondition(db.app, "firewall", { siteId: plain.site }, BOTH, { fleetPolicy: OFF }), { opened: 1, resolved: 0 });
+  // Matched: the strict site's cabinets are put right and close, audited by the firewall check with its sentence.
+  const alertId = (await open(loose!, ISSUE.firewallPolicy))[0]!.id;
+  await db.app.query("UPDATE cabinets SET firewall_profiles = $3 WHERE id IN ($1, $2)", [...strict.ids, allOn]);
+  assert.deepEqual(await foldCabinetCondition(db.app, "firewall", { clientId: strict.client }, BOTH, { fleetPolicy: OFF }), { opened: 0, resolved: 2 });
+  const audits = await resolvedAudits([alertId]);
+  assert.deepEqual(audits.map(a => [a.actor_id, a.details.resolution]), [["firewall-policy", "The firewall matches its policy again."]]);
+  assert.equal((await open(plain.ids[0]!, ISSUE.firewallPolicy)).length, 1, "another client's alert stays open");
+});
+
+test("a stored fleet policy with more than the three profiles is judged on the three", async () => {
+  const p = await site([["MATCHES", "Eastern Standard Time", 0, 1]]);
+  await db.app.query("UPDATE cabinets SET firewall_profiles = '{\"domain\":false,\"private\":false,\"public\":false}' WHERE id = $1", [p.ids[0]]);
+  const extra = { ...OFF, note: "set by hand" } as never;
+  assert.deepEqual(await foldCabinetCondition(db.app, "firewall", { cabinetId: p.ids[0]! }, BOTH, { fleetPolicy: extra }), { opened: 0, resolved: 0 });
+});
+

@@ -1003,7 +1003,7 @@ would trigger it (a client's requirement, or one client's share of the database)
 
 Asked how the time zone, clock and firewall alerts should move into alerts.ts, the owner chose the recommendation: alerts.ts holds the
 statements and a fixed set of named conditions, and the checks name the condition and the scope, never SQL (decision-log D106 for the
-zone and the clock; the firewall follows). The owner added:
+zone and the clock, D107 for the firewall). The owner added:
 
 - The alerts stay on the cabinet, as minor alerts. That is how they are raised today, and the move keeps it.
 - What they judge must be adjustable site by site, not only fleet-wide. The time zone already is (the site's own, else its client's,
