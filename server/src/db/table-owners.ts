@@ -126,5 +126,5 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   trend_state: { owner: "services/error-trends.ts", also: [], accepted: ["demo/troubleshooting.ts"] },
   user_devices: { owner: "auth/devices.ts", also: [] },
   user_networks: { owner: "auth/devices.ts", also: [] },
-  users: { owner: "services/users.ts", also: ["cli.ts", "console-api/auth-routes.ts"], accepted: ["demo/demo.ts"] },
+  users: { owner: "services/users.ts", also: ["console-api/auth-routes.ts"], accepted: ["demo/demo.ts"] },
 };
