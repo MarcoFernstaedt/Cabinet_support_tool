@@ -315,6 +315,11 @@ try {
       const done = 'DONE_' + randomUUID().replaceAll('-', '');
       const failed = 'FAIL_' + randomUUID().replaceAll('-', '');
       const encoded = Buffer.from(`$ErrorActionPreference='Stop'; try { ${source}; Write-Output ('DONE_' + '${done.slice(5)}') } catch { Write-Output $_; Write-Output ('FAIL_' + '${failed.slice(5)}'); exit 1 }`, 'utf16le').toString('base64');
+      // A Windows console drops input typed while the previous child is still tearing down:
+      // its exit flushes the pending input buffer, so keystrokes sent the instant DONE_ prints
+      // never reach the shell. Wait for the console to settle before typing the next command -
+      // what an operator does when waiting for a prompt - so each check runs in its own child.
+      await new Promise((resolve) => setTimeout(resolve, 1500));
       await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`).toString('base64') }, operator);
       return await until(async () => {
         const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
