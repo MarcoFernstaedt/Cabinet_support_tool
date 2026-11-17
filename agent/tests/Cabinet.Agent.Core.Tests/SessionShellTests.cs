@@ -4,6 +4,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using Microsoft.Win32.SafeHandles;
 using Cabinet.Agent.Windows;
+using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using Cabinet.Agent.Contracts;
@@ -122,6 +123,107 @@ public sealed class SessionShellTests : IDisposable
             int count = handler.Frames.Count;
             await local.PollAsync(api, CancellationToken.None);
             Assert.Equal(count, handler.Frames.Count);
+        }
+        finally { local.Close("Test cleanup"); }
+    }
+
+    [Fact]
+    [SupportedOSPlatform("windows")]
+    public async Task Pseudoconsole_returns_child_stdout_and_stderr_before_shell_exit_on_Windows()
+    {
+        if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP child console output: requires Windows"); return; }
+        using var terminal = new SessionTerminal();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        string stdout = "stdout_" + Guid.NewGuid().ToString("N");
+        string stderr = "stderr_" + Guid.NewGuid().ToString("N");
+        // Encode the markers so the terminal's command echo cannot satisfy the assertions.
+        string script = $"Write-Output '{stdout}'; [Console]::Error.WriteLine('{stderr}')";
+        string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        var received = new StringBuilder();
+        var childOutput = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task reader = Task.Run(async () => {
+            byte[] buffer = new byte[4096];
+            int count;
+            while ((count = await terminal.Output.ReadAsync(buffer)) > 0)
+            {
+                received.Append(Encoding.UTF8.GetString(buffer, 0, count));
+                string text = received.ToString();
+                if (text.Contains(stdout) && text.Contains(stderr)) childOutput.TrySetResult();
+            }
+        });
+        try
+        {
+            await terminal.Input.WriteAsync(Encoding.UTF8.GetBytes(
+                $"powershell.exe -NoProfile -NonInteractive -EncodedCommand {encoded}\r"), timeout.Token);
+            await terminal.Input.FlushAsync(timeout.Token);
+            await childOutput.Task.WaitAsync(timeout.Token);
+            await terminal.Input.WriteAsync(Encoding.UTF8.GetBytes("exit 7\r"), timeout.Token);
+            await terminal.Input.FlushAsync(timeout.Token);
+            while (!terminal.HasExited) await Task.Delay(10, timeout.Token);
+            await reader.WaitAsync(timeout.Token);
+            Assert.Contains(stdout, received.ToString());
+            Assert.Contains(stderr, received.ToString());
+            Assert.Equal(7, terminal.ExitCode);
+        }
+        finally
+        {
+            // Keep draining while ConPTY closes, including on assertion/timeout failure.
+            terminal.Terminate();
+            terminal.Dispose();
+            await reader;
+        }
+    }
+
+    [Fact]
+    [SupportedOSPlatform("windows")]
+    public async Task Three_encoded_commands_return_their_own_markers_in_one_session_on_Windows()
+    {
+        if (!OperatingSystem.IsWindows()) { Console.WriteLine("SKIP consecutive console commands: requires Windows"); return; }
+        var local = new LocalSessions(PathName, () => true, () => true, TimeProvider.System,
+            () => true, () => new SessionTerminal());
+        var id = Guid.NewGuid();
+        using var key = ECDsa.Create();
+        using var certificate = new CertificateRequest("CN=test", key, HashAlgorithmName.SHA256)
+            .CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+        var handler = new ExitHandler(id);
+        using var api = new AgentApiClient(new Uri("https://platform.test"), certificate, certificate, _ => handler);
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
+        await local.OpenAsync(new(id, "shell"), timeout.Token);
+        try
+        {
+            for (int command = 0; command < 3; command++)
+            {
+                string marker = $"DONE_{command}_" + Guid.NewGuid().ToString("N");
+                string failure = $"FAIL_{command}_" + Guid.NewGuid().ToString("N");
+                // Cross the observed 1011/1243-character boundary, retaining a long third line.
+                string padding = new('x', 180 + command * 50);
+                string script = $"try {{ $unused='{padding}'; Write-Output '{marker}' }} catch {{ Write-Output '{failure}'; exit 1 }}";
+                string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+                string line = $"powershell.exe -NoProfile -NonInteractive -EncodedCommand {encoded}\r";
+                Assert.DoesNotContain(marker, line);
+                Assert.DoesNotContain(failure, line);
+                int firstFrame = handler.Frames.Count;
+                await local.HandleShellFrameAsync(Frame(new {
+                    kind = "shell.in", data = Convert.ToBase64String(Encoding.UTF8.GetBytes(line))
+                }), timeout.Token);
+                var output = new StringBuilder();
+                int nextFrame = firstFrame;
+                while (!output.ToString().Contains(marker, StringComparison.Ordinal))
+                {
+                    await local.PollAsync(api, timeout.Token);
+                    Assert.Equal(id, local.Active);
+                    while (nextFrame < handler.Frames.Count)
+                    {
+                        JsonElement frame = handler.Frames[nextFrame++];
+                        if (frame.TryGetProperty("kind", out var kind) && kind.GetString() == "shell.out")
+                            output.Append(Encoding.UTF8.GetString(Convert.FromBase64String(frame.GetProperty("data").GetString()!)));
+                    }
+                    Assert.DoesNotContain(failure, output.ToString());
+                    await Task.Delay(10, timeout.Token);
+                }
+                // Match the failing run's pause; a marker can precede PowerShell's process exit.
+                await Task.Delay(TimeSpan.FromMilliseconds(1500), timeout.Token);
+            }
         }
         finally { local.Close("Test cleanup"); }
     }

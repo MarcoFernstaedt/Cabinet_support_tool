@@ -49,9 +49,12 @@ public sealed class SessionTerminal : ISessionTerminal
             attributesInitialized = true;
             Check(UpdateProcThreadAttribute(attributes, 0, (IntPtr)0x00020016, _console, IntPtr.Size, IntPtr.Zero, IntPtr.Zero));
             var startup = new StartupInfoEx { Info = new StartupInfo { Size = Marshal.SizeOf<StartupInfoEx>() }, Attributes = attributes };
-            // Locally chosen executable and fixed switches. /D disables registry AutoRun; no /C or server command string.
+            // ConPTY attachment and standard-handle inheritance are separate. Reopen the console
+            // devices in the attached process so descendants cannot inherit the service's stdout/stderr.
+            // Both shells and the redirections are fixed locally; /D disables registry AutoRun.
             string executable = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "cmd.exe");
-            Check(CreateProcess(executable, new StringBuilder("cmd.exe /D /Q"), IntPtr.Zero, IntPtr.Zero, false,
+            var commandLine = new StringBuilder($"cmd.exe /D /Q /C \"\"{executable}\" /D /Q <CONIN$ >CONOUT$ 2>&1\"");
+            Check(CreateProcess(executable, commandLine, IntPtr.Zero, IntPtr.Zero, false,
                 0x00080000, IntPtr.Zero, Environment.GetFolderPath(Environment.SpecialFolder.Windows), ref startup, out process));
             _process = Process.GetProcessById(process.ProcessId);
             _processHandle = new SafeProcessHandle(process.Process, ownsHandle: true);
