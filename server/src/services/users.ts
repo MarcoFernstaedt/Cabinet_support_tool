@@ -26,6 +26,28 @@ export async function settleSignIn(c: Queryable, id: string, step: number | null
   return step === null || r.rowCount === 1;
 }
 
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Counts one failed sign-in or step-up code against an account (F3, F21.R2, decision-log D113): the count starts again at 1 once an
+ * earlier lock has run out, and reaching `lockAt` locks the account for `lockMinutes`; a lock that has run out is lifted. Returns the
+ * count and the username after the change, or null when there is no such account. auth-failures.ts holds the policy and raises the
+ * alert; this is where the users table is written. The account and both numbers are checked before the database is touched.
+ */
+export async function countAuthFailure(db: Queryable, id: string, lockAt: number, lockMinutes: number): Promise<{ failures: number; username: string } | null> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  for (const [name, v, most] of [["the failures that lock", lockAt, 100], ["the minutes locked", lockMinutes, 1440]] as const)
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > most) throw new Error(`${name} must be a whole number from 1 to ${most}`);
+  const r = (await db.query<{ failed_logins: number; username: string }>(
+    `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END,
+                      locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END) >= $2
+                                          THEN DATEADD(minute, $3, SYSUTCDATETIME())
+                                          WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN NULL ELSE locked_until END
+      OUTPUT inserted.failed_logins, inserted.username
+      WHERE id = $1`, [id, lockAt, lockMinutes])).rows[0];
+  return r ? { failures: r.failed_logins, username: r.username } : null;
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;

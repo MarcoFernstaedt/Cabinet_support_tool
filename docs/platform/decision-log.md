@@ -6,6 +6,51 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D113. A failed sign-in is counted against the account by users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `d4ccf11`; an entry on the ownership debt list, F21.R2):
+- **The write.** `recordAuthFailure` in `server/src/services/auth-failures.ts:10-16` counted a failed sign-in or step-up code against the
+  account with its own `UPDATE users`. The statement:
+  - starts the count again at 1 once an earlier lock has run out;
+  - locks the account for 15 minutes at the fifth failure;
+  - lifts a lock that has run out.
+
+  At the fifth failure the function then raised a security alert.
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+- **Who calls it.** The console's sign-in and step-up routes, the command line's sign-in, and its per-command code check.
+
+**The decision:**
+- **The statement moves; the policy stays.** `users.ts` exports `countAuthFailure(db, id, lockAt, lockMinutes)` with the same statement.
+  It returns the count and the username after the change, or null when there is no such account. `auth-failures.ts` keeps the policy
+  (five failures, 15 minutes), the alert and its title, and calls it.
+- **What it checks** before the database is touched, each with its own message:
+  - the account is a uuid;
+  - the failures that lock are a whole number from 1 to 100;
+  - the minutes locked are a whole number from 1 to 1440.
+
+  Every caller passes an account id read from the database, so no sign-in that works today is refused.
+- **Debt count:** the `services/auth-failures.ts` entry for `users` comes off, which leaves 42.
+
+**Proof:**
+- **`server/test/auth-failure-count.test.ts`** (new, 3 tests, against the database):
+  - **Counting and locking.** Each failure counts one. The third of three locks the account for its 15 minutes, given the id in upper
+    case. Another account is untouched, and an unknown account answers null.
+  - **An expired lock.** A lock that has run out starts the count again at one and is lifted.
+  - **Hostile input.** 11 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`auth-failure-count`, `console-api` and `table-ownership`, 27 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `auth-failures.ts` | The ownership test |
+  | A failure not counted | Three `console-api` sign-in tests (five failures lock; guessing codes locks; the count starts again after a lock) |
+  | Reaching the limit not locking | The first new test and those three |
+  | A lock that ran out not starting the count again | The second new test (no `console-api` test catches this alone) |
+  | The account check or the number check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 27 of 27 pass.
+
+---
+
 ## D112. A batch's event links are written by events.ts, the events' owner (2026-11-17)
 
 Numbered D112 because #271 takes D111 (D110 went to #306).
