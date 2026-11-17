@@ -2,7 +2,8 @@
 // alerts, kept apart from cabinet alerts because most concern people, not cabinets. Repeats of
 // the same alert fold into one open alert with a count, so a flood stays one line.
 import { isIPv4, isIPv6 } from "node:net";
-import { audit, isUniqueViolation, notify, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
+import sql from "mssql";
+import { audit, isUniqueViolation, notify, safeJson, transaction, Tx, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 
@@ -40,6 +41,26 @@ export async function raiseSecurityAlert(db: Queryable, a: SecurityAlertInput): 
   const payload = { id: r.id, created: r.created, kind: a.kind, title: a.title.slice(0, 256) };
   await notify(db, "security_alerts", JSON.stringify(payload).length <= 450 ? JSON.stringify(payload) : JSON.stringify({ id: r.id, created: r.created, kind: a.kind }));
   return r;
+}
+
+/**
+ * A failed migration's operations alert for the Admins, raised on the owner's connection the migration ran on, in its own transaction
+ * (decision-log D110; the command line passes this to migrate()). Best effort: it needs the security alerts table and the widened kind
+ * rule, so it cannot be raised when the failing migration is one of the first, and then it says so by answering false. The alert names
+ * the migration, never the error text; like every other security alert it folds into the open one, is audited and wakes the Admins.
+ */
+export async function alertMigrationFailed(owner: sql.ConnectionPool, version: string): Promise<boolean> {
+  const t = new sql.Transaction(owner);
+  try {
+    await t.begin();
+    await raiseSecurityAlert(new Tx(t), { kind: "ops_migration", signature: "ops:migration",
+      title: `Database migration ${version} failed; the database stays at the previous version`, detail: { version } });
+    await t.commit();
+    return true;
+  } catch {
+    await t.rollback().catch(() => undefined);
+    return false;
+  }
 }
 
 /** Raises a security alert in its own transaction; for places that must not fail because of it (refused connections, sign-in). */

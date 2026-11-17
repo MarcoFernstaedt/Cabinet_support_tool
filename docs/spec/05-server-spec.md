@@ -171,7 +171,8 @@ Repeats of one alert fold into one open alert with a count. An Admin resolves an
 (write volume, failed sign-ins or step-ups, a new location or device, a failed self-check, a refused package, a signature failure, a
 revoked or unknown certificate) also close on their own after 14 days with no recurrence, with an audit entry, so the list stays current
 (owner's decision 2026-11-02). A recurrence after that opens a new alert. An audit chain break never closes on its own; the platform's
-operations alerts close when their condition clears.
+operations alerts close when their condition clears. Every raise, a failed database migration's included, goes through
+`services/security.ts`: it folds into the open alert, is audited (`security.alert`) and wakes the Admins' live streams (decision-log D110).
 
 ## Offline handling
 
