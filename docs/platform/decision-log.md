@@ -52,6 +52,29 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D105. An alert folded into itself keeps its events, as before D104 (2026-11-16)
+
+**What the code did** (at `ee44fe6`, since #300):
+- `moveAlertEvents` in `server/src/services/events.ts:114` refused a move whose two alerts are the same, and so stopped the rule's
+  activation that called it.
+- Before #300 (D104), `rules.ts` ran the statement in that case: the events stayed on the alert and recorded the rule
+  (`UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1` with `$1 = $2`).
+- The #300 review found the difference. No path builds that case today: the regroup folds only alerts with no issue type, under an issue
+  signature they do not carry.
+
+**The decision** (the owner's, asked 2026-11-16: go back to the earlier behaviour):
+- The refusal is removed. The statement runs as it did, so an alert folded into itself keeps its events and they record the rule, and a
+  rule going live never fails on it. The three uuid checks stay.
+- **Assertions changed:** the hostile-input test in `alert-events-move.test.ts` no longer expects the same-alert refusal, so its count
+  goes from 22 to 21 and its title drops "two alerts that differ". That is the behaviour this entry changes back.
+
+**Proof:**
+- `server/test/alert-events-move.test.ts`, new test "an alert folded into itself keeps its events and records the rule": with the same
+  alert in other letter case on both sides, both of its events stay on it and record the rule, and another alert's event is untouched.
+- **Red check:** with the refusal put back, that test fails. Restored and `cmp` identical, the file passes 4 of 4.
+
+---
+
 ## D104. A rule's regroup moves the alert's events through events.ts, the events' owner (2026-11-16)
 
 **What the code did** (at `ca8e7c0`; an entry on the ownership debt list, F21.R2):
