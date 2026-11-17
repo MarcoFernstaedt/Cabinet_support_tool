@@ -11,7 +11,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const SERVICES = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "services");
 
-for (const first of ["rules.js", "events.js", "alerts.js", "time.js", "cabinet-conditions.js"]) {
+for (const first of ["rules.js", "events.js", "alerts.js", "time.js", "cabinet-conditions.js", "firewall-policy.js"]) {
   test(`a process that loads ${first} first loads it`, () => {
     const url = pathToFileURL(join(SERVICES, first)).href;
     const r = spawnSync(process.execPath, ["--input-type=module", "-e", `await import(${JSON.stringify(url)});`], { encoding: "utf8", timeout: 60_000 });

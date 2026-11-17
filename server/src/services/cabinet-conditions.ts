@@ -1,5 +1,5 @@
 // The cabinet conditions alerts.ts opens and closes alerts for, as fixed SQL over cabinet k joined to its site s and client cl (F21.R2,
-// decision-log D106). A condition is named, never passed in: alerts.ts builds every statement from these texts and a typed scope, so no
+// decision-log D106, D107). A condition is named, never passed in: alerts.ts builds every statement from these texts and a typed scope, so no
 // caller hands it SQL. This module imports nothing, so it can be loaded first, last or from inside an import cycle (D104).
 
 /** The settings row that holds the fleet default zone, as {"timeZone": ...}. */
@@ -19,3 +19,17 @@ export const ZONE_WRONG_SQL = `k.time_zone_id IS NOT NULL AND ${SITE_ZONE_SQL} I
 
 /** The cabinet's clock is more than the tolerance from the server's. */
 export const CLOCK_OFF_SQL = `k.clock_skew_seconds IS NOT NULL AND ABS(k.clock_skew_seconds) > ${CLOCK_TOLERANCE_SECONDS}`;
+
+/** The three Windows firewall profiles a policy sets on or off. */
+export const FIREWALL_PROFILES = ["domain", "private", "public"] as const;
+
+/** The policy that applies to cabinet k (joined to its site s and client cl), as JSON text; placeholder `$n` is the fleet policy. */
+export const firewallPolicySql = (n: number): string => `COALESCE(s.firewall_policy, cl.firewall_policy, $${n})`;
+
+/**
+ * Whether cabinet k differs from its policy; placeholder `$n` is the fleet policy (JSON text). A profile the cabinet did not report as
+ * true or false counts as different, as PostgreSQL's IS DISTINCT FROM did. Only the three fixed profile names go into the text.
+ */
+export const firewallDiffersSql = (n: number): string => `k.firewall_profiles IS NOT NULL AND (${FIREWALL_PROFILES.map(profile =>
+  `(CASE WHEN JSON_VALUE(${firewallPolicySql(n)}, '$.${profile}') = 'on' THEN 1 ELSE 0 END)
+     <> ISNULL(CASE JSON_VALUE(k.firewall_profiles, '$.${profile}') WHEN 'true' THEN 1 WHEN 'false' THEN 0 END, 2)`).join("\n  OR ")})`;
