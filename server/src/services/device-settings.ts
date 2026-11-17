@@ -9,7 +9,7 @@
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 import { syncAddressFor } from "./sync-cabinets.js";
 
 export type ScannerSource = "cabinet" | "site" | "client" | "fleet" | "automatic";
@@ -111,7 +111,7 @@ export async function setClientSyncPorts(pool: Pool, userId: string, clientId: s
 export async function setFleetSyncPorts(pool: Pool, userId: string, ports: number[] | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, userId, "settings.sync", "fleet");
-    if (ports === null) await c.query("DELETE FROM settings WHERE [key] = 'sync.ports'");
+    if (ports === null) await removeSetting(c, "sync.ports");
     else await upsertSetting(c, "sync.ports", ports, userId);
     await audit(c, { actorKind: "user", actorId: userId, action: "settings.sync", outcome: "succeeded", details: { ports } });
   });

@@ -15,7 +15,7 @@ import { configHash, type Item } from "./config-canonical.js";
 import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
 import { MAX_FILE_BYTES, MAX_FILES, canonicalRoot, joinWithinRoot, keyProblem } from "./filefacts-path.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 
 export type AllowlistLevel = "fleet" | "client" | "site" | "cabinet";
 /** The levels a list can be set at, most specific first: the order resolution walks. */
@@ -210,7 +210,7 @@ export async function setAllowlist(pool: Pool, user: { userId: string; role: str
     await consumeStepUpToken(c, stepUpToken, user.userId, SET_ACTION[level], target, { level, id: key, entries });
     const value = entries === null ? null : storedValue(entries, user.userId, previous);
     if (level === "fleet") {
-      if (value === null) await c.query("DELETE FROM settings WHERE [key] = $1", [ALLOWLIST_SETTING_KEY]);
+      if (value === null) await removeSetting(c, ALLOWLIST_SETTING_KEY);
       else await upsertSetting(c, ALLOWLIST_SETTING_KEY, value, user.userId);
     } else {
       const r = await c.query(`UPDATE ${TABLE[level]} SET ${ALLOWLIST_COLUMN} = $2 WHERE id = $1 AND ${level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL"}`,

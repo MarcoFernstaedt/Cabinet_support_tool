@@ -4,7 +4,7 @@
 // heartbeat answer, and the broker does the restarting.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 
 export type WatchLevel = "fleet" | "client" | "site" | "cabinet";
 /**
@@ -57,7 +57,7 @@ export function effectiveWatched(given: { cabinet: string[] | null; site: string
 export async function setWatched(pool: Pool, userId: string, level: WatchLevel, id: string, names: string[] | null): Promise<void> {
   await transaction(pool, async c => {
     if (level === "fleet") {
-      if (names === null) await c.query("DELETE FROM settings WHERE [key] = $1", [FLEET_KEY]);
+      if (names === null) await removeSetting(c, FLEET_KEY);
       else await upsertSetting(c, FLEET_KEY, names, userId);
     } else {
       const table = { client: "clients", site: "sites", cabinet: "cabinets" }[level];

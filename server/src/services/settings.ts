@@ -17,6 +17,21 @@ export async function upsertSetting(db: Queryable, key: string, value: unknown, 
   await db.query("INSERT INTO settings ([key], [value], changed_by) SELECT $1, $2, $3 WHERE NOT EXISTS (SELECT 1 FROM settings WHERE [key] = $1)", [key, text, changedBy]);
 }
 
+/** What a settings key may be: letters, digits, dot, colon, dash and underscore, 1 to 200 characters (every key the platform uses). */
+const SETTING_KEY = /^[A-Za-z0-9._:-]{1,200}$/;
+
+/**
+ * Removes one row of the settings table, so the level below applies again (the built-in default, or nothing set): the counterpart of
+ * upsertSetting, and the one place a row is removed (F21.R2, decision-log D117). Call it inside a transaction: the key is locked by name,
+ * as upsertSetting locks it, so a removal and a write of the same key cannot interleave. The key is checked before the database is
+ * touched. Returns whether a row was there to remove.
+ */
+export async function removeSetting(db: Queryable, key: string): Promise<boolean> {
+  if (typeof key !== "string" || !SETTING_KEY.test(key)) throw new Error("a settings key is 1 to 200 letters, digits, dots, colons, dashes or underscores");
+  await lock(db, `settings:${key}`);
+  return ((await db.query("DELETE FROM settings WHERE [key] = $1", [key])).rowCount ?? 0) > 0;
+}
+
 /** A JSON column read under an alias the data layer does not know (it parses only the columns named in json-columns.ts): text in, value out. */
 export function parseJson<T>(v: unknown): T | null {
   if (v === null || v === undefined) return null;

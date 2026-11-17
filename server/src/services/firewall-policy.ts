@@ -13,7 +13,7 @@ import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { FIREWALL_PROFILES as PROFILES, firewallDiffersSql, firewallPolicySql } from "./cabinet-conditions.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 
 export type Switch = "on" | "off";
@@ -117,7 +117,7 @@ export async function writeSitePolicy(c: Queryable, userId: string, siteId: stri
 export async function setFleetPolicy(pool: Pool, adminId: string, policy: FirewallPolicy | null, stepUpToken: string): Promise<void> {
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "fleet.firewall_policy", "fleet");
-    if (policy === null) await c.query("DELETE FROM settings WHERE [key] = 'firewall.policy'");
+    if (policy === null) await removeSetting(c, "firewall.policy");
     else await upsertSetting(c, "firewall.policy", policy, adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "fleet.firewall_policy", outcome: "succeeded", details: { policy } });
     await evaluateDrift(c, "all");

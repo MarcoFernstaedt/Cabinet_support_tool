@@ -28,7 +28,7 @@ const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "services/rollouts.ts", has: "UPDATE rollout_targets SET state = 'offered'", why: "the upgrade offered to one cabinet of a rollout whose start, pause and stop are audited, and whose outcome per cabinet is (upgrade.outcome)" },
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE id_hash", why: "sign-out; its only caller (auth-routes.ts) audits it in the same transaction" },
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE user_id", why: "ends a user's sessions, or all but one of them; every caller (users.ts, cli.ts, auth-routes.ts) audits the change that ends them in the same transaction" },
-  { file: "services/approved-apps.ts", has: "DELETE FROM settings", why: "clears the fleet's list inside writeLevel, whose callers audit the change in the same transaction" },
+  { file: "services/settings.ts", has: "DELETE FROM settings WHERE [key] = $1", why: "removeSetting (D117); every caller audits the change in the same transaction: device-settings, filefacts-allowlist, firewall-policy, time (twice) and watched-services in the function that calls it, approved-apps in the callers of writeLevel" },
   { file: "services/usb-sql.ts", has: "usbPolicyDeleteSql", why: "run only by usb-store.ts, which audits the policy change in the same transaction" },
   { file: "services/baseline-drift.ts", has: "DELETE d FROM cabinet_drift", why: "a derived table, recomputed from the baseline and the latest readings" },
   { file: "services/cabinet-health.ts", has: "DELETE FROM healthy_marks", why: "keeps the newest healthy marks within a cap; older marks are derived history" },
