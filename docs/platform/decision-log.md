@@ -6,6 +6,69 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D117. Settings rows are removed only by settings.ts, through removeSetting (2026-11-17)
+
+**What the code did** (at `db9616f`; seven entries on the ownership debt list, F21.R2):
+- **No way to remove a setting.** `services/settings.ts` owns the `settings` table and had `upsertSetting` to write a row, but nothing to
+  remove one. Six modules each removed their own fleet-level row with their own `DELETE FROM settings`, to fall back to the default:
+
+  | File | Line | Key |
+  |---|---|---|
+  | `approved-apps.ts` | 498 | `apps.approved` |
+  | `device-settings.ts` | 114 | `sync.ports` |
+  | `filefacts-allowlist.ts` | 213 | `filefacts.paths` |
+  | `firewall-policy.ts` | 120 | `firewall.policy` |
+  | `time.ts` | 69 | `time.zone` |
+  | `time.ts` | 144 | `time.clockTolerance` |
+  | `watched-services.ts` | 60 | `services.watched` |
+
+  None of these took the per-key lock `upsertSetting` takes, and two (`time.ts`) built the statement text from the key.
+- **A hand-written upsert.** `writes.ts:93` wrote the fleet write pause with its own `MERGE settings`.
+
+**The decision:**
+- **The counterpart of `upsertSetting`.** `settings.ts` exports `removeSetting(db, key)`. It checks the key before the database is touched:
+  1 to 200 letters, digits, dots, colons, dashes or underscores, which is every key the platform uses. It takes the same per-key lock as
+  `upsertSetting`, removes only that row, and answers whether there was one. It runs in the caller's transaction.
+- **The six modules call it.** Each removal keeps its place, its transaction and its audit.
+- **`writes.ts` calls `upsertSetting`.** It writes the same value, author and time, under the per-key lock.
+- **The audit sweep's exception moves with the statement.** `audit-sweep.test.ts` excused `approved-apps.ts`'s `DELETE FROM settings`
+  because the callers of `writeLevel` audit it. The other five removals passed because their own functions write an audit row. The one
+  `DELETE` is now in `removeSetting`, which writes none, so the exception names `settings.ts` and every caller:
+  - five audit in the function that calls it: `device-settings`, `filefacts-allowlist`, `firewall-policy`, `time` (twice) and
+    `watched-services`;
+  - `approved-apps` audits in the callers of `writeLevel`.
+
+  Without the moved entry the sweep fails, naming `services/settings.ts:32`.
+- **Debt count:** all seven entries for `settings` come off, which leaves 32. The `settings` table has no debt entry left. Only the
+  accepted demo simulator and `usb-sql.ts` write it outside `settings.ts`.
+
+**Proof:**
+- **`server/test/settings-removal.test.ts`** (new, 3 tests, against the database):
+  - **Removing.** A removal takes only the key it names and says whether it was there.
+  - **Rollback.** A removal in a transaction that rolls back leaves the row, and a write after a removal in the same transaction adds it
+    back.
+  - **Hostile input.** 12 keys are refused on a connection that throws if used: an injection, spaces, a slash, a percent sign, a newline,
+    a list and an object among them.
+- **Red checks** (`settings-removal`, `table-ownership`, `site-policies`, `writes` and `clock-tolerance`, 30 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `time.ts` deleting from `settings` again | The ownership test |
+  | A removal that removes nothing | Both removal tests and two `site-policies` tests that clear the fleet zone |
+  | A removal that takes every key | The first removal test |
+  | The key check disabled | The hostile-input test |
+  | The fleet zone never cleared | The same two `site-policies` tests |
+  | The fleet write pause not written | `writes.test.ts` "a fleet or client write pause stops writes but not reads" |
+
+  Restored and `cmp` identical, 30 of 30 pass.
+- **Neighbours.** The 28 files that import a changed module, with `table-ownership`, `import-cycles`, `module-load-order`, `audit-sweep`,
+  `settings-removal`, `site-policies` and `writes`: 281 of 288 in the first run, with 5 skipped and 2 failures.
+  - **`audit-sweep`:** fixed by moving the exception, as above.
+  - **`demo.test.ts`** "every simulated cabinet reports its configuration…": it timed out waiting for drift to clear. It passed alone,
+    19 of 19. It writes no setting, so the cause is not established.
+
+---
+
 ## D116. The console sign-in's account writes go through users.ts, the users' owner (2026-11-17)
 
 **What the code did** (at `b2fb6f0`; the last entry on the `users` table's debt list, F21.R2):

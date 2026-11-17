@@ -6,7 +6,7 @@ import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
 import { foldCabinetCondition, type CabinetScope } from "./alerts.js";
 import { CLOCK_OFF_SQL, CLOCK_TOLERANCE_SECONDS, FLEET_CLOCK_TOLERANCE_KEY, FLEET_CLOCK_TOLERANCE_READ_SQL, FLEET_ZONE_KEY, isClockTolerance,
   SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
-import { upsertSetting } from "./settings.js";
+import { removeSetting, upsertSetting } from "./settings.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 
@@ -66,7 +66,7 @@ export async function setClientTimeZone(pool: Pool, userId: string, clientId: st
 export async function setFleetTimeZone(pool: Pool, userId: string, zone: TimeZoneId | null): Promise<void> {
   await transaction(pool, async c => {
     const before = await fleetTimeZone(c);
-    if (zone === null) await c.query(`DELETE FROM settings WHERE [key] = '${FLEET_ZONE_KEY}'`);
+    if (zone === null) await removeSetting(c, FLEET_ZONE_KEY);
     else await upsertSetting(c, FLEET_ZONE_KEY, { timeZone: zone }, userId);
     await audit(c, { actorKind: "user", actorId: userId, action: "fleet.time_zone", outcome: "succeeded", details: { before, timeZone: zone } });
     await evaluateTime(c, "all");
@@ -141,7 +141,7 @@ export async function setClockTolerance(pool: Pool, userId: string, level: { sit
   await transaction(pool, async c => {
     if (level === "fleet") {
       const before = await fleetClockTolerance(c);
-      if (seconds === null) await c.query(`DELETE FROM settings WHERE [key] = '${FLEET_CLOCK_TOLERANCE_KEY}'`);
+      if (seconds === null) await removeSetting(c, FLEET_CLOCK_TOLERANCE_KEY);
       else await upsertSetting(c, FLEET_CLOCK_TOLERANCE_KEY, { seconds }, userId);
       await audit(c, { actorKind: "user", actorId: userId, action: "fleet.clock_tolerance", outcome: "succeeded", details: { before, seconds } });
       await evaluateTime(c, "all");

@@ -7,6 +7,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { raiseSecurityAlert } from "./security.js";
 import { pauseUserWritesForLimit } from "./users.js";
+import { upsertSetting } from "./settings.js";
 
 export const WRITE_OPERATIONS = [...catalog.values()].filter(e => e.kind === "write").map(e => e.name);
 
@@ -90,9 +91,8 @@ export async function setFleetPause(pool: Pool, adminId: string, paused: boolean
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, paused ? "writes.pause" : "writes.resume", "fleet");
     const value: FleetPause = { paused, reason, by: adminId, at: new Date().toISOString() };
-    await c.query(`MERGE settings WITH (HOLDLOCK) AS t USING (SELECT N'writes.paused' AS [key]) AS s ON t.[key] = s.[key]
-                   WHEN MATCHED THEN UPDATE SET [value] = $1, changed_by = $2, changed_at = SYSUTCDATETIME()
-                   WHEN NOT MATCHED THEN INSERT ([key], [value], changed_by) VALUES (N'writes.paused', $1, $2);`, [safeJson(value), adminId]);
+    // The settings row is settings.ts's to write (D117).
+    await upsertSetting(c, "writes.paused", value, adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded", details: { scope: "fleet", reason } });
   });
 }
