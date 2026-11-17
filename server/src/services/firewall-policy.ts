@@ -8,8 +8,9 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { catalog } from "../contracts.js";
 import { audit, lock, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { queueBulkCommand } from "./commands.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { foldCabinetCondition, type CabinetScope } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
+import { FIREWALL_PROFILES as PROFILES, firewallDiffersSql, firewallPolicySql } from "./cabinet-conditions.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
 import { parseJson, upsertSetting } from "./settings.js";
@@ -21,7 +22,6 @@ export interface ProfileSwitches { domain: boolean; private: boolean; public: bo
 
 export const DEFAULT_POLICY: FirewallPolicy = { domain: "off", private: "off", public: "off" };
 export const BULK_LIMIT = 200;
-const PROFILES = ["domain", "private", "public"] as const;
 
 export const switchesFor = (p: FirewallPolicy): ProfileSwitches => ({ domain: p.domain === "on", private: p.private === "on", public: p.public === "on" });
 export const differs = (p: FirewallPolicy, s: ProfileSwitches): boolean => PROFILES.some(k => (p[k] === "on") !== s[k]);
@@ -58,26 +58,17 @@ export async function cabinetPolicy(db: Queryable, cabinetId: string) {
     differs: r.firewall_profiles ? differs(policy, r.firewall_profiles) : null, readOnly: r.read_only };
 }
 
-/** The policy that applies to cabinet k (joined to its site s and client cl), as JSON text; $1 is the fleet policy. */
-const POLICY_SQL = "COALESCE(s.firewall_policy, cl.firewall_policy, $1)";
-
-/**
- * The SQL that says whether cabinet k (joined to its site s and client cl) differs from its policy; $1 is the fleet policy (JSON text).
- * A profile the cabinet did not report as true or false counts as different, as PostgreSQL's IS DISTINCT FROM did. Only the three fixed profile names go into the text.
- */
-const differsOn = (profile: (typeof PROFILES)[number]) =>
-  `(CASE WHEN JSON_VALUE(${POLICY_SQL}, '$.${profile}') = 'on' THEN 1 ELSE 0 END)
-     <> ISNULL(CASE JSON_VALUE(k.firewall_profiles, '$.${profile}') WHEN 'true' THEN 1 WHEN 'false' THEN 0 END, 2)`;
-const DIFFERS_SQL = `k.firewall_profiles IS NOT NULL AND (${PROFILES.map(differsOn).join("\n  OR ")})`;
+// The condition texts live in cabinet-conditions.ts, where alerts.ts reads them too (D107); here $1 is the fleet policy, as before.
+const POLICY_SQL = firewallPolicySql(1);
+const DIFFERS_SQL = firewallDiffersSql(1);
 
 /**
  * Opens a minor "Firewall differs from client policy" alert for each cabinet in scope that differs, and resolves it
  * for each that matches again. Run on a heartbeat that reports a change, and for every affected cabinet when a policy changes.
  */
-export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } | { siteId: string } | { clientId: string } | "all"): Promise<{ opened: number; resolved: number }> {
-  const fleet = safeJson(await fleetPolicy(db));
-  const [where, arg] = scope === "all" ? ["1 = 1", null] : "cabinetId" in scope ? ["k.id = $2", scope.cabinetId] : "siteId" in scope ? ["s.id = $2", scope.siteId] : ["cl.id = $2", scope.clientId];
-  const params = arg === null ? [fleet] : [fleet, arg];
+export async function evaluateDrift(db: Queryable, scope: CabinetScope): Promise<{ opened: number; resolved: number }> {
+  const policy = await fleetPolicy(db);
+  const fleet = safeJson(policy);
   // FORCESEEK on alerts here and in the MERGE: a plan compiled while alerts was still nearly empty (a new install, a load test) chose a
   // scan, and a HOLDLOCK scan range-locks the whole table, which serialised every heartbeat of a 10,000-cabinet fleet.
   // One cabinet (a heartbeat): a lock-free read first says whether it differs and whether an alert is open; usually neither, and then
@@ -91,30 +82,8 @@ export async function evaluateDrift(db: Queryable, scope: { cabinetId: string } 
     [differ, open] = [!!r?.d, !!r?.o];
     if (!differ && !open) return { opened: 0, resolved: 0 };
   }
-  const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [ISSUE.firewallPolicy])).rows[0];
-  if (!issue) return { opened: 0, resolved: 0 };
-  const n = params.length;
-  // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
-  const opened = !differ ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
-    `DECLARE @o TABLE (act nvarchar(10));
-     MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
-     USING (SELECT k.id AS cabinet_id
-              FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-             WHERE k.status = 'active' AND ${where} AND ${DIFFERS_SQL}) AS src
-        ON t.cabinet_id = src.cabinet_id AND t.signature = $${n + 3} AND t.state <> 'resolved'
-      WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
-      WHEN NOT MATCHED THEN INSERT (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
-           VALUES (src.cabinet_id, CAST($${n + 1} AS uniqueidentifier), $${n + 2}, $${n + 3}, $${n + 4}, SYSUTCDATETIME(), SYSUTCDATETIME())
-      OUTPUT $action INTO @o (act);
-     SELECT act FROM @o;`,
-    [...params, ISSUE.firewallPolicy, issue.severity, `issue:${ISSUE.firewallPolicy}`, issue.name]);
-  const resolved = !open ? [] : await closeAutomatically(db, "firewall-policy",
-    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = 'The firewall matches its policy again.' ${CLOSED_OUTPUT}
-       FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-      WHERE a.issue_type_id = CAST($${n + 1} AS uniqueidentifier) AND a.state <> 'resolved' AND ${where}
-        AND (k.status <> 'active' OR NOT (${DIFFERS_SQL}))`,
-    [...params, ISSUE.firewallPolicy]);
-  return { opened: opened.rows.filter(r => r.act === "INSERT").length, resolved: resolved.length };
+  // alerts.ts opens and closes the alert, by name, with the fleet policy as a value (D107).
+  return foldCabinetCondition(db, "firewall", scope, { open: differ, close: open }, { fleetPolicy: policy });
 }
 
 /** An Admin sets a client's own policy, or removes it (null) so the fleet default applies. Needs a code. */
