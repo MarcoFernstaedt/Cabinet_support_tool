@@ -105,13 +105,13 @@ const EVENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 /**
  * Moves an alert's events to the alert it was folded into, and records the rule that matched them (F21.R2, decision-log D104): a rule
  * going live regroups an unrecognized alert under its issue's alert (rules.ts regroupOpen), and the events go with it. In the caller's
- * transaction; the regroup itself is audited there (rule.activate). The three ids are checked before the database is touched, and an
- * alert is not moved onto itself. Returns how many events moved.
+ * transaction; the regroup itself is audited there (rule.activate). The three ids are checked before the database is touched. An alert
+ * folded into itself keeps its events and records the rule, as the statement in rules.ts did (D105): a rule going live never fails on
+ * it. Returns how many events the statement changed.
  */
 export async function moveAlertEvents(c: Queryable, fromAlertId: string, toAlertId: string, ruleId: string): Promise<number> {
   for (const [name, v] of [["alert to move from", fromAlertId], ["alert to move to", toAlertId], ["rule", ruleId]] as const)
     if (typeof v !== "string" || !EVENT_UUID.test(v)) throw new Error(`the ${name} must be a uuid`);
-  if (fromAlertId.toLowerCase() === toAlertId.toLowerCase()) throw new Error("an alert's events are not moved onto the same alert");
   return (await c.query("UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1", [fromAlertId, toAlertId, ruleId])).rowCount ?? 0;
 }
 
