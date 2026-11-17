@@ -9,6 +9,14 @@ stamp=$(date +%Y%m%d-%H%M%S)
 log="$outdir/off-network-$stamp.log"
 mkdir -p "$outdir"
 if [ -z "${TEST_DATABASE_ADMIN_URL:-}" ]; then
+  # The acceptance database is a long-lived container but not a supervised one: if it is
+  # stopped (host event, OOM) the harness cannot start and this script dies on its first
+  # command. Bring it up and wait for health, so a stale container never blocks a run.
+  docker start cab-test-mssql >/dev/null 2>&1 || true
+  for _ in $(seq 1 30); do
+    [ "$(docker inspect -f '{{.State.Health.Status}}' cab-test-mssql 2>/dev/null)" = healthy ] && break
+    sleep 2
+  done
   PW=$(docker exec cab-test-mssql printenv MSSQL_SA_PASSWORD | tr -d '\r')
   export TEST_DATABASE_ADMIN_URL="sqlserver://sa:${PW}@127.0.0.1:11433/master?trustServerCertificate=true"
 fi
