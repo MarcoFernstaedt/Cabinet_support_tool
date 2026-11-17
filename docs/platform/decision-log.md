@@ -6,6 +6,45 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D114. A person over their write limit is paused by users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `7b97ddc`; an entry on the ownership debt list, F21.R2):
+- **The write.** `recordLimitPause` in `server/src/services/writes.ts:75-86` paused a person's writes when a write went over their hourly
+  limit, with its own `UPDATE users`:
+  - it sets `writes_paused` and keeps a reason already given;
+  - it runs only when the person was not paused already.
+
+  Then it audited `writes.user_paused` and raised the `write_volume` security alert, with the person's username and limit.
+- **Who owns that table.** `users` belongs to `services/users.ts`, which already holds the opposite write, `resumeUserWrites`.
+
+**The decision:**
+- **The pause moves; the audit and the alert stay.** `users.ts` exports `pauseUserWritesForLimit(c, id)` with the same statement, in the
+  caller's transaction. It answers the username and limit when it paused the person, and null when they were paused already or there is no
+  such account. `writes.ts` audits and raises the alert only on an answer, as before when exactly one row changed.
+- **The account is checked** to be a uuid before the database is touched.
+- **Debt count:** the `services/writes.ts` entry for `users` comes off, which leaves 41.
+
+**Proof:**
+- **`server/test/write-limit-pause.test.ts`** (new, 3 tests, against the database):
+  - **Pausing.** A person is paused once, with the reason, and the answer gives their username and limit (id in upper case). A second
+    pause answers null, another account is untouched, and an unknown account answers null.
+  - **Reason and rollback.** A reason an Admin already gave is kept, and a pause in a transaction that rolls back leaves the account as
+    it was.
+  - **Hostile input.** Nine accounts that are not a uuid are refused on a connection that throws if used.
+- **Red checks** (`write-limit-pause`, `writes`, `write-safety` and `table-ownership`, 24 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `writes.ts` | The ownership test |
+  | The pause not recorded | Four write-limit tests in `writes.test.ts` and `write-safety.test.ts` |
+  | A pause that repeats | The first new test |
+  | The reason overwritten | The second new test |
+  | The account check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 24 of 24 pass.
+
+---
+
 ## D113. A failed sign-in is counted against the account by users.ts, the users' owner (2026-11-17)
 
 **What the code did** (at `d4ccf11`; an entry on the ownership debt list, F21.R2):
