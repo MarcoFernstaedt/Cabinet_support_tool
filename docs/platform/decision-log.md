@@ -6,6 +6,57 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D110. A failed migration's alert is raised by security.ts, and the command line asks for it (2026-11-17)
+
+**What the code did** (at `568a693`; an entry on the ownership debt list, F21.R2):
+- **The write.** `alertMigrationFailed` in `server/src/db/migrate.ts:36-44` raised the "Database migration … failed" operations alert with
+  its own `UPDATE security_alerts … IF @@ROWCOUNT = 0 INSERT …` on the owner's connection. `migrate()` called it when a migration failed
+  (`migrate.ts:71`).
+- **Who owns that table.** `security_alerts` belongs to `services/security.ts`.
+- **Why it was left** (D88): moving the write into a service would make the database layer depend on that service.
+- **What it skipped.** Every other security and operations alert goes through `raiseSecurityAlert`, which audits each raise
+  (`security.alert`) and wakes the Admins' live streams. The migration alert did neither. A version name longer than the title column
+  made it fail (it answered false), where `raiseSecurityAlert` cuts the title to fit.
+
+**The decision:**
+- **The alert moves to `security.ts`.** `alertMigrationFailed(owner, version)` raises it through `raiseSecurityAlert`, in its own
+  transaction on the owner's connection. It is still best effort and still answers whether it was raised.
+- **`migrate()` asks its caller instead.** It takes `onFailed(version)`, called after the failed migration's transaction has rolled back
+  and before its error is thrown. A failing `onFailed` never hides that error.
+- **The command line connects the two.** `platform-admin migrate` (`src/cli.ts`) passes `alertMigrationFailed`. The database layer imports
+  no service, which answers D88's reason for leaving it.
+- **What changes for an Admin:**
+  - The alert is audited, like every other operations alert.
+  - It appears on the live stream at once.
+  - A long migration name is cut to fit instead of losing the alert.
+- **Unchanged:** the kind, the signature (one open alert), the title and the detail.
+- **Who calls `migrate()` without `onFailed`.** The test database setup and the migration tests. A failure there now raises no alert;
+  none of them asserted one.
+- **Debt count:** the `db/migrate.ts` entry for `security_alerts` comes off, which leaves 44.
+
+**Proof** (`server/test/operations.test.ts`, two new tests, against the database):
+- **The alert.** A hostile version name of 339 characters (an injection and padding) is raised: it folds into the one open migration
+  alert, is stored as text cut to 256, is audited once as a repeat, and adds one notification.
+- **The callback.** A broken migration added after the real ones:
+  - fails with its own error;
+  - tells the caller its version once;
+  - leaves neither its half-built table nor a `schema_migrations` row.
+
+  A caller whose alert throws still gets the migration's error. The command line's source passes `alertMigrationFailed`.
+- **Red checks** (`operations` and `table-ownership`, 27 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `security_alerts` write back in `migrate.ts` | The ownership test |
+  | The command line passing no alert | The callback test |
+  | `migrate()` never telling its caller | The callback test |
+  | A failing alert allowed to replace the error | The callback test |
+  | The alert's transaction not committed | The existing migration test, the new alert test, and the two system-health tests that count open alerts |
+
+  Restored and `cmp` identical, 27 of 27 pass.
+
+---
+
 ## D109. The clock tolerance is set site by site, from 10 to 120 seconds (2026-11-17)
 
 **What the code did** (at `6aef428`):

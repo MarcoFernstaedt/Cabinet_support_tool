@@ -12,6 +12,7 @@ import { parseArgs } from "node:util";
 import { databaseUrl, loadConfig } from "./config.js";
 import { audit, createPool, transaction, verifyAuditChain, type Pool } from "./db/db.js";
 import { connectOwner, migrate } from "./db/migrate.js";
+import { alertMigrationFailed } from "./services/security.js";
 import { upsertSetting } from "./services/settings.js";
 import { setClientPauseByCli } from "./services/writes.js";
 import { formatHealth, healthSummary } from "./services/ops-health.js";
@@ -134,7 +135,8 @@ async function main(argv: string[]): Promise<void> {
   if (command === "migrate") {
     // The owner's account (it may create tables and roles), not the application's.
     const owner = await connectOwner(databaseUrl(process.env, "DATABASE_OWNER_URL"));
-    try { const ran = await migrate(owner); console.log(ran.length ? `Applied ${ran.join(", ")}` : "Up to date."); }
+    // A failure leaves the Admins an operations alert (security.ts, D110).
+    try { const ran = await migrate(owner, undefined, version => alertMigrationFailed(owner, version)); console.log(ran.length ? `Applied ${ran.join(", ")}` : "Up to date."); }
     finally { await owner.close(); }
     return;
   }

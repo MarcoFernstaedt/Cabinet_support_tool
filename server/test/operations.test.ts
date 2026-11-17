@@ -2,6 +2,7 @@
 // the operations counters (counts only), the System health API (Admin only, no secrets) and the agent pacing settings.
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { FastifyInstance } from "fastify";
 import { paramsHash } from "../src/auth/canonical.js";
@@ -15,7 +16,8 @@ import type { IssuingKey } from "../src/pki/x509.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { clearOldEventDetail, runRetention, EVENT_DETAIL_DAYS } from "../src/services/maintenance.js";
 import { DEFAULT_SETTINGS, agentPacing, platformSettings } from "../src/services/settings.js";
-import { alertMigrationFailed, connectOwner } from "../src/db/migrate.js";
+import { connectOwner, migrate, readMigrations } from "../src/db/migrate.js";
+import { alertMigrationFailed } from "../src/services/security.js";
 import { NULL_BINARY, verifyAuditChain } from "../src/db/db.js";
 import { OpsMeter, OpsReporter, errorSpike, minuteOf, noteError, noteResponse, pruneOpsCounters, safeCode, shedSustained, splitKey, writeOpsCounters } from "../src/services/ops-meter.js";
 import { certificateExpiry, editionLimitBytes, formatHealth, healthSummary, runOpsChecks } from "../src/services/ops-health.js";
@@ -303,6 +305,41 @@ test("a failed migration leaves one open operations alert, naming the migration 
   } finally { await owner.close(); }
   const open = await openAlerts("ops_migration");
   assert.equal(open.length, 1); assert.equal(open[0]!.occurrences, 2); assert.match(open[0]!.title, /0099_example/);
+});
+
+test("a failed migration's alert is raised through security.ts: audited and announced like every other operations alert (D110)", async () => {
+  const seqBefore = Number((await q<{ s: string | null }>("SELECT MAX(seq) AS s FROM audit_log")).rows[0]!.s ?? 0);
+  const noteBefore = Number((await q<{ n: number }>("SELECT COUNT(*) AS n FROM notifications WHERE channel = 'security_alerts'")).rows[0]!.n);
+  // A version name that is hostile and longer than a title holds: stored as text, cut to fit, never run.
+  const hostile = `0098_x'; DROP TABLE security_alerts; --${"y".repeat(300)}`;
+  const owner = await connectOwner(db.ownerUrl);
+  try { assert.equal(await alertMigrationFailed(owner, hostile), true); } finally { await owner.close(); }
+  const open = await openAlerts("ops_migration");
+  assert.equal(open.length, 1, "it folds into the one open migration alert");
+  assert.ok(open[0]!.title.startsWith("Database migration 0098_x'; DROP TABLE security_alerts; --"), open[0]!.title.slice(0, 80));
+  assert.equal(open[0]!.title.length, 256);
+  const audited = (await q<{ details: unknown }>("SELECT details FROM audit_log WHERE action = 'security.alert' AND seq > $1", [seqBefore])).rows
+    .map(r => (typeof r.details === "string" ? JSON.parse(r.details) : r.details) as { kind: string; added: boolean });
+  assert.deepEqual(audited.map(d => [d.kind, d.added]), [["ops_migration", false]], "audited as a repeat of the open alert");
+  const noteAfter = Number((await q<{ n: number }>("SELECT COUNT(*) AS n FROM notifications WHERE channel = 'security_alerts'")).rows[0]!.n);
+  assert.equal(noteAfter, noteBefore + 1, "the Admins' live streams are woken");
+});
+
+test("migrate hands a failed migration's version to its caller and still throws its error, and the command line raises the alert there (D110)", async () => {
+  const owner = await connectOwner(db.ownerUrl);
+  const told: string[] = [];
+  const broken = { version: "9999_broken", checksum: "0".repeat(64), sql: "CREATE TABLE d110_half_built (id int);\nGO\nSELECT 1 / 0;" };
+  try {
+    await assert.rejects(migrate(owner, [...readMigrations(), broken], async v => { told.push(v); }), /Migration 9999_broken failed/);
+    // A caller whose own alert fails does not hide the migration's error.
+    await assert.rejects(migrate(owner, [...readMigrations(), broken], async () => { throw new Error("alert failed"); }), /Migration 9999_broken failed/);
+    assert.deepEqual(told, ["9999_broken"]);
+    assert.equal((await owner.request().query("SELECT 1 AS x FROM sys.tables WHERE name = 'd110_half_built'")).recordset.length, 0, "the failed migration rolled back");
+    assert.equal((await owner.request().query("SELECT 1 AS x FROM schema_migrations WHERE version = '9999_broken'")).recordset.length, 0);
+  } finally { await owner.close(); }
+  // The command line passes security.ts's alert (src/cli.ts).
+  const cli = readFileSync(new URL("../../src/cli.ts", import.meta.url), "utf8");
+  assert.match(cli, /migrate\(owner, undefined, version => alertMigrationFailed\(owner, version\)\)/);
 });
 
 // ---- The System health API -----------------------------------------------------------------------------------------------------------------

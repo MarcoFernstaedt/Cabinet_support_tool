@@ -30,20 +30,11 @@ export async function connectOwner(url: string): Promise<sql.ConnectionPool> {
 }
 
 /**
- * A failed migration leaves an operations alert for the Admins (best effort: it needs the security alerts table and the widened kind rule,
- * so it cannot be raised when the failing migration is one of the first). The alert names the migration, never the error text.
+ * Applies the migrations not yet applied, in order. When one fails, `onFailed` is told its version once its transaction has rolled back,
+ * before the error is thrown: the command line raises the Admins' operations alert there (security.ts alertMigrationFailed). The
+ * database layer writes no table a service owns (F21.R2, decision-log D110), so the alert is the caller's to raise.
  */
-export async function alertMigrationFailed(pool: sql.ConnectionPool, version: string): Promise<boolean> {
-  const title = `Database migration ${version} failed; the database stays at the previous version`;
-  try {
-    const r = await pool.request().input("t", sql.NVarChar(256), title).input("d", sql.VarChar(sql.MAX), JSON.stringify({ version })).query(
-      `UPDATE security_alerts SET occurrences = occurrences + 1, last_seen = SYSUTCDATETIME(), title = @t, detail = @d WHERE signature = 'ops:migration' AND state = 'open';
-       IF @@ROWCOUNT = 0 INSERT INTO security_alerts (kind, signature, title, detail) VALUES ('ops_migration', 'ops:migration', @t, @d);`);
-    return r.rowsAffected.length > 0;
-  } catch { return false; }
-}
-
-export async function migrate(pool: sql.ConnectionPool, migrations = readMigrations()): Promise<string[]> {
+export async function migrate(pool: sql.ConnectionPool, migrations = readMigrations(), onFailed?: (version: string) => Promise<unknown>): Promise<string[]> {
   // Readers must not block writers: row versioning gives each statement a consistent snapshot, as PostgreSQL does.
   await pool.request().query("IF (SELECT is_read_committed_snapshot_on FROM sys.databases WHERE name = DB_NAME()) = 0 ALTER DATABASE CURRENT SET READ_COMMITTED_SNAPSHOT ON WITH ROLLBACK IMMEDIATE");
   await pool.request().query(`IF OBJECT_ID('schema_migrations') IS NULL CREATE TABLE schema_migrations (version nvarchar(100) PRIMARY KEY, checksum char(64) NOT NULL, applied_at datetime2(3) NOT NULL DEFAULT SYSUTCDATETIME())`);
@@ -68,7 +59,7 @@ export async function migrate(pool: sql.ConnectionPool, migrations = readMigrati
         ran.push(m.version);
       } catch (e) {
         await t.rollback().catch(() => undefined);
-        await alertMigrationFailed(pool, m.version);
+        await onFailed?.(m.version).catch(() => undefined);
         throw new Error(`Migration ${m.version} failed: ${(e as Error).message}`);
       }
     }
