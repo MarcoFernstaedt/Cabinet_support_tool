@@ -289,6 +289,10 @@ try {
     fallbackRunsAt = Date.now() + 6 * 60_000;
     fallbackDeadline = fallbackRunsAt + 60_000;
     await ps(`$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ${quote('-NoProfile -NonInteractive -EncodedCommand ' + Buffer.from("$ErrorActionPreference='Stop';" + recovery, 'utf16le').toString('base64'))}; $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(6); Register-ScheduledTask -TaskName ${quote(taskName)} -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null`);
+    // Hold off the cabinet's own tailscale-watchdog for the tailnet-off window. The hold
+    // file carries a timestamp and expires on its own, so a run that dies here cannot
+    // leave the watchdog disabled.
+    await ps(`Set-Content -Path C:\\tailscale-watchdog.hold -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ascii`);
     // Losing SSH here is expected. No SSH probes or diagnostics until shell restoration.
     sshAvailable = false;
     try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { timeout: 15000 }); }
@@ -334,7 +338,7 @@ try {
     await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
     sshAvailable = true;
     tailnetRestoredAt = new Date().toISOString();
-    await ps(`Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`);
+    await ps(`Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }; Remove-Item C:\\tailscale-watchdog.hold -ErrorAction SilentlyContinue`);
     fallbackRegistered = false;
   }
   const marker = 'CABINET_SHELL_' + randomUUID().replaceAll('-', '');
