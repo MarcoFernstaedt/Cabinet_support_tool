@@ -48,6 +48,20 @@ export async function countAuthFailure(db: Queryable, id: string, lockAt: number
   return r ? { failures: r.failed_logins, username: r.username } : null;
 }
 
+/**
+ * Pauses one person's writes for going over their hourly limit (F21.R2, decision-log D114): the pause sticks until an Admin resumes them
+ * (resumeUserWrites), and a reason already given is kept. In the caller's transaction; writes.ts audits it and raises the alert. Returns
+ * who was paused, with their limit, or null when they were paused already or there is no such account. The account is checked before
+ * the database is touched.
+ */
+export async function pauseUserWritesForLimit(c: Queryable, id: string): Promise<{ username: string; writeLimit: number } | null> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  const r = await c.query("UPDATE users SET writes_paused = 1, writes_paused_reason = COALESCE(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND writes_paused = 0", [id]);
+  if (r.rowCount !== 1) return null;
+  const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [id])).rows[0]!;
+  return { username: who.username, writeLimit: who.write_limit };
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;
