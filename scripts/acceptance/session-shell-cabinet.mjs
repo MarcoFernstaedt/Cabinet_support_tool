@@ -6,7 +6,7 @@ import { BlockList, isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
-import { randomUUID } from 'node:crypto';
+import { X509Certificate, randomUUID } from 'node:crypto';
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir, networkInterfaces, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -27,10 +27,11 @@ import { createPool, verifyAuditChain } from '../../server/dist/src/db/db.js';
 const sshConfig = ['-F', join(homedir(), '.ssh/config'), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
 const offNetwork = process.env.SHELL_OFF_NETWORK === '1';
 const platformPort = Number(process.env.SHELL_PLATFORM_PORT ?? 18443);
-// A Docker TCP forwarder can publish the public port and target a different local listener.
+// The alternate listener port applies only to the existing host-served mode.
 const platformListenPort = Number(process.env.SHELL_PLATFORM_LISTEN_PORT ?? platformPort);
 if (offNetwork) {
   assert.ok(process.env.SHELL_PLATFORM_HOST, 'SHELL_OFF_NETWORK requires SHELL_PLATFORM_HOST=<public address>');
+  assert.equal(isIP(process.env.SHELL_PLATFORM_HOST), 4, 'SHELL_OFF_NETWORK requires a public IPv4 address');
   assert.equal(platformPort, 8443, 'SHELL_OFF_NETWORK requires SHELL_PLATFORM_PORT=8443');
 }
 const cabinetHost = process.env.SHELL_CABINET_SSH ?? 'deviceb';
@@ -43,9 +44,9 @@ let fallbackRegistered = false, fallbackDeadline = 0, fallbackRunsAt = 0, contai
 let tailnetDownAt, tailnetRestoredAt, peerAddress;
 const taskName = 'cabinet-acceptance-tailscale-restore';
 const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
-const connections = new Map();
-const tlsSockets = new Set();
-let preDropSockets = new Set();
+const platformContainer = runId + '-platform';
+const platformImage = 'cabinet-shell-acceptance:local';
+let platformContainerCreated = false;
 const signalHandlers = new Map();
 if (offNetwork) for (const signal of ['SIGINT', 'SIGTERM']) {
   const handler = () => { interrupted = new Error(`Interrupted by ${signal}`); };
@@ -137,6 +138,56 @@ async function until(read, label, { expectExit = false } = {}) {
   throw new Error(`Timed out: ${label}`);
 }
 async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`]); }
+// This bootstrap runs inside the built server image. The control listener is
+// loopback-only and never published; socket peers come directly from the agent API.
+async function containerPlatform() {
+  const { readFileSync } = await import('node:fs');
+  const { createServer } = await import('node:http');
+  const base = '/build/server/dist/src/';
+  const { createPool } = await import(base + 'db/db.js');
+  const { developmentIssuingKey } = await import(base + 'pki/issuing.js');
+  const { buildAgentApi } = await import(base + 'agent-api/server.js');
+  const { NotificationFeed } = await import(base + 'db/notifications.js');
+  const { CommandNotifier } = await import(base + 'agent-api/notifier.js');
+  const { SessionRelay } = await import(base + 'agent-api/session-relay.js');
+  const { SessionLifecycle } = await import(base + 'services/session-lifecycle.js');
+  const config = JSON.parse(readFileSync('/acceptance/platform.json', 'utf8'));
+  const pkiDir = '/acceptance/' + (await import('node:fs')).readdirSync('/acceptance').find(n => n.startsWith('acceptance-pki-'));
+  const issuingKey = await developmentIssuingKey(pkiDir);
+  const pool = await createPool(config.databaseUrl);
+  const feed = new NotificationFeed(pool, 50); await feed.start();
+  const notifier = new CommandNotifier(feed); await notifier.start();
+  let lifecycle;
+  const relay = new SessionRelay((c, s, a) => lifecycle.authorize(c, s, a));
+  lifecycle = new SessionLifecycle(pool, (c, s) => relay.close(c, s));
+  const api = await buildAgentApi({ pool, issuingKey, notifier, sessionRelay: relay, tls: config.tls, longPollMs: 1000, logger: true });
+  const sockets = new Set(), connections = new Map();
+  let excluded = new Set();
+  api.server.on('secureConnection', socket => {
+    sockets.add(socket);
+    socket.once('close', () => { sockets.delete(socket); connections.delete(socket); });
+  });
+  // Authentication has run, even when the handler will hold a command poll open.
+  api.addHook('preHandler', async request => {
+    const socket = request.raw.socket;
+    if (request.cabinet && !socket.destroyed && !excluded.has(socket))
+      connections.set(socket, { cabinetId: request.cabinet.id, peerAddress: socket.remoteAddress });
+  });
+  await api.listen({ host: '0.0.0.0', port: 8443 });
+  createServer((request, response) => {
+    if (request.url === '/reset') {
+      excluded = new Set(sockets);
+      for (const socket of excluded) socket.destroy();
+      connections.clear();
+    }
+    response.setHeader('content-type', 'application/json');
+    response.end(JSON.stringify({ ready: true, connections: [...connections].filter(([socket]) => !socket.destroyed).map(([, c]) => c) }));
+  }).listen(18444, '127.0.0.1');
+}
+async function platformControl(action) {
+  return JSON.parse(await run('docker', ['exec', platformContainer, 'node', '-e',
+    `fetch('http://127.0.0.1:18444/${action}').then(r => r.text()).then(console.log).catch(() => process.exit(1))`], { timeout: 10000 }));
+}
 try {
   // This build is from the current working tree, including review changes.
   await run('dotnet', ['publish', 'agent/tests/Cabinet.Agent.ShellCabinet', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '--disable-build-servers', '-p:BuildInParallel=false', '-o', join(work, 'bin')], { stdio: 'inherit' });
@@ -151,33 +202,47 @@ try {
   const { rootPem, issuingKey: key, tls } = await developmentPlatformPki(work, [platformHost]);
   writeFileSync(join(work, 'platform-ca.pem'), rootPem);
   await upload(join(work, 'platform-ca.pem'), remote + '\\platform-ca.pem');
-  feed = new NotificationFeed(db.app, 50); await feed.start();
-  notifier = new CommandNotifier(feed); await notifier.start();
-  let lifecycle;
-  const relay = new SessionRelay((c, s, a) => lifecycle.authorize(c, s, a));
-  lifecycle = new SessionLifecycle(db.app, (c, s) => relay.close(c, s));
-  api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, sessionRelay: relay,
-    tls, longPollMs: 1000, logger: true,
-    onAdmissionDiagnostics: read => { admissionDiagnostics = read; },
-    onAdmissionShed: reason => shedReasons.set(reason, (shedReasons.get(reason) ?? 0) + 1) });
   if (offNetwork) {
+    assert.equal(new X509Certificate(tls.certPem).checkIP(platformHost), platformHost, 'Platform certificate must cover the public IP');
+    // Build this working tree, using the repository's server stage. No deployed image
+    // or host listener participates in the public path.
+    await run('docker', ['build', '-f', 'deploy/Dockerfile', '--target', 'server-build', '-t', platformImage, '.']);
+    const sqlContainer = process.env.SHELL_DATABASE_CONTAINER ?? 'cab-test-mssql';
+    const [sql] = JSON.parse(await run('docker', ['inspect', sqlContainer]));
+    const [network, endpoint] = Object.entries(sql.NetworkSettings.Networks)[0];
+    const databaseUrl = new URL(db.appUrl);
+    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(databaseUrl.hostname), 'Container SQL mapping requires a local test database');
+    const binding = sql.NetworkSettings.Ports['1433/tcp'] ?? [];
+    assert.ok(binding.some(b => b.HostPort === (databaseUrl.port || '1433')), 'SQL container must publish the acceptance database port');
+    databaseUrl.hostname = endpoint.IPAddress;
+    databaseUrl.port = '1433';
+    writeFileSync(join(work, 'platform.json'), JSON.stringify({ databaseUrl: databaseUrl.toString(), platformHost, tls }));
+    writeFileSync(join(work, 'platform.mjs'), '(' + containerPlatform.toString() + ')().catch(error => { console.error(error); process.exit(1); });');
     const running = await run('docker', ['inspect', '--format', '{{.State.Running}}', 'cabinet-server-1']);
     if (running === 'true') {
       containerStopped = true;
       await run('docker', ['stop', 'cabinet-server-1']);
     }
-    api.server.on('secureConnection', socket => {
-      tlsSockets.add(socket); socket.once('close', () => tlsSockets.delete(socket));
-    });
-    // requireCabinet authenticates in onRequest. Observe before the handler can
-    // hold a long-poll open: a completed response is not required for connectivity.
-    api.addHook('preHandler', async (request) => {
-      if (request.cabinet && !request.raw.socket.destroyed && !preDropSockets.has(request.raw.socket)) connections.set(request.raw.socket, {
-        cabinetId: request.cabinet.id, peerAddress: request.raw.socket.remoteAddress,
-      });
-    });
+    // Set before creation so cleanup also handles an interrupted/failed docker run.
+    platformContainerCreated = true;
+    await run('docker', ['run', '-d', '--name', platformContainer, '--network', network,
+      '-p', '8443:8443', '--mount', `type=bind,src=${work},dst=/acceptance,readonly`,
+      '--entrypoint', 'node', platformImage, '/acceptance/platform.mjs']);
+    await until(async () => {
+      try { return (await platformControl('status')).ready; } catch { return false; }
+    }, 'container platform ready');
+  } else {
+    feed = new NotificationFeed(db.app, 50); await feed.start();
+    notifier = new CommandNotifier(feed); await notifier.start();
+    let lifecycle;
+    const relay = new SessionRelay((c, s, a) => lifecycle.authorize(c, s, a));
+    lifecycle = new SessionLifecycle(db.app, (c, s) => relay.close(c, s));
+    api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, sessionRelay: relay,
+      tls, longPollMs: 1000, logger: true,
+      onAdmissionDiagnostics: read => { admissionDiagnostics = read; },
+      onAdmissionShed: reason => shedReasons.set(reason, (shedReasons.get(reason) ?? 0) + 1) });
+    await api.listen({ host: '0.0.0.0', port: platformListenPort });
   }
-  await api.listen({ host: '0.0.0.0', port: platformListenPort });
   const server = `https://${platformHost}:${platformPort}`;
   const operator = randomUUID();
   await observer.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'shell-acceptance', 'Shell acceptance operator', 'tier2')", [operator]);
@@ -212,7 +277,7 @@ try {
   await startAgent(server);
   await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND development_shell = 1', [cabinetId])).rows[0], 'opt-in capability');
   if (offNetwork) {
-    await until(async () => [...connections].some(([socket, c]) => !socket.destroyed && c.cabinetId === cabinetId), 'authenticated baseline agent connection');
+    await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
     await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
     const recovery = `try { & ${quote(tailscale)} up; if ($LASTEXITCODE -ne 0) { throw 'Fallback tailscale up failed' } } finally { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }`;
     // Set the flag before registration: even a lost SSH response must enter cleanup.
@@ -227,10 +292,8 @@ try {
     tailnetDownAt = new Date().toISOString();
     // Evict every pre-drop TLS connection; a later successful authenticated request
     // must use a new socket. The API observes the socket peer, never forwarded headers.
-    preDropSockets = new Set(tlsSockets);
-    for (const socket of preDropSockets) socket.destroy();
-    connections.clear();
-    const connection = await until(async () => [...connections].find(([socket, c]) => !socket.destroyed && c.cabinetId === cabinetId)?.[1], 'fresh public agent reconnect after tailscale down');
+    await platformControl('reset');
+    const connection = await until(async () => (await platformControl('status')).connections.find(c => c.cabinetId === cabinetId), 'fresh public agent reconnect after tailscale down');
     peerAddress = connection.peerAddress;
     assert.ok(peerAddress && !tailnetAddress(peerAddress), `Agent API observed tailnet peer: ${peerAddress}`);
   }
@@ -304,7 +367,12 @@ try {
   if (agentProcess && remote && sshAvailable) {
     try { await ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`); } catch { /* primary failure remains non-zero */ }
   }
-  await api?.close();
+  // Container teardown and deployment restoration must run even if API close fails.
+  try { await api?.close(); } catch (error) { recoveryError ??= error; }
+  if (platformContainerCreated) {
+    try { console.error(await run('docker', ['logs', platformContainer])); } catch { /* creation may have failed */ }
+    try { await run('docker', ['rm', '-f', platformContainer]); } catch (error) { recoveryError ??= error; }
+  }
   if (containerStopped) {
     try { await run('docker', ['start', 'cabinet-server-1']); } catch (error) { recoveryError ??= error; }
   }
