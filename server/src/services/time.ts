@@ -2,68 +2,33 @@
 // client's, else the fleet default (05-server-spec.md "Site policies"); each cabinet reports its zone and its clock offset in every heartbeat. A cabinet in the wrong zone, or whose clock is more than two
 // minutes off, gets a minor alert, which closes on its own when the heartbeat shows it right again.
 import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
-import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { foldCabinetCondition, type CabinetScope } from "./alerts.js";
+import { CLOCK_OFF_SQL, CLOCK_TOLERANCE_SECONDS, FLEET_ZONE_KEY, SITE_ZONE_SQL, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
 import { upsertSetting } from "./settings.js";
 import { Refused } from "./errors.js";
 import { ISSUE } from "./rules.js";
-import { OFFLINE_AFTER_MS } from "./cabinets.js";
 
 export const TIME_ZONES = ["Eastern Standard Time", "Central Standard Time", "Mountain Standard Time", "US Mountain Standard Time",
   "Pacific Standard Time", "Alaskan Standard Time", "Hawaiian Standard Time"] as const;
 export type TimeZoneId = (typeof TIME_ZONES)[number];
-/** How far a clock may be from the server's before it counts as off. */
-export const CLOCK_TOLERANCE_SECONDS = 120;
-
-/** The settings row that holds the fleet default zone, as {"timeZone": ...}. */
-const FLEET_ZONE_KEY = "time.zone";
-/**
- * The zone that applies at site s (joined to its client cl): the site's own, else the client's, else the fleet default. Every
- * statement that judges or sets a cabinet's zone uses this, so the three levels are read the same way everywhere.
- */
-export const SITE_ZONE_SQL = `COALESCE(s.time_zone, cl.time_zone, (SELECT JSON_VALUE([value], '$.timeZone') COLLATE DATABASE_DEFAULT FROM settings WHERE [key] = '${FLEET_ZONE_KEY}'))`;
-const ZONE_WRONG = `k.time_zone_id IS NOT NULL AND ${SITE_ZONE_SQL} IS NOT NULL AND k.time_zone_id <> ${SITE_ZONE_SQL}`;
-const CLOCK_OFF = `k.clock_skew_seconds IS NOT NULL AND ABS(k.clock_skew_seconds) > ${CLOCK_TOLERANCE_SECONDS}`;
-
-type Scope = { cabinetId: string } | { siteId: string } | { clientId: string } | "all";
+// The conditions themselves live in cabinet-conditions.ts, where alerts.ts reads them too (D106); these stay importable from here.
+export { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL };
 
 /** Opens and closes the time zone and clock alerts for the cabinets in scope. Only cabinets heard from recently count. */
-export async function evaluateTime(db: Queryable, scope: Scope): Promise<{ opened: number; resolved: number }> {
-  // The scope's own id is the last parameter of each statement, so its number is given when the statement is written.
-  const [whereAt, args] = scope === "all" ? [() => "1 = 1", []] : "cabinetId" in scope ? [(n: number) => `k.id = $${n}`, [scope.cabinetId]]
-    : "siteId" in scope ? [(n: number) => `k.site_id = $${n}`, [scope.siteId]] : [(n: number) => `s.client_id = $${n}`, [scope.clientId]];
+export async function evaluateTime(db: Queryable, scope: CabinetScope): Promise<{ opened: number; resolved: number }> {
   let opened = 0, resolved = 0;
   // One cabinet (a heartbeat): a lock-free read first says what is to be done; usually nothing, so no range-locking MERGE runs.
   const need = scope !== "all" && "cabinetId" in scope ? (await db.query<{ zone: boolean; clock: boolean; zone_open: boolean; clock_open: boolean }>(
-    `SELECT CAST(CASE WHEN ${ZONE_WRONG} THEN 1 ELSE 0 END AS bit) AS zone, CAST(CASE WHEN ${CLOCK_OFF} THEN 1 ELSE 0 END AS bit) AS clock,
+    `SELECT CAST(CASE WHEN ${ZONE_WRONG_SQL} THEN 1 ELSE 0 END AS bit) AS zone, CAST(CASE WHEN ${CLOCK_OFF_SQL} THEN 1 ELSE 0 END AS bit) AS clock,
             CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = k.id AND issue_type_id = $2 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS zone_open,
             CAST(CASE WHEN EXISTS (SELECT 1 FROM alerts WITH (FORCESEEK) WHERE cabinet_id = k.id AND issue_type_id = $3 AND state <> 'resolved') THEN 1 ELSE 0 END AS bit) AS clock_open
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1 AND k.status = 'active'`,
     [scope.cabinetId, ISSUE.timeZone, ISSUE.clock])).rows[0] ?? { zone: false, clock: false, zone_open: false, clock_open: false } : null;
-  for (const [issueId, condition, fixed] of [[ISSUE.timeZone, ZONE_WRONG, "The cabinet is in its site's time zone again."],
-                                             [ISSUE.clock, CLOCK_OFF, "The cabinet's clock is within two minutes of the server's again."]] as const) {
-    const [wrong, open] = need === null ? [true, true] : issueId === ISSUE.timeZone ? [need.zone, need.zone_open] : [need.clock, need.clock_open];
-    if (!wrong && !open) continue;
-    const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [issueId])).rows[0];
-    if (!issue) continue;
-    // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
-    const o = !wrong ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
-      `DECLARE @o TABLE (act nvarchar(10));
-       MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
-       USING (SELECT k.id AS cabinet_id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-               WHERE k.status = 'active' AND ${whereAt(6)} AND k.last_heartbeat_at > DATEADD(second, -$4, SYSUTCDATETIME()) AND ${condition}) AS src
-          ON t.cabinet_id = src.cabinet_id AND t.signature = $3 AND t.state <> 'resolved'
-        WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
-        WHEN NOT MATCHED THEN INSERT (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
-             VALUES (src.cabinet_id, CAST($1 AS uniqueidentifier), $2, $3, $5, SYSUTCDATETIME(), SYSUTCDATETIME())
-        OUTPUT $action INTO @o (act);
-       SELECT act FROM @o;`, [issueId, issue.severity, `issue:${issueId}`, Math.round(OFFLINE_AFTER_MS / 1000), issue.name, ...args]);
-    opened += o.rows.filter(r => r.act === "INSERT").length;
-    const r = !open ? [] : await closeAutomatically(db, "time-check",
-      `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
-         FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
-        WHERE a.issue_type_id = CAST($1 AS uniqueidentifier) AND a.state <> 'resolved' AND ${whereAt(3)}
-          AND (k.status <> 'active' OR NOT (${condition}))`, [issueId, fixed, ...args]);
-    resolved += r.length;
+  // alerts.ts opens and closes them, by name (D106): the zone, then the clock, as before.
+  for (const name of ["timeZone", "clock"] as const) {
+    const [wrong, open] = need === null ? [true, true] : name === "timeZone" ? [need.zone, need.zone_open] : [need.clock, need.clock_open];
+    const r = await foldCabinetCondition(db, name, scope, { open: wrong, close: open });
+    opened += r.opened; resolved += r.resolved;
   }
   return { opened, resolved };
 }
