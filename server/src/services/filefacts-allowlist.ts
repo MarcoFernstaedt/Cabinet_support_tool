@@ -27,7 +27,7 @@ export const FACTS_ACTION = "filefacts.path";
 export const ALLOWLIST_SETTING_KEY = "filefacts.paths";
 /** The column each scope carries its own list in. */
 export const ALLOWLIST_COLUMN = "filefacts_paths";
-const TABLE: Record<Exclude<AllowlistLevel, "fleet">, string> = { client: "clients", site: "sites", cabinet: "cabinets" };
+const LEVEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The step-up action a level's write is bound to, named after the levels the rest of the platform already uses. */
 export const ALLOWLIST_SET_ACTION: Record<AllowlistLevel, string> = { fleet: "settings.filefacts", client: "client.filefacts", site: "site.filefacts", cabinet: "cabinet.filefacts" };
 const SET_ACTION = ALLOWLIST_SET_ACTION;
@@ -213,15 +213,30 @@ export async function setAllowlist(pool: Pool, user: { userId: string; role: str
       if (value === null) await removeSetting(c, ALLOWLIST_SETTING_KEY);
       else await upsertSetting(c, ALLOWLIST_SETTING_KEY, value, user.userId);
     } else {
-      const r = await c.query(`UPDATE ${TABLE[level]} SET ${ALLOWLIST_COLUMN} = $2 WHERE id = $1 AND ${level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL"}`,
-        [key, value === null ? null : JSON.stringify(value)]);
-      if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
+      if (!(await writeAllowlistLevel(c, level, key, value))) throw new Refused("not_found", 404, `no such ${level}`);
     }
     const place = level === "fleet" ? {} : { targetKind: level, targetId: key };
     await audit(c, { actorKind: "user", actorId: user.userId, action: SET_ACTION[level], ...place, outcome: "succeeded",
       details: { level, id: key, removed: value === null, entries: entries?.length ?? 0, version: value?.version ?? null, keys: entries?.map(e => e.key) ?? [] } });
     return value;
   });
+}
+
+/**
+ * Writes a client's, site's or cabinet's own file-facts paths (null clears them, so the level above applies), in the caller's transaction.
+ * This module owns the filefacts_paths column of all three (F21.R2, decision-log D123): one fixed statement per level, so the table and the
+ * column each writes are in the text (table-ownership.test.ts reads them). The level and the id are checked before the database is
+ * touched. Returns whether a live client, site or cabinet took it. setAllowlist reads the level first (readLevel, which checks the id and
+ * refuses a removed scope), so these checks are the second line; they are exported so the module's tests can hold them.
+ */
+export async function writeAllowlistLevel(c: Queryable, level: "client" | "site" | "cabinet", key: string, value: unknown): Promise<boolean> {
+  if (level !== "client" && level !== "site" && level !== "cabinet") throw new Error("a file-facts list belongs to the fleet, a client, a site or a cabinet");
+  if (typeof key !== "string" || !LEVEL_ID.test(key)) throw new Error(`the ${level} must be a uuid`);
+  const text = value === null ? null : JSON.stringify(value);
+  const r = level === "client" ? await c.query("UPDATE clients SET filefacts_paths = $2 WHERE id = $1 AND removed_at IS NULL", [key, text])
+    : level === "site" ? await c.query("UPDATE sites SET filefacts_paths = $2 WHERE id = $1 AND removed_at IS NULL", [key, text])
+    : await c.query("UPDATE cabinets SET filefacts_paths = $2 WHERE id = $1 AND status <> 'removed'", [key, text]);
+  return r.rowCount === 1;
 }
 
 /** What one level's column holds: the entries, their fingerprint, the version and who set them. */
