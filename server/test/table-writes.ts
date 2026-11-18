@@ -94,6 +94,24 @@ export function setColumns(clause: string): string[] | null {
   return columns.length > 0 ? columns : null;
 }
 
+/**
+ * The text of a SET clause: from just after SET up to the WHERE, OUTPUT or FROM that ends it, or the end of the statement's text (a
+ * semicolon, quote or backtick), each counted only outside parentheses, so a subquery's own FROM or WHERE does not end the clause early
+ * and hide the assignments after it (review of #313). Null when the statement's text ends while a parenthesis is still open: the reader
+ * cannot tell where the clause stops, so the write is not read as a column update.
+ */
+export function setClause(text: string): string | null {
+  let depth = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i]!;
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === ";" || ch === "`" || ch === "\"") return depth === 0 ? text.slice(0, i) : null;
+    else if (depth === 0 && /^(?:WHERE|OUTPUT|FROM)\b/i.test(text.slice(i)) && (i === 0 || /\W/.test(text[i - 1]!))) return text.slice(0, i);
+  }
+  return depth === 0 ? text : null;
+}
+
 /** Table -> file -> the shape of that file's writes of it (D118). Only tables in `tables` are reported. */
 export function tableWriteShapes(srcDir: string, tables: ReadonlySet<string>): Map<string, Map<string, WriteShape>> {
   const out = new Map<string, Map<string, WriteShape>>();
@@ -114,7 +132,8 @@ export function tableWriteShapes(srcDir: string, tables: ReadonlySet<string>): M
           if (via && tables.has(via[1]!.toLowerCase())) {
             const table = via[1]!.toLowerCase();
             const set = verb === "UPDATE" ? /^\s*SET\b/i.exec(after) : null;
-            const columns = set ? setColumns(after.slice(set[0].length).split(/\bWHERE\b|\bOUTPUT\b|\bFROM\b|[;`"]/i)[0]!) : null;
+            const clause = set ? setClause(after.slice(set[0].length)) : null;
+            const columns = clause === null ? null : setColumns(clause);
             if (columns) shape(table, file).updates.push(columns); else shape(table, file).other++;
           }
         }
@@ -122,7 +141,7 @@ export function tableWriteShapes(srcDir: string, tables: ReadonlySet<string>): M
       }
       if (verb !== "UPDATE") { shape(name, file).other++; continue; }
       const set = /^\s*(?:WITH\s*\([^)]*\)\s*)?SET\b/i.exec(after);
-      const clause = set ? after.slice(set[0].length).split(/\bWHERE\b|\bOUTPUT\b|\bFROM\b|[;`"]/i)[0]! : null;
+      const clause = set ? setClause(after.slice(set[0].length)) : null;
       const columns = clause === null ? null : setColumns(clause);
       if (columns) shape(name, file).updates.push(columns); else shape(name, file).other++;
     }

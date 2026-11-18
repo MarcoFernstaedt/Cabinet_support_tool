@@ -64,7 +64,10 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - a comma inside `COALESCE(…)` does not split a `SET`;
   - an alias's columns are read;
   - an `INSERT`, a `DELETE` and a `SET` built at run time are other writes;
-  - a clause it cannot split is unreadable.
+  - a clause it cannot split is unreadable;
+  - a subquery's own `FROM` or `WHERE` does not end the `SET` clause early. The clause is cut only outside parentheses, and a statement
+    that ends inside an open one is unreadable (`setClause`, added after review of #313). Before this, `SET a = (SELECT … FROM … WHERE
+    …), b = …` was read as setting `a` alone, so a file setting a column it does not own could count as covered.
 - **Red checks.** Each of these fails:
 
   | Edit | What fails |
@@ -76,6 +79,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   | A column owner that also inserts the table, or sets another feature's column (`time.ts` with an `INSERT INTO sites`, or setting `network_baseline`) | The unlisted-write test and the covered-set test |
   | The reader splitting at a comma inside a call | The reader test |
   | The reader not reading an alias's columns | The reader test, the unlisted-write test and the covered-set test |
+  | The `SET` clause cut at any depth again | The reader test, on the subquery case |
 
   Restored and `cmp` identical, 8 of 8 pass.
 

@@ -9,7 +9,7 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { ACCEPTED_WRITERS, RUNTIME_TABLE_WRITES, TABLE_OWNERS } from "../src/db/table-owners.js";
-import { migrationColumns, migrationTables, runtimeTableWrites, setColumns, tableWriteShapes, tableWriters } from "./table-writes.js";
+import { migrationColumns, migrationTables, runtimeTableWrites, setClause, setColumns, tableWriteShapes, tableWriters } from "./table-writes.js";
 
 // dist/test/ -> server/
 const server = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
@@ -133,9 +133,15 @@ test("the reader finds writes however they are spelled, through an alias too, an
     "db.query(`INSERT INTO sites (id, name) VALUES ($1, $2)`);",
     "db.query(`DELETE d FROM cabinets d WHERE d.id = $1`);",
     "db.query(`UPDATE sites SET ${column} = $2 WHERE id = $1`);",
+    // A subquery in the SET: its own FROM and WHERE do not end the clause, so the assignment after it is still read (review of #313).
+    "db.query(`UPDATE clients SET time_zone = (SELECT TOP 1 tz FROM sites WHERE id = $1), manufacturer = $2 WHERE id = $3`);",
   ].join("\n"));
-  const shaped = tableWriteShapes(join(root, "src"), new Set(["sites", "cabinets"]));
+  const shaped = tableWriteShapes(join(root, "src"), new Set(["sites", "cabinets", "clients"]));
   assert.deepEqual(shaped.get("sites")!.get("services/b.ts"), { updates: [["time_zone"]], other: 2 }, "an INSERT and a SET built at run time are other writes");
+  assert.deepEqual(shaped.get("clients")!.get("services/b.ts"), { updates: [["time_zone", "manufacturer"]], other: 0 }, "a subquery's FROM and WHERE do not hide the assignment after it");
+  for (const [text, clause] of [[" a = 1 WHERE id = $1", " a = 1 "], [" a = (SELECT x FROM t WHERE y = 1), b = 2 WHERE id = $1", " a = (SELECT x FROM t WHERE y = 1), b = 2 "],
+    [" a = 1 OUTPUT inserted.a", " a = 1 "], [" a = (SELECT x FROM t", null], [" a = (1", null], [" fromage = 1 WHERE id = $1", " fromage = 1 "]] as const)
+    assert.deepEqual(setClause(text), clause, text);
   assert.deepEqual(shaped.get("cabinets")!.get("services/b.ts"), { updates: [["model", "manufacturer"], ["sync_cabinet_id"]], other: 1 }, "a comma inside a call does not split; an alias's columns are read; a DELETE is another write");
   for (const [clause, columns] of [[" a = 1, [b] = COALESCE(x, y) ", ["a", "b"]], [" k.a = 1 ", ["a"]], [" a = 1, b ", null], ["", null], [" = 1 ", null]] as const)
     assert.deepEqual(setColumns(clause), columns, clause);
