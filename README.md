@@ -1,6 +1,6 @@
 # Cabinet Diagnostics Platform
 
-A remote diagnostics and monitoring platform for medication cabinets (about 8,000 Windows cabinets in the field). It has two jobs:
+A remote diagnostics and monitoring platform for medication cabinets, across a fleet of about 8,000 Windows machines. It has two jobs:
 
 - **Diagnose without manual searching.** A support person opens a cabinet in the browser console and runs fixed, typed diagnostics: event logs, the fingerprint scanner checklist, devices and drivers, drive health, Windows updates, network tests and the firewall. Results come back in seconds, with no remote desktop.
 - **Be proactive.** Each cabinet's agent watches for errors, scanner problems, failing-drive warnings and firewall changes. It sends them to the server, which files them under issue types, raises major and minor alerts, and keeps every unrecognized error so the team can categorize it.
