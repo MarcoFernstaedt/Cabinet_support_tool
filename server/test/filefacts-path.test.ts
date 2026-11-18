@@ -1,4 +1,4 @@
-// The named-path rules of the file-facts read (docs/platform/archive/improvement-plan.md section 5): canonicalisation, and the refusals a
+// The named-path rules of the file-facts read: canonicalisation, and the refusals a
 // hostile path gets. Pure, no database and no filesystem: these are the rules a configured path must satisfy before a cabinet is
 // ever asked to open it.
 import test from "node:test";

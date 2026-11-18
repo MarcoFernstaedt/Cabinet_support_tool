@@ -1,4 +1,4 @@
-// Diagnostic modules (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 1). A module is data: what it applies
+// Diagnostic modules. A module is data: what it applies
 // to, the catalog reads it uses, its ordered checks, the causes it can name, and the catalog writes that may repair them with how each is
 // verified. The schema (contracts/schemas/diagnostics/module.schema.json) checks the shape; this checks what a schema cannot: that every
 // operation is in the catalog and of the right kind, that each read's parameters pass that operation's own schema, that every reference

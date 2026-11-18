@@ -1,7 +1,5 @@
 // Fixtures for the USB policy and rule tests: contract-valid shapes, one fixed clock, no database and no cabinet.
 //
-// Every value here is the shape docs/platform/research/2026-10/usb-design-research.md describes, so a test can change
-// one field and leave the rest as a real report would carry it.
 import type { UsbPolicy, UsbPolicyLevel, UsbScopeLevel } from "../src/services/usb-policy.js";
 import type { UsbDeviceReport, UsbIssueTypeInfo, UsbReportDevice, UsbWatchInput } from "../src/services/usb-rules.js";
 

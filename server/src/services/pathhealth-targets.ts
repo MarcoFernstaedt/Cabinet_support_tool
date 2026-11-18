@@ -1,5 +1,4 @@
-// Which destinations the platform is allowed to sample, and the re-validation of anything that had to be resolved
-// (docs/platform/archive/improvement-plan.md §4 B2; docs/platform/research/2026-10/audit-network.md findings 7 and 8).
+// Which destinations the platform is allowed to sample, and the re-validation of anything that had to be resolved.
 //
 // Two rules hold this file together:
 //   1. A target is built by the server from settings only. There is no parameter here that names a host or a port, so neither the
@@ -8,8 +7,7 @@
 //      happens to resolve to.
 //   2. If a name ever does have to be resolved (the platform endpoint configured as a name, or a site setting left as a name), the
 //      resolved destination is checked again against what was approved before anything connects to it. A stale or hostile DNS or
-//      hosts-file answer therefore cannot redirect a bounded test to another machine, which is the second half of the audit's
-//      finding 8 ("restrict sync fallback to validated local private IPv4 and revalidate resolved destination before connection").
+//      hosts-file answer therefore cannot redirect a bounded test to another machine.
 import type { PathHealthTarget, PathHealthTargetKind } from "./pathhealth-contracts.js";
 import { MAX_TARGETS } from "./pathhealth-contracts.js";
 

@@ -3,7 +3,7 @@
 // body is checked against its contract first. A rollback is a new signed release with a higher version, started as
 // its own rollout (docs/spec/07-upgrade-channel.md "Downgrades").
 //
-// Since a release is one version for one Windows architecture (docs/platform/archive/second-architecture.md), every call that
+// Since a release is one version for one Windows architecture, every call that
 // names a release names the pair: a body field when there is a JSON body, and the query string when the call is the
 // package itself - those bytes are the whole body, so there is no field to put it in.
 import { boundTo } from "../auth/stepup.js";

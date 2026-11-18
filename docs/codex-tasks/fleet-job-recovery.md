@@ -50,7 +50,7 @@ Do not commit. Leave the changes in the working tree.
 
 ## Not in this task
 
-- Item 2 of `docs/build-program-2026-11-14.md` (the single 150 s batch deadline) and item 3 (console pagination).
+- The single 150 s batch deadline and console pagination.
 - Any schema change to job, command or lease tables unless it is genuinely required — if it is, say so in the summary
   and add the migration in the same change.
 - No reformatting, no renames, no dependency additions, no touching unrelated services or tests.

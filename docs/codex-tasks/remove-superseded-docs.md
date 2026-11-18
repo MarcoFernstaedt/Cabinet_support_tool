@@ -6,11 +6,11 @@ document that cites a file that no longer exists is worse than no citation.
 
 ## Delete
 
-- `docs/platform/archive/` - the whole directory (7 files: control-half-plan, improvement-plan,
+- Under `docs/platform/`, `archive/` - the whole directory (7 files: control-half-plan, improvement-plan,
   diagnostic-engine-execution, readiness, leadership-report, second-architecture, diagnostic-engine-audit).
-- `docs/platform/research/` - the whole directory (5 files under `2026-10/`: audit-agent, usb-design-research,
+- Under `docs/platform/`, `research/` - the whole directory (5 files under `2026-10/`: audit-agent, usb-design-research,
   windows-dynamics, audit-network, audit-server).
-- `docs/build-program-2026-11-14.md`.
+- The 2026-11-14 build program under `docs/`.
 
 Delete nothing else. In particular keep `docs/spec/`, `docs/platform/remaining-phases.md`,
 `docs/platform/README.md` and `docs/codex-tasks/`.
@@ -21,10 +21,7 @@ Before deleting, build the list of every tracked file that names one of the dele
 list, which you must verify and extend rather than trust:
 
 - **About 49 source files** under `server/`, `console/` and `agent/` cite them in comments, usually as a
-  parenthetical, for example:
-  - `server/src/services/pathhealth-contracts.ts:1` - `// The sync-path contracts (docs/platform/archive/improvement-plan.md §4 "Workstream B", docs/platform/research/2026-10/audit-network.md ...)`
-  - `server/src/services/usb-rules.ts:3` - `// The three rules, and where each bound comes from (docs/platform/research/2026-10/usb-design-research.md §4):`
-  - `server/src/contracts.ts:205` - `/** Diagnostic modules (docs/platform/archive/diagnostic-engine-execution.md): ... */`
+  parenthetical.
 - **Documents**: `docs/README.md`, `docs/platform/README.md`, `docs/platform/remaining-phases.md`,
   `docs/spec/09-open-decisions.md`, `docs/codex-tasks/public-repo-polish.md`.
 - Sweep the whole repository, including `README.md`, `CLAUDE.md`, `SECURITY.md`, `CONTRIBUTING.md`,
@@ -32,23 +29,25 @@ list, which you must verify and extend rather than trust:
 
 For each one:
 
-- **Keep the comment worth reading.** The citation is not the comment. If the parenthesis was carrying the
-  only explanation of why the code is the way it is, rewrite the sentence so it still explains that, and
-  state the reason directly instead of pointing at a document. If the citation was pure provenance
-  ("this came from the plan"), drop it and leave the sentence clean.
+- **Delete the citation, and change nothing else.** Do not rewrite the rest of the comment, do not expand
+  it, and above all do not add explanation or context. If a comment exists only to cite a deleted file,
+  delete the whole comment rather than replacing it with prose. Every touched comment must end up the same
+  length or shorter - never longer. Over-commenting is a defect here, not thoroughness.
 - **Never leave a dangling pointer** - no "(see )", no "(docs/...)" left half-removed, no sentence that
   promises detail that no longer exists anywhere.
 - **In `docs/README.md`**, delete the archive and research rows from the index table entirely, and delete
-  the `build-program-2026-11-14.md` row. Do not leave a row saying "removed".
-- **In `docs/platform/README.md` and `remaining-phases.md`**, where the text says the detail or the
-  evidence is in the archive, either state the fact inline in one sentence or cut the pointer. Do not
-  weaken a claim about the product; only remove what can no longer be read.
+  the 2026-11-14 build program row. Do not leave a row saying "removed".
+- **In `docs/platform/README.md` and `remaining-phases.md`**, cut the pointer. Do not replace it with a
+  sentence explaining what the archive used to say. Do not weaken a claim about the product; only remove
+  the reference that can no longer be read.
 - **In `docs/spec/09-open-decisions.md`**, keep the decisions exactly as they are. A decision that cited
   the archive as its origin keeps its text and loses only the citation.
 
 ## Prove it
 
-- `git grep -nE 'platform/archive|platform/research|build-program'` over the working tree returns
+- Report `git diff --shortstat` for the whole change. The line delta must be **negative** - this change
+  deletes far more than it writes, and a positive delta means you wrote more than you removed.
+- `git grep -nE 'platform/(archive|research)|build[-]program'` over the working tree returns
   **nothing**. Report the exact command and its result.
 - `git grep -n '(see )\|(docs/)' ` returns nothing new.
 - The suites are unaffected - no test reads a `docs/` file, which has been checked - but run

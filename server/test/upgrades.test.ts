@@ -31,7 +31,7 @@ import { agentPackage, keysFolder, makeRelease, releaseKey, type Release } from 
 import { TestPki } from "./package-pki.js";
 
 const ORIGIN = "https://console.test";
-/** The two Windows the store knows (docs/platform/archive/second-architecture.md): a release, a rollout and the cabinets it may reach
+/** The two Windows the store knows: a release, a rollout and the cabinets it may reach
  *  are all one of these. x64 is the one the fleet runs today, so it is what every test means unless it says otherwise. */
 const X64 = "windows-x64";
 const X86 = "windows-x86";
@@ -441,7 +441,7 @@ test("done-when on the real agent code: a release that fails Authenticode is ref
   });
 });
 
-// ---- The second architecture (docs/platform/archive/second-architecture.md) -----------------------------------------------
+// ---- The second architecture -----------------------------------------------
 
 test("a release is one version for one architecture: each architecture has its own versions, and they only go up on their own", async () => {
   // The x86 line is empty: nothing has ever been built for it, so its first release can be any version.

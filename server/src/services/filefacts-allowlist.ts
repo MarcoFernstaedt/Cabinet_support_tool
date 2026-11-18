@@ -1,4 +1,4 @@
-// Where the named file paths of the file-facts read are kept and resolved (docs/platform/archive/improvement-plan.md section 5): a
+// Where the named file paths of the file-facts read are kept and resolved: a
 // versioned list per fleet, client, site or cabinet, set only by a server administrator with step-up and an audit entry.
 //
 // The list is a configuration, so it is stored the way every other setting that follows a scope is stored: one JSON column on

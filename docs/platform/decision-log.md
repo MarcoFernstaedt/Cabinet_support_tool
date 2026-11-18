@@ -2145,8 +2145,7 @@ that read each client database in turn. Whether and when a client moves is the o
 databases").
 
 **Alternatives:** a `client_id` on every table and row-level security in one database. That isolates reads but not storage, size or
-backups, and changes every query. Who may see which client is a separate question, already decided as one organization
-(`archive/diagnostic-engine-execution.md`, decision 5). Separate databases per module rather than per client: that is F21.R2's direction, and does not help a client that needs
+backups, and changes every query. Who may see which client is a separate question, already decided as one organization. Separate databases per module rather than per client: that is F21.R2's direction, and does not help a client that needs
 its data apart.
 
 **Proven by:** `client-data.test.ts`. It reads the foreign keys and columns of a freshly migrated database, as its owner, and fails on
@@ -3751,7 +3750,7 @@ it" and "both").
 - Finding titles come from cabinet data, so they are made one line and cut to the record's limits, never refused.
 
 **Why.** Every incident then has evidence behind it, nobody has to remember to open one, and "fixed" is shown by a later run rather
-than asserted, which is what the incident record was for (archive/diagnostic-engine-audit.md, section 7).
+than asserted, which is what the incident record was for.
 
 **Costs and limits.**
 - Two diagnoses of the same kind on one cabinet finishing at the same moment could open two incidents. Both diagnosis kinds already
@@ -3844,8 +3843,7 @@ Making the close a no-op, or adding `audit_chain` to the closable kinds, fails t
 
 ## D13. The SQL connectivity check: how it is built (2026-11-02)
 
-The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed
-(`archive/diagnostic-engine-execution.md`, decision 7). These are the choices made while building it.
+The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed. These are the choices made while building it.
 
 **1. It runs in the network service, not the broker.** The plan says "implemented in the agent's broker". CLAUDE.md says the
 broker never opens a network connection, and that rule does not bend. The check needs no rights, so the unprivileged network

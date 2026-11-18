@@ -1,4 +1,4 @@
-// The network diagnosis as a diagnostic module (docs/platform/archive/diagnostic-engine-execution.md, item 4; contracts/diagnostics/modules/
+// The network diagnosis as a diagnostic module (contracts/diagnostics/modules/
 // network-diagnosis.json). The diagnosis runs the module's rule steps instead of calling the network checks by hand; the checks
 // themselves (network-findings.ts, network-observations.ts) are unchanged. server/test/network-module.test.ts keeps the module's
 // reads, causes and repairs in step with the code.

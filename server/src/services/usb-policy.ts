@@ -10,8 +10,7 @@
 // level or a new field needs no migration; the version is the server's, not the console's, and it only ever goes up.
 //
 // The contract is contracts/schemas/usb/usb-watch-policy.schema.json and it is checked before any other code here runs
-// (docs/spec/STANDING-INSTRUCTIONS.md). The field-by-field design and its bounds are in
-// docs/platform/research/2026-10/usb-design-research.md.
+// (docs/spec/STANDING-INSTRUCTIONS.md).
 //
 // Nothing here touches the database or the SQL driver: the data layer (usb-store.ts) reads the rows and calls in, so
 // every rule below is exercised by test/usb-policy.test.ts without a live server.

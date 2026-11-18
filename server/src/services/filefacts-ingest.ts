@@ -1,4 +1,4 @@
-// What comes back from a file-facts read, and what the platform does with it (docs/platform/archive/improvement-plan.md section 5).
+// What comes back from a file-facts read, and what the platform does with it.
 //
 // A read is an ordinary command: the platform issues it with the plan as its params, the cabinet answers through the same result
 // path every other operation uses, and the report is the answer's output (commands.result, '$.output'). What comes back is

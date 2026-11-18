@@ -52,7 +52,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
 | The 2026-11-13 fleet audit is closed: the recovery (ship 3), the answer budget (finding 5) and the fleet list limit landed in #263 to #266, the rollout that left targets waiting (finding 4) in #268, the site page that showed only 200 cabinets in #269 (D81), a batch of cabinets all offline that held its rollout open in #270 (D82), and the job page that showed "Cancelled" over cabinets still being verified (finding 6) is D83. | fleet audit | none |
 
-That is about 16 to 24 PRs. The [build program](../build-program-2026-11-14.md) lists the agent-side items 4 to 20 one PR each. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
@@ -303,10 +303,7 @@ was checked against the contracts, agent, server and console, and says **built**
 look. In those terms 5 roadmap phases were left: 2, 3, 4, 5 and 6. Separately, **6 gates outside the code** block a real clinic whatever
 the phases say (the last section before the fixes list).
 
-The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each module. The archived
-[diagnostic engine audit](archive/diagnostic-engine-audit.md) and its [execution plan](archive/diagnostic-engine-execution.md) split the
-same work a second way. That second numbering is **not** extra phases: the mapping is at the bottom of this page, so nothing is counted
-twice.
+The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each module.
 
 ### What was already done at that review
 
@@ -468,7 +465,7 @@ These are gates, not phases, and they block a real clinic, not the build. All si
 stand:
 
 1. **Release-signing certificates (KMS)** — releases are still signed with the development key, so the installer needs
-   `-AllowUnsigned` (`docs/platform/archive/readiness.md`).
+   `-AllowUnsigned`.
 2. **TPM-held agent keys** — the agent's key is in the software key store (`MicrosoftSoftwareKeyStorageProvider`,
    `agent/src/Cabinet.Agent.Windows/ServerConnection.cs`).
 3. **An independent penetration test.**
@@ -636,7 +633,7 @@ changes it with the behaviour.
 | 1 | Rollback integrity, CLI authority, audit completeness | F2, F3, F4 | F3 done (D31). F4: automatic transitions audited (#174); every other automatic close, the fleet job end, the command expiry off the poll, and the sweep test that no state change skips the audit (#176, D32). F2: the server side was already met; the agent side is unverified, waiting on a real Windows cabinet |
 | 2 | Role templates and expected sets, seeded from a healthy cabinet; scheduled-task results | F7, F9 | F7: a role baseline level (D33); the Differences view by role and by baseline level (R3); watched services from the role baseline (R4, D34). Open: process and task expectations, with expected processes and drivers. F9 is agent work, waiting on a real Windows cabinet |
 | 3 | Setup: site-scoped installer, batch approval, applied standards, bulk import | F6 | R1 site installer (D35); R2 batch approval (D36); R3 applied standards (D37); R4 bulk import of clients and sites (D39); R5 setting origins (D38). A site installer as a fleet install script a remote management tool runs as SYSTEM (D57). Open: running it on a real cabinet |
-| 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled (audit-network item 7, server half). Open: the rest, most of it agent-side samplers |
+| 4 | The workload's progress signal, file staleness, declared ports | F10, F11, F12 | F12.R3: the trace's sync address is server-filled. Open: the rest, most of it agent-side samplers |
 | 5 | One definition of healthy: item-level comparison, honest empty states, ranked changes | F8 | R1 one definition of last known healthy (D41); R2 the mark in use is never pruned (D40); R3 what changed and came back is listed (D42); R4 one route, ranked by closeness to the problem (D44); R5 nothing to compare always says why (D45). Done |
 | 6 | Service dependencies, start order, recovery actions | F14 | R3 a service set to restart the computer is shown and alerted (D43). Open: R1 dependencies and R3 in stored configuration, R2 the blocking dependency named (agent build) |
 | 7 | The chain under the workload: database, its error log, the monitoring agent | F15 | Open |

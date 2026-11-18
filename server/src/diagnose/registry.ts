@@ -1,4 +1,4 @@
-// The capability registry (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 3; contracts/diagnostics/
+// The capability registry (contracts/diagnostics/
 // registry.json). One entry per module, built or planned: what it can do, which version is registered, what it depends on, what is offered
 // after it, and its engine phase. The schema checks the shape; this checks what a schema cannot: that a built entry has its module at that
 // version, that it claims only what the module can do, that every reference resolves, that dependencies have no cycle, and that every

@@ -1,4 +1,4 @@
-// Today's cabinet checks as diagnostic modules (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 4). The
+// Today's cabinet checks as diagnostic modules. The
 // diagnosis now runs each module's rule steps in order instead of calling the checks by hand; its behaviour is unchanged, which the
 // existing cabinet-findings tests prove (they are not edited). These tests keep the modules honest against the code they describe: the
 // same reads the diagnosis issues, every finding a check can produce declared as a cause of its module and nothing declared that it

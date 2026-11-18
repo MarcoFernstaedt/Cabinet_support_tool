@@ -1,5 +1,5 @@
 // Which Windows a package is built for. The agent is built once per architecture because Windows cannot run a 64-bit
-// program on 32-bit Windows (docs/platform/archive/second-architecture.md). Installing needs no choice: the installer the setup
+// program on 32-bit Windows. Installing needs no choice: the installer the setup
 // page makes picks the package for the machine's own Windows. The upgrades page still names a release's architecture.
 
 /** Which Windows a package or release is built for. */

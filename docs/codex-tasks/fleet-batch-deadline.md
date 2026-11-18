@@ -47,7 +47,7 @@ Do not commit. Leave the changes in the working tree.
 ## Not in this task
 
 - Item 1 has already landed (continuous recovery) — do not re-open or rewrite it.
-- Item 3 of `docs/build-program-2026-11-14.md` (console fleet pagination) — different PR.
+- Console fleet pagination — different PR.
 - No schema or migration change unless it is genuinely required; if it is, say so in the summary and add the migration.
 - No reformatting, no renames, no dependency additions, no touching unrelated services, routes or tests.
 - Do not weaken or rewrite any existing assertion. If an existing test must change to fit the new behaviour, stop and

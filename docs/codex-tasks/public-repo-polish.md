@@ -5,8 +5,7 @@ Four small, surgical items. No rewrites, no restructuring, no new tooling beyond
 
 ## 1. A documentation index
 
-There is no `docs/README.md`. A visitor browsing `docs/` sees `spec/`, `platform/`, `platform/archive/`,
-`platform/research/`, `codex-tasks/` and a loose `build-program-*.md` at the top level with nothing
+There is no `docs/README.md`. A visitor browsing `docs/` sees `spec/`, `platform/` and `codex-tasks/` with nothing
 saying which is authoritative.
 
 Add `docs/README.md` that says, for each folder and loose file directly under `docs/`, what it is and
@@ -14,12 +13,11 @@ how much to trust it. Distinguish three levels clearly:
 
 - **`spec/` - the source of truth.** Behaviour is defined here.
 - **`platform/` - operations and records**, including the decision log that records why the product is
-  shaped the way it is. `platform/archive/` and `platform/research/` hold superseded and investigative
-  material that is kept for history and is **not** current.
+  shaped the way it is.
 - **`codex-tasks/` - working briefs.** One file per piece of work, written before the work, kept as a
   record of what was asked. Not documentation of the product.
 
-Include the loose `build-program-*.md` file in the same table. Read each folder's actual contents before
+Read each folder's actual contents before
 describing it - do not describe a folder from its name alone.
 
 ## 2. Close the credential leak in `.gitignore`
