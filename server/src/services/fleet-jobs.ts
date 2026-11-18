@@ -19,8 +19,9 @@ import { ISSUE } from "./rules.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 import { BULK_LIMIT, cabinetPolicy, switchesFor } from "./firewall-policy.js";
-import { CLOCK_TOLERANCE_SECONDS, SITE_ZONE_SQL } from "./time.js";
+import { SITE_CLOCK_TOLERANCE_SQL, SITE_ZONE_SQL } from "./time.js";
 import { issueFromConsole, ROLE_RANK, type Role } from "./console-commands.js";
+import { queueBulkCommand, withdrawJobCommands } from "./commands.js";
 import type { NetworkConfigOutput } from "@mashura/cabinet-contracts/types";
 
 export const JOB_OPERATIONS = ["time.setZone", "time.sync", "firewall.applyPolicy", "network.setDns", "network.setIp", "network.renewLease"] as const;
@@ -294,8 +295,7 @@ async function issueBatch(pool: Pool, jobId: string, job: { operation: JobOperat
         continue;
       }
       const commandId = randomUUID();
-      await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`, [commandId, t.cabinet_id, job.operation, safeJson(t.params), job.created_by, issuedAt, expiresAt, jobId]);
+      await queueBulkCommand(c, { commandId, cabinetId: t.cabinet_id, operation: job.operation, params: t.params, issuedBy: job.created_by, issuedAt, expiresAt, bulkId: jobId });
       await c.query("UPDATE fleet_job_targets SET state = 'issued', command_id = $3, detail = NULL, updated_at = SYSUTCDATETIME() WHERE job_id = $1 AND cabinet_id = $2",
         [jobId, t.cabinet_id, commandId]);
       issued.push({ cabinet_id: t.cabinet_id, command_id: commandId, params: t.params });
@@ -340,24 +340,10 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
     // Delivered commands retain expiry's late-result handling; an online, undispatched timeout is a failure.
     // Even an immediate withdrawal must keep expires_at strictly above issued_at (commands_check).
     const rows = waiting.size === 0 ? [] : await transaction(pool, async tx => {
-      const retired = (await tx.query<{ id: string; cabinet_id: string; operation: string; status: string; delivered: boolean | number }>(
-      `DECLARE @retired TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), status varchar(16), delivered bit);
-       UPDATE commands SET status = CASE WHEN delivered_at IS NOT NULL OR NOT EXISTS
-           (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
-             AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())) THEN 'expired' ELSE 'failed' END, expires_at = CASE WHEN DATEADD(millisecond, 1, issued_at) > SYSUTCDATETIME() THEN DATEADD(millisecond, 1, issued_at)
-           WHEN expires_at > SYSUTCDATETIME() THEN SYSUTCDATETIME() ELSE expires_at END
-         OUTPUT inserted.id, inserted.cabinet_id, inserted.operation, inserted.status,
-           CAST(CASE WHEN inserted.delivered_at IS NULL THEN 0 ELSE 1 END AS bit) INTO @retired
-         WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status IN ('queued', 'delivered')
-           AND (issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())
-             OR (status = 'queued' AND delivered_at IS NULL AND NOT EXISTS
-               (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
-                 AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))));
-       SELECT id, cabinet_id, operation, status, delivered FROM @retired`, [[...waiting.keys()], OFFLINE_AFTER_MS / 1000, batchMs])).rows;
-      if (retired.length > 0)
-        await auditMany(tx, retired.map(r => ({ actorKind: "system", actorId: "command-expiry", action: "command.expire", targetKind: "command", targetId: r.id.toLowerCase(),
-          outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation, jobId, status: r.status,
-            why: "fleet-job-withdrawal", delivered: r.delivered === true || r.delivered === 1, automatic: true } })));
+      // commands.ts withdraws them and audits each withdrawal, in this transaction (D103). A target a restart left without a command has
+      // no id here (its key is null): there is nothing of it to withdraw, and the read below finds it missing, as before.
+      const ids = [...waiting.keys()].filter((id): id is string => typeof id === "string");
+      if (ids.length > 0) await withdrawJobCommands(tx, jobId, ids, OFFLINE_AFTER_MS / 1000, batchMs);
       return (await tx.query<{ id: string; status: string; result: { error?: { code: string; message: string } } | null; result_at: Date | null; issued_at: Date; delivered: boolean | number }>(
         `SELECT id, status, issued_at, result, result_at, CAST(CASE WHEN delivered_at IS NULL THEN 0 ELSE 1 END AS bit) AS delivered
          FROM commands WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1))`, [[...waiting.keys()]])).rows;
@@ -401,7 +387,7 @@ async function followUp(pool: Pool, jobId: string, operation: JobOperation, batc
 
 const verifiedText: Record<JobOperation, string> = {
   "time.setZone": "Verified: the cabinet reports its site's time zone.",
-  "time.sync": "Verified: the cabinet's clock is within two minutes of the server's.",
+  "time.sync": "Verified: the cabinet's clock is within its site's tolerance of the server's.",
   "firewall.applyPolicy": "Verified: the cabinet's firewall matches its policy.",
   "network.setDns": "Verified: read back from the cabinet, its DNS servers are the baseline's.",
   "network.setIp": "Verified: read back from the cabinet, its address settings are as intended.",
@@ -436,12 +422,14 @@ async function networkVerified(pool: Pool, creator: { userId: string; role: Role
 /** Whether a cabinet's own report after the change shows it; also used by a replacement's re-apply (replacement-reapply.ts). */
 export async function verified(db: Pool, operation: JobOperation, a: { cabinet_id: string; params: Record<string, unknown>; at: Date }, creator: { userId: string; role: Role }): Promise<boolean> {
   if (operation === "network.setDns" || operation === "network.setIp" || operation === "network.renewLease") return networkVerified(db, creator, operation, a);
-  const k = (await db.query<{ zone: string | null; skew: number | null; last: Date | null; profiles: string | null }>(
-    "SELECT time_zone_id AS zone, clock_skew_seconds AS skew, last_heartbeat_at AS [last], firewall_profiles AS profiles FROM cabinets WHERE id = $1", [a.cabinet_id])).rows[0];
+  const k = (await db.query<{ zone: string | null; skew: number | null; tolerance: number; last: Date | null; profiles: string | null }>(
+    `SELECT k.time_zone_id AS zone, k.clock_skew_seconds AS skew, ${SITE_CLOCK_TOLERANCE_SQL} AS tolerance, k.last_heartbeat_at AS [last], k.firewall_profiles AS profiles
+       FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id WHERE k.id = $1`, [a.cabinet_id])).rows[0];
   // Only a report made after the change counts.
   if (!k?.last || k.last.getTime() < a.at.getTime()) return false;
   if (operation === "time.setZone") return k.zone === a.params.timeZoneId;
-  if (operation === "time.sync") return k.skew !== null && Math.abs(k.skew) <= CLOCK_TOLERANCE_SECONDS;
+  // The same tolerance the cabinet's clock alert uses, so a sync reported as verified also closes it (D109).
+  if (operation === "time.sync") return k.skew !== null && Math.abs(k.skew) <= k.tolerance;
   const want = a.params.profiles as Record<string, boolean>;
   const have = parseJson<Record<string, boolean>>(k.profiles);
   return !!have && ["domain", "private", "public"].every(p => have[p] === want[p]);

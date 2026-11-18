@@ -999,6 +999,13 @@ export interface ClientScanner {
 }
 
 /**
+ * Sets how far a cabinet's clock may be from the server's before it gets the minor "Clock is off" alert: for a site (Tier 2 and up), a client's default (Tier 2 and up) or the fleet default (Admin), or clears it with null so the level above applies (site → client → fleet → 120 seconds). From 10 to 120 seconds: the agent refuses a command issued more than two minutes ahead of its own clock, so a looser tolerance would hide a clock that already breaks commands (decision-log D109). Nothing changes on a cabinet; its alert opens or closes at once.
+ */
+export interface ClockTolerance {
+  seconds: number | null;
+}
+
+/**
  * An authenticator code: the second sign-in step, or confirming authenticator setup.
  */
 export interface CodeRequest {

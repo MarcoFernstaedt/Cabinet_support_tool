@@ -99,6 +99,72 @@ async function issueInTransaction(pool: Pool, userId: string, cabinetId: string,
   });
 }
 
+/** One command of a bulk change, as a fleet job or a bulk firewall change queues it (queueBulkCommand). */
+export interface BulkCommand { commandId: string; cabinetId: string; operation: string; params: unknown; issuedBy: string; issuedAt: Date; expiresAt: Date; bulkId: string }
+
+/**
+ * Queues one command of a bulk change, in the caller's transaction (F21.R2, decision-log D102). The bulk callers check the person, the
+ * fleet pause, the write limit and each cabinet, and audit what they queued; this is the insert they shared, checked here before the
+ * database is touched as issueCommand checks a single command: a catalog write operation, its parameters against the operation's
+ * schema, ids that are uuids, and an expiry after the issue time.
+ */
+export async function queueBulkCommand(c: Queryable, cmd: BulkCommand): Promise<void> {
+  const isId = (v: unknown) => typeof v === "string" && CABINET_ID.test(v);
+  if (!cmd || typeof cmd !== "object") throw new Error("a bulk command is required");
+  for (const k of ["commandId", "cabinetId", "issuedBy", "bulkId"] as const) if (!isId(cmd[k])) throw new Error(`a bulk command's ${k} must be a uuid`);
+  if (typeof cmd.operation !== "string" || !isOperationName(cmd.operation)) throw new Error("a bulk command's operation must be a catalog operation");
+  if (catalog.get(cmd.operation)!.kind !== "write") throw new Error("a bulk command is a write");
+  if (!operations[cmd.operation].params.is(cmd.params)) throw new Error("a bulk command's parameters do not match the operation's schema");
+  if (!(cmd.issuedAt instanceof Date) || !(cmd.expiresAt instanceof Date) || Number.isNaN(cmd.issuedAt.getTime()) || !(cmd.expiresAt.getTime() > cmd.issuedAt.getTime()))
+    throw new Error("a bulk command expires after it is issued");
+  await c.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7, 'queued', $8)`,
+    [cmd.commandId, cmd.cabinetId, cmd.operation, safeJson(cmd.params), cmd.issuedBy, cmd.issuedAt, cmd.expiresAt, cmd.bulkId]);
+}
+
+/** At most this many commands are withdrawn in one call: a fleet job covers at most 200 cabinets (fleet-job.schema.json). */
+export const WITHDRAW_LIMIT = 200;
+
+/** A command a fleet job withdrew: its id, cabinet, operation, the status it now has, and whether it had been delivered. */
+export interface WithdrawnCommand { id: string; cabinet_id: string; operation: string; status: string; delivered: boolean | number }
+
+/**
+ * Withdraws a fleet job's outstanding commands, in the caller's transaction (F21.R2, decision-log D103). The statement is the one
+ * fleet-jobs.ts ran: a queued or delivered command among `commandIds` is withdrawn once `batchMs` has passed since it was issued, or at
+ * once while it is queued, undelivered and its cabinet has not been heard from within `offlineAfterSeconds`. One delivered, or whose
+ * cabinet is offline, becomes expired (late results keep their handling); one still undelivered to an online cabinet becomes failed.
+ * Its expiry is pulled in to now, kept above its issue time (commands_check). Each withdrawal is audited as command.expire by the
+ * system, naming the job, in the same transaction. The job, every id and both windows are checked before the database is touched.
+ */
+export async function withdrawJobCommands(tx: Queryable, jobId: string, commandIds: readonly string[], offlineAfterSeconds: number, batchMs: number): Promise<WithdrawnCommand[]> {
+  const isId = (v: unknown) => typeof v === "string" && CABINET_ID.test(v);
+  if (!isId(jobId)) throw new Error("a fleet job's id is required to withdraw its commands");
+  if (!Array.isArray(commandIds) || commandIds.length === 0 || commandIds.length > WITHDRAW_LIMIT || !commandIds.every(isId))
+    throw new Error(`1 to ${WITHDRAW_LIMIT} command ids are required to withdraw them`);
+  if (!Number.isInteger(offlineAfterSeconds) || offlineAfterSeconds < 1 || offlineAfterSeconds > 86_400)
+    throw new Error("the offline window is 1 to 86400 whole seconds");
+  if (!Number.isInteger(batchMs) || batchMs < 0 || batchMs > 86_400_000) throw new Error("a batch's answer budget is 0 to 86400000 whole milliseconds");
+  const retired = (await tx.query<WithdrawnCommand>(
+    `DECLARE @retired TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), status varchar(16), delivered bit);
+     UPDATE commands SET status = CASE WHEN delivered_at IS NOT NULL OR NOT EXISTS
+         (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
+           AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())) THEN 'expired' ELSE 'failed' END, expires_at = CASE WHEN DATEADD(millisecond, 1, issued_at) > SYSUTCDATETIME() THEN DATEADD(millisecond, 1, issued_at)
+         WHEN expires_at > SYSUTCDATETIME() THEN SYSUTCDATETIME() ELSE expires_at END
+       OUTPUT inserted.id, inserted.cabinet_id, inserted.operation, inserted.status,
+         CAST(CASE WHEN inserted.delivered_at IS NULL THEN 0 ELSE 1 END AS bit) INTO @retired
+       WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status IN ('queued', 'delivered')
+         AND (issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())
+           OR (status = 'queued' AND delivered_at IS NULL AND NOT EXISTS
+             (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
+               AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))));
+     SELECT id, cabinet_id, operation, status, delivered FROM @retired`, [[...commandIds], offlineAfterSeconds, batchMs])).rows;
+  if (retired.length > 0)
+    await auditMany(tx, retired.map(r => ({ actorKind: "system", actorId: "command-expiry", action: "command.expire", targetKind: "command", targetId: r.id.toLowerCase(),
+      outcome: "succeeded", details: { cabinetId: r.cabinet_id.toLowerCase(), operation: r.operation, jobId, status: r.status,
+        why: "fleet-job-withdrawal", delivered: r.delivered === true || r.delivered === 1, automatic: true } })));
+  return retired;
+}
+
 /** How long a command handed to a poll stays leased to it (docs/spec/03-protocol.md "Protocol 1.1"). */
 export const LEASE_SECONDS = 30;
 

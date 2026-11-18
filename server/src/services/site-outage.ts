@@ -5,8 +5,8 @@
 // kept up to date by the fold). The alerts close as soon as any cabinet at the site is heard from again. While the fleet's contact is in
 // doubt (alerts.ts FleetContact: the server or database was away, or contact fell fleet-wide) no new outage is raised, except at sites
 // whose cabinets are all simulated demo cabinets.
-import { auditMany, type Queryable } from "../db/db.js";
-import { fleetContact, foldAlert, inTransaction, readFleetContact, type FleetContact } from "./alerts.js";
+import type { Queryable } from "../db/db.js";
+import { SITE_OUTAGE_CLOSE_SLICE, closeSiteOutageAlerts, fleetContact, foldAlert, inTransaction, readFleetContact, type FleetContact } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { ISSUE } from "./rules.js";
 
@@ -48,27 +48,10 @@ export async function checkSiteOutages(db: Queryable, guard: FleetContact = flee
           AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))`,
       [ISSUE.siteOutage, secs])).rows;
     let resolved = 0;
-    for (let i = 0; i < closing.length; i += 500) {
-      const ids = closing.slice(i, i + 500).map(r => r.id);
-      // The cabinet's liveness is checked again here, in the update itself: between the snapshot read above and this statement a heartbeat
-      // can have arrived (or gone stale), and closing an alert that is no longer about a live site is exactly what must not happen.
-      // The rows it changed come back, so every closure this automatic step makes leaves its own audit entry, in the same transaction.
-      // alerts carries the alert_notify trigger, and SQL Server refuses OUTPUT without INTO on a table that has an enabled trigger: the
-      // changed ids are collected into a table variable and read back, as the alert fold and the alert insert do.
-      const changed = (await tx.query<{ id: string }>(
-        `DECLARE @o TABLE (id uniqueidentifier);
-         UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $${ids.length + 2}
-          OUTPUT inserted.id INTO @o (id)
-           FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
-          WHERE a.state <> 'resolved' AND a.id IN (${ids.map((_, n) => `$${n + 1}`).join(", ")})
-            AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$${ids.length + 1}, SYSUTCDATETIME()));
-         SELECT id FROM @o;`,
-        [...ids, secs, RESOLUTION])).rows;
-      resolved += changed.length;
-      if (changed.length > 0)
-        await auditMany(tx, changed.map(r => ({ actorKind: "system", actorId: "site-outage", action: "alert.resolve", targetKind: "alert", targetId: r.id,
-          outcome: "succeeded", details: { issueTypeId: ISSUE.siteOutage, resolution: RESOLUTION, automatic: true } })));
-    }
+    // The site's liveness is checked again in the close itself (alerts.ts closeSiteOutageAlerts), and each closure is audited there, in this
+    // transaction, through closeAutomatically (F4, D99).
+    for (let i = 0; i < closing.length; i += SITE_OUTAGE_CLOSE_SLICE)
+      resolved += (await closeSiteOutageAlerts(tx, "site-outage", closing.slice(i, i + SITE_OUTAGE_CLOSE_SLICE).map(r => r.id), secs, RESOLUTION)).length;
     return { raised, resolved };
   });
 }

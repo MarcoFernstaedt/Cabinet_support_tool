@@ -13,6 +13,8 @@ import type { CabinetDetail } from "./CabinetPage";
 
 export interface CabinetTime {
   timeZoneId: string | null; siteTimeZone: string | null; clockSkewSeconds: number | null; zoneWrong: boolean; clockOff: boolean; reportedAt: string | null;
+  /** How far the clock may be off at the cabinet's site (its own, its client's, the fleet's, else 120 seconds). */
+  clockToleranceSeconds?: number;
 }
 
 /** Plain names for the zones the platform sets. */
@@ -42,7 +44,7 @@ export function Time({ cabinet }: { cabinet: CabinetDetail }) {
         <KeyValues rows={[
           ["Cabinet's time zone", <>{zoneName(f.timeZoneId)} {f.zoneWrong && <Badge tone="warn">Not the site's zone</Badge>}</>],
           ["Zone it should use", f.siteTimeZone ? zoneName(f.siteTimeZone) : <>Not set for the site, its client or the fleet. <Link to={`/sites/${cabinet.site.id}`}>Set it on the site</Link> so wrong zones are found.</>],
-          ["Clock", <>{skewText(f.clockSkewSeconds)} {f.clockOff && <Badge tone="warn">More than 2 minutes off</Badge>}</>],
+          ["Clock", <>{skewText(f.clockSkewSeconds)} {f.clockOff && <Badge tone="warn">More than {f.clockToleranceSeconds ?? 120} seconds off</Badge>}</>],
           ["Reported", f.reportedAt ? `In the heartbeat at ${fullTime(f.reportedAt)}` : "Not yet"],
         ]} />
         {(f.zoneWrong || f.clockOff) && (

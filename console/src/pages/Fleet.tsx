@@ -71,6 +71,8 @@ interface ClientDetail { id: string; name: string; writePaused: boolean;
   fingerprintScanner: ClientScannerState | null;
   /** The client's default zone for its sites, and the fleet's it falls back to. */
   timeZone: { own: string | null; fleet: string | null };
+  /** The client's clock tolerance for its sites, and the fleet's (null: the built-in 120 seconds) it falls back to. */
+  clockTolerance?: { own: number | null; fleet: number | null };
   sites: { id: string; name: string; cabinets: number; offline: number; openAlerts: number; openMajor: number }[]; }
 
 export function ClientPage({ id }: { id: string }) {
@@ -116,6 +118,10 @@ export function ClientPage({ id }: { id: string }) {
         <TimeZoneEditor key={`tz-${data.id}`} id={`client-tz-${data.id}`} heading={`Time zone for ${data.name}'s sites`} endpoint={`/api/clients/${data.id}/time-zone`}
           current={data.timeZone.own} inherited={data.timeZone.fleet ? { zone: data.timeZone.fleet, from: "the fleet default" } : null}
           what={`sites of ${data.name} without their own`} editable={atLeast(me, "tier2")} onSaved={reload} />
+        <ClockToleranceEditor key={`tol-${data.id}`} id={`client-tol-${data.id}`} heading={`Clock tolerance for ${data.name}'s sites`}
+          endpoint={`/api/clients/${data.id}/clock-tolerance`} current={data.clockTolerance?.own ?? null}
+          inherited={data.clockTolerance?.fleet != null ? { seconds: data.clockTolerance.fleet, from: "the fleet default" } : { seconds: CLOCK_TOLERANCE_DEFAULT, from: "the built-in default" }}
+          editable={atLeast(me, "tier2")} onSaved={reload} />
         <ClientFirewallPolicy key={data.id} clientId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <BulkPolicyApply key={`bulk-${data.id}`} scope="client" id={data.id} name={data.name} allowed={atLeast(me, "tier1")} />
       </>)}
@@ -129,6 +135,8 @@ export interface CabinetRow { id: string; name: string; demo?: boolean; role: st
 export interface SiteDetail { id: string; name: string; client: { id: string; name: string }; timeZone: string | null; networkBaseline: Baseline | null;
   /** The zone its cabinets are held to and where it comes from (site, client or fleet; null: none is checked). */
   timeZoneApplies?: { zone: string | null; source: "site" | "client" | "fleet" | null };
+  /** How far its cabinets' clocks may be off before their alert opens, and where that comes from. */
+  clockTolerance?: { own: number | null; client: number | null; seconds: number; source: "site" | "client" | "fleet" | "default" };
   sync: SiteSyncInfo;
   scanner: { hardwareIds: string[] | null; clientHardwareIds: string[] | null; fleetHardwareIds: string[] | null };
   /** One page of the site's cabinets (the server pages them, D81); `cabinetCount` is all of them. */
@@ -176,6 +184,7 @@ export function SitePage({ id }: { id: string }) {
         <SiteStandards key={`std-${data.id}`} siteId={data.id} name={data.name} role={me.role} onSaved={reload} />
         <SiteNetwork key={`net-${data.id}`} siteId={data.id} name={data.name} baseline={data.networkBaseline} cabinets={data.cabinetCount} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteTimeZone key={`tz-${data.id}`} siteId={data.id} name={data.name} current={data.timeZone} applies={data.timeZoneApplies} editable={atLeast(me, "tier2")} onSaved={reload} />
+        <SiteClockTolerance key={`tol-${data.id}`} siteId={data.id} name={data.name} tolerance={data.clockTolerance} editable={atLeast(me, "tier2")} onSaved={reload} />
         <SiteFirewallPolicy key={`fw-${data.id}`} siteId={data.id} name={data.name} editable={atLeast(me, "admin")} />
         <SiteSync key={data.id} siteId={data.id} name={data.name} sync={data.sync} editable={atLeast(me, "admin")} onSaved={reload} />
         <section className="panel" aria-labelledby="site-scanner">
@@ -359,6 +368,45 @@ export function TimeZoneEditor({ id, heading, endpoint, current, inherited, what
           {saved && <span className="ok" role="status">Saved. Cabinets are compared with it at once.</span>}
           {problem && <span className="error" role="alert">{problem}</span>}
         </form>) : current && <p>{zoneName(current)}</p>}
+    </section>
+  );
+}
+
+/** The clock tolerance when no site, client or fleet setting gives one, and the highest any of them may set (D109). */
+export const CLOCK_TOLERANCE_DEFAULT = 120;
+const TOLERANCE_FROM: Record<string, string> = { client: "the client's default", fleet: "the fleet default", default: "the built-in default" };
+
+/** How far a site's cabinets' clocks may be off before their minor "Clock is off" alert opens: the site's own, else the client's, else the fleet's. Tier 2 and up. */
+export function SiteClockTolerance({ siteId, name, tolerance, editable, onSaved }: { siteId: string; name: string;
+  tolerance?: { own: number | null; seconds: number; source: string } | undefined; editable: boolean; onSaved: () => void }) {
+  const inherited = tolerance && tolerance.own === null ? { seconds: tolerance.seconds, from: TOLERANCE_FROM[tolerance.source] ?? tolerance.source } : null;
+  return <ClockToleranceEditor id={`tol-${siteId}`} heading={`Clock tolerance at ${name}`} endpoint={`/api/sites/${siteId}/clock-tolerance`}
+    current={tolerance?.own ?? null} inherited={inherited} editable={editable} onSaved={onSaved} />;
+}
+
+/**
+ * One level's clock tolerance (a site's, a client's default or the fleet default), with what applies when it sets none. From 10 to 120
+ * seconds: the agent refuses commands from a server more than two minutes ahead of its clock, so a looser tolerance would hide that.
+ * The server checks the range and the role; this form only helps.
+ */
+export function ClockToleranceEditor({ id, heading, endpoint, current, inherited, editable, onSaved }: { id: string; heading: string; endpoint: string;
+  current: number | null; inherited: { seconds: number; from: string } | null; editable: boolean; onSaved: () => void }) {
+  const [value, setValue] = useState(current === null ? "" : String(current));
+  const { run, problem, saved } = useAction();
+  const save = async () => { if (await run(() => api("PUT", endpoint, { seconds: value === "" ? null : Number(value) }))) onSaved(); };
+  return (
+    <section className="panel" aria-labelledby={id}>
+      <h2 id={id}>{heading}</h2>
+      <p className="muted">How far a cabinet's clock may be from the server's before it gets a minor "Clock is off" alert.
+        {current === null && inherited && <> Not set here; {inherited.from} applies: <strong>{inherited.seconds} seconds</strong>.</>}</p>
+      {editable ? (
+        <form className="row gap wrap" onSubmit={e => { e.preventDefault(); void save(); }}>
+          <label className="field inline"><span>Seconds (10 to 120, empty to inherit)</span>
+            <input type="number" min={10} max={CLOCK_TOLERANCE_DEFAULT} step={1} value={value} onChange={e => setValue(e.target.value)} /></label>
+          <button className="btn" disabled={value === (current === null ? "" : String(current))}>Save</button>
+          {saved && <span className="ok" role="status">Saved. Cabinets are checked against it at once.</span>}
+          {problem && <span className="error" role="alert">{problem}</span>}
+        </form>) : current !== null && <p>{current} seconds</p>}
     </section>
   );
 }

@@ -14,10 +14,9 @@ import { parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
 import { ISSUE } from "./rules.js";
+import { CLOCK_TOLERANCE_SECONDS, SITE_CLOCK_TOLERANCE_SQL } from "./cabinet-conditions.js";
 
 export const OFFLINE_AFTER_MS = 5 * 60_000;
-/** The same tolerance as services/time.ts CLOCK_TOLERANCE_SECONDS (kept here to avoid a circular import). */
-const CLOCK_TOLERANCE = 120;
 
 export interface AuthenticatedCabinet { id: string; serial: string; }
 
@@ -109,7 +108,10 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
                     CAST(CASE WHEN CAST($7 AS nvarchar(max)) IS NOT NULL AND @fw IS DISTINCT FROM CAST($7 AS nvarchar(max)) THEN 1 ELSE 0 END AS bit) AS firewall_changed,
                     @up AS prev_uptime, @upat AS prev_at,
                     CAST(CASE WHEN (CAST($8 AS nvarchar(64)) IS NOT NULL AND @tz IS DISTINCT FROM CAST($8 AS nvarchar(64)))
-                           OR ABS(COALESCE(CAST($5 AS float), 0)) > $9 OR ABS(COALESCE(@skew, 0)) > $9 THEN 1 ELSE 0 END AS bit) AS time_check
+                           OR ABS(COALESCE(CAST($5 AS float), 0)) > tol.seconds OR ABS(COALESCE(@skew, 0)) > tol.seconds THEN 1 ELSE 0 END AS bit) AS time_check
+               -- The tolerance at the cabinet's site (D109); $9, the built-in one, only if the cabinet's row is gone.
+               FROM (SELECT COALESCE((SELECT ${SITE_CLOCK_TOLERANCE_SQL} FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+                                      WHERE k.id = $1), $9) AS seconds) tol
               WHERE @found = 1) r
        CROSS JOIN (
          SELECT k.scanner_hardware_ids AS ks, s.scanner_hardware_ids AS ss, c.scanner_hardware_ids AS cs,
@@ -121,7 +123,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
                 (SELECT TOP (1) [value] FROM settings WHERE [key] = 'apps.approved') AS fa, c.fingerprint_scanner AS scanner_used
            FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id WHERE k.id = $1) x;`,
     [cabinetId, h.agentVersion, h.uptimeSeconds, h.readOnlyMode, h.clockSkewSeconds ?? null, OFFLINE_AFTER_MS / 1000,
-     h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE,
+     h.firewallProfiles ? JSON.stringify(h.firewallProfiles) : null, h.timeZoneId ?? null, CLOCK_TOLERANCE_SECONDS,
      h.health?.cpuPercent ?? null, h.health?.memoryUsedPercent ?? null, h.health?.diskFreePercent ?? null, ISSUE.offline,
      h.architecture ?? null, h.unsignedUpgrades === true ? 1 : 0, h.developmentShell === true && !h.readOnlyMode ? 1 : 0], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).

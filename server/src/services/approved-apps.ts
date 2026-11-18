@@ -26,7 +26,7 @@ import { configHash, type Item } from "./config-canonical.js";
 import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
 import { canonicalRoot, joinWithinRoot, keyProblem } from "./filefacts-path.js";
-import { parseJson, upsertSetting } from "./settings.js";
+import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 import { commonDefs, type ApprovedListSignature } from "../contracts.js";
 import { listDocumentBytes, openSignedList, type ListSigningKeys } from "./approved-list-signing.js";
 
@@ -495,7 +495,7 @@ function withoutPending(value: Record<string, unknown>): Record<string, unknown>
 /** Writes one level's column (or the fleet's settings row); null clears it. */
 async function writeLevel(c: Queryable, level: AppLevel, key: string, value: unknown, by: string): Promise<void> {
   if (level === "fleet") {
-    if (value === null) await c.query("DELETE FROM settings WHERE [key] = $1", [APPS_SETTING_KEY]);
+    if (value === null) await removeSetting(c, APPS_SETTING_KEY);
     else await upsertSetting(c, APPS_SETTING_KEY, value, by);
     return;
   }

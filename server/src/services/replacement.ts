@@ -6,7 +6,8 @@
 //   - the old cabinet's own settings are copied: scanner IDs, watched services, file-facts paths, the in-office flag, its approved
 //     programs (waiting for the Admin's signature when signing is on), its USB watch policy and its cabinet baseline.
 // What it re-applies on the machine itself is queued here and runs once the new agent reports (replacement-reapply.ts).
-import { audit, auditMany, notify, type Queryable } from "../db/db.js";
+import { audit, notify, type Queryable } from "../db/db.js";
+import { closeReplacedCabinetAlerts } from "./alerts.js";
 import { REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { copyCabinetList } from "./approved-apps.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
@@ -83,14 +84,8 @@ export async function completeReplacement(c: Queryable, userId: string, old: Old
   await revokeCabinetCertificates(c, old.id);
   await notify(c, REVOCATION_CHANNEL, old.id);
   const resolution = `Replaced by ${newName}.`;
-  const closed = (await c.query<{ id: string; issue: string }>(
-    `DECLARE @o TABLE (id uniqueidentifier, issue uniqueidentifier);
-     UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2
-      OUTPUT inserted.id, inserted.issue_type_id INTO @o (id, issue)
-      WHERE cabinet_id = $1 AND state <> 'resolved';
-     SELECT id, issue FROM @o;`, [old.id, resolution])).rows;
-  await auditMany(c, closed.map(a => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: a.id, outcome: "succeeded" as const,
-    details: { issueTypeId: a.issue, resolution, automatic: true, replacedBy: newId } })));
+  // alerts.ts closes them and audits each closure by this user, in this transaction (D101).
+  const closed = await closeReplacedCabinetAlerts(c, userId, old.id, newId, resolution);
   const copied = { scannerIds: old.scannerHardwareIds !== null, watchedServices: old.watchedServices !== null, filefactsPaths: old.filefactsPaths !== null,
     inOffice: old.inOffice, approvedApps: apps, usbPolicy: usb.ok, baseline: baseline?.versionId ?? null };
   // The settings on the machine (firewall, time zone, drawer, DNS, address), put back once the new agent reports.

@@ -10,7 +10,7 @@ import { scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { Refused } from "./errors.js";
 import { allowlistLevels } from "./filefacts-allowlist.js";
 import { sitePolicy } from "./firewall-policy.js";
-import { siteTimeZone } from "./time.js";
+import { siteClockTolerance, siteTimeZone } from "./time.js";
 import { checkStoredUsbPolicy } from "./usb-policy.js";
 import { usbPolicyLevels } from "./usb-store.js";
 import { watchLevels } from "./watched-services.js";
@@ -20,7 +20,7 @@ export type OriginLevel = "cabinet" | "site" | "client" | "model" | "role" | "fl
 export type OriginSource = OriginLevel | "default" | "automatic" | "none";
 
 /** The settings with a parent scope, in the order the console lists them. A setting added with a parent scope belongs here. */
-export const ORIGIN_SETTINGS = ["firewallPolicy", "networkBaseline", "timeZone", "syncPorts", "scannerUse", "scannerIds", "watchedServices", "approvedApps",
+export const ORIGIN_SETTINGS = ["firewallPolicy", "networkBaseline", "timeZone", "clockTolerance", "syncPorts", "scannerUse", "scannerIds", "watchedServices", "approvedApps",
   "fileFactsPaths", "usbWatch", "configBaseline"] as const;
 export type OriginSetting = (typeof ORIGIN_SETTINGS)[number];
 
@@ -61,6 +61,10 @@ export async function settingOrigins(db: Queryable, cabinetId: string): Promise<
 
   const tz = await siteTimeZone(db, siteId);
   out.push({ setting: "timeZone", source: tz.source ?? "none", setAt: present({ site: tz.own, client: tz.client, fleet: tz.fleet }), rejected: [], count: null });
+
+  // The clock tolerance has a built-in default (120 seconds) when no level sets one (D109).
+  const tol = await siteClockTolerance(db, siteId);
+  out.push({ setting: "clockTolerance", source: tol.source, setAt: present({ site: tol.own, client: tol.client, fleet: tol.fleet }), rejected: [], count: null });
 
   const ports = (await syncPortsForSite(db, siteId))!;
   out.push({ setting: "syncPorts", source: ports.source, setAt: present({ site: ports.site, client: ports.client, fleet: ports.fleet }), rejected: [],

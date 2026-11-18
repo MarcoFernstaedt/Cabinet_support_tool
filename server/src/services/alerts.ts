@@ -6,7 +6,7 @@ import { scannerUsedFor } from "./client-scanner.js";
 import { platformSettings } from "./settings.js";
 import { createHash } from "node:crypto";
 import type { AlertFilter, Event } from "../contracts.js";
-import { audit, isUniqueViolation, lock, LOCK_TIMEOUT_MS, Pool, transaction, type Queryable, type Tx } from "../db/db.js";
+import { audit, auditMany, isUniqueViolation, lock, LOCK_TIMEOUT_MS, Pool, transaction, type Queryable, type Tx } from "../db/db.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
@@ -15,6 +15,7 @@ import { isBootRecord, recordBoot } from "./crashes.js";
 import { insertNote } from "./case-notes.js";
 import { CRASH_ISSUES, syncCrashIncident } from "./crash-incidents.js";
 import { CLOSED_OUTPUT, closeAutomatically } from "./automatic-close.js";
+import { CLOCK_OFF_SQL, FIREWALL_PROFILES, firewallDiffersSql, ZONE_WRONG_SQL } from "./cabinet-conditions.js";
 import { resolutionNoteText } from "./resolutions.js";
 import { saveKnownFix } from "./known-fixes.js";
 
@@ -89,7 +90,9 @@ function unrecognizedTitle(e: Pick<Event, "kind" | "source"> & { detail?: Event[
 }
 
 /** What one batch led to: an outcome per event, and how often each rule matched (counted into memory once the batch committed). */
-export interface Processed { outcomes: Outcome[]; ruleHits: Map<string, number> }
+/** An event and the alert it raised, joined or resolved, and the rule that matched it; events.ts writes these (linkEventsToAlerts). */
+export interface EventLink { e: string; a: string | null; r: string | null }
+export interface Processed { outcomes: Outcome[]; ruleHits: Map<string, number>; links: EventLink[] }
 
 // One step of a batch, in event order. Alert writes between two resolves are folded per signature and written together.
 type Step =
@@ -103,11 +106,11 @@ type Step =
  */
 export async function processBatch(c: Tx, cabinetId: string, events: readonly Event[], rulesVersion?: string | null): Promise<Processed> {
   const ruleHits = new Map<string, number>();
-  if (events.length === 0) return { outcomes: [], ruleHits };
+  if (events.length === 0) return { outcomes: [], ruleHits, links: [] };
   const config = await ruleConfig(c, rulesVersion);
   const rules = liveNow(config);
   const outcomes: (Outcome | undefined)[] = new Array(events.length);
-  const links = new Map<string, { e: string; a: string | null; r: string | null }>();
+  const links = new Map<string, EventLink>();
   const steps: Step[] = [];
   const hit = (ruleId: string) => ruleHits.set(ruleId, (ruleHits.get(ruleId) ?? 0) + 1);
   const now = Date.now();
@@ -211,12 +214,8 @@ export async function processBatch(c: Tx, cabinetId: string, events: readonly Ev
     }
   }
 
-  // Every event that got an alert or a rule learns it in one statement.
-  const linked = [...links.values()].filter(l => l.a !== null || l.r !== null);
-  if (linked.length > 0)
-    await c.query(`UPDATE e SET alert_id = j.a, matched_rule = j.r FROM events e
-                     JOIN OPENJSON($1) WITH (e uniqueidentifier '$.e', a uniqueidentifier '$.a', r uniqueidentifier '$.r') j ON e.event_id = j.e`, [JSON.stringify(linked)]);
-  return { outcomes: outcomes.map(o => o ?? { kind: "stored" }), ruleHits };
+  // Every event that got an alert or a rule: its caller, events.ts, the events' owner, records them in one statement (D112).
+  return { outcomes: outcomes.map(o => o ?? { kind: "stored" }), ruleHits, links: [...links.values()].filter(l => l.a !== null || l.r !== null) };
 }
 
 const SERVICE_NAME = /^[A-Za-z0-9_.$-](?:[A-Za-z0-9_.$ -]{0,78}[A-Za-z0-9_.$-])?$/;
@@ -796,4 +795,162 @@ export async function closeAlertById(db: Queryable, by: string, alertId: string,
     throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
   return closeAutomatically(db, by, `UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT} WHERE id = $1`,
     [alertId, resolution]);
+}
+
+/** At most this many alerts are closed by one site-outage statement, each id one parameter; the caller closes a larger set in slices. */
+export const SITE_OUTAGE_CLOSE_SLICE = 500;
+
+/**
+ * Closes site-outage alerts by id where the alert's site has an active cabinet heard from within `liveWithinSeconds` (F21.R2, decision-log
+ * D99). The statement is the one site-outage.ts ran. The site's liveness is checked again in the statement itself: between the caller's
+ * snapshot read and this close a heartbeat can have arrived or gone stale, and an alert about a site that is not live again stays open.
+ * Audited as alert.resolve by `by` through closeAutomatically, in the caller's transaction or a new one. The closer, every id, the window
+ * and the resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeSiteOutageAlerts(db: Queryable, by: string, alertIds: readonly string[], liveWithinSeconds: number, resolution: string): Promise<{ id: string; cabinetId: string }[]> {
+  if (typeof by !== "string" || !CLOSER.test(by)) throw new Error("an alert closer is a lower-case name of 1 to 64 letters, digits and hyphens");
+  if (!Array.isArray(alertIds) || alertIds.length === 0 || alertIds.length > SITE_OUTAGE_CLOSE_SLICE || !alertIds.every(id => typeof id === "string" && ALERT_ID.test(id)))
+    throw new Error(`1 to ${SITE_OUTAGE_CLOSE_SLICE} alert ids are required to close site-outage alerts`);
+  if (!Number.isInteger(liveWithinSeconds) || liveWithinSeconds < 1 || liveWithinSeconds > 86_400)
+    throw new Error("the window a site must have been heard from in is 1 to 86400 whole seconds");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  const n = alertIds.length;
+  // Only the placeholders are composed, from the count; every value is a parameter.
+  const ids = alertIds.map((_, i) => `$${i + 1}`).join(", ");
+  return closeAutomatically(db, by, `UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $${n + 2} ${CLOSED_OUTPUT}
+       FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id
+      WHERE a.state <> 'resolved' AND a.id IN (${ids})
+        AND EXISTS (SELECT 1 FROM cabinets y WHERE y.site_id = k.site_id AND y.status = 'active' AND y.last_heartbeat_at > DATEADD(second, -$${n + 1}, SYSUTCDATETIME()))`,
+    [...alertIds, liveWithinSeconds, resolution]);
+}
+
+/**
+ * Closes the unresolved alerts of one issue type on every cabinet of a client, because the user who switched what raises them off for
+ * that client left nothing to close them later (F21.R2, decision-log D100): the fingerprint scanner switched off. The statement is the
+ * one client-scanner.ts ran. Each close is audited as alert.resolve by that user, in the caller's transaction, as it was: the user's
+ * choice closed them, so the actor is the user and not the system, and closeAutomatically (actor system) is not used. The user, the
+ * client, the issue type and the resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeClientIssueAlerts(db: Queryable, userId: string, clientId: string, issueTypeId: string, resolution: string): Promise<{ id: string }[]> {
+  if (typeof userId !== "string" || !ALERT_ID.test(userId)) throw new Error("the id of the user closing the alerts is required");
+  if (typeof clientId !== "string" || !ALERT_ID.test(clientId)) throw new Error("a client id is required to close its alerts");
+  if (typeof issueTypeId !== "string" || !ALERT_ID.test(issueTypeId)) throw new Error("an issue type id is required to close its alerts");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  // alerts carries a trigger, so the changed ids come back through a table variable.
+  const closed = (await db.query<{ id: string }>(
+    `DECLARE @o TABLE (id uniqueidentifier);
+     UPDATE a SET a.state = 'resolved', a.resolved_at = SYSUTCDATETIME(), a.resolution = $2
+      OUTPUT inserted.id INTO @o (id)
+       FROM alerts a JOIN cabinets k ON k.id = a.cabinet_id JOIN sites s ON s.id = k.site_id
+      WHERE s.client_id = $1 AND a.issue_type_id = $3 AND a.state <> 'resolved';
+     SELECT id FROM @o;`, [clientId, resolution, issueTypeId])).rows;
+  if (closed.length > 0)
+    await auditMany(db, closed.map(r => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: r.id, outcome: "succeeded" as const,
+      details: { issueTypeId, resolution, automatic: true } })));
+  return closed;
+}
+
+/**
+ * Closes every unresolved alert of a cabinet that another cabinet has replaced (F21.R2, decision-log D101): the old cabinet is retired,
+ * so nothing would close them later. The statement is the one replacement.ts ran. Each close is audited as alert.resolve by the user who
+ * replaced the cabinet, in the caller's transaction, with the alert's issue type and the replacing cabinet, as it was: the user's
+ * replacement closed them, so the actor is the user and closeAutomatically (actor system) is not used. The user, both cabinets and the
+ * resolution are checked before the database is touched. Returns the alerts closed.
+ */
+export async function closeReplacedCabinetAlerts(db: Queryable, userId: string, cabinetId: string, replacedBy: string, resolution: string): Promise<{ id: string; issue: string | null }[]> {
+  if (typeof userId !== "string" || !ALERT_ID.test(userId)) throw new Error("the id of the user replacing the cabinet is required");
+  if (typeof cabinetId !== "string" || !ALERT_ID.test(cabinetId)) throw new Error("the replaced cabinet's id is required to close its alerts");
+  if (typeof replacedBy !== "string" || !ALERT_ID.test(replacedBy)) throw new Error("the replacing cabinet's id is required");
+  if (cabinetId.toLowerCase() === replacedBy.toLowerCase()) throw new Error("a cabinet does not replace itself");
+  if (typeof resolution !== "string" || resolution.trim().length === 0 || resolution.length > 500 || /[\u0000-\u001f\u007f]/.test(resolution))
+    throw new Error("an alert resolution must be 1 to 500 characters with no control characters");
+  const closed = (await db.query<{ id: string; issue: string | null }>(
+    `DECLARE @o TABLE (id uniqueidentifier, issue uniqueidentifier);
+     UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2
+      OUTPUT inserted.id, inserted.issue_type_id INTO @o (id, issue)
+      WHERE cabinet_id = $1 AND state <> 'resolved';
+     SELECT id, issue FROM @o;`, [cabinetId, resolution])).rows;
+  await auditMany(db, closed.map(a => ({ actorKind: "user" as const, actorId: userId, action: "alert.resolve", targetKind: "alert", targetId: a.id, outcome: "succeeded" as const,
+    details: { issueTypeId: a.issue, resolution, automatic: true, replacedBy } })));
+  return closed;
+}
+
+/** A cabinet condition alerts.ts raises and clears alerts for (cabinet-conditions.ts), named by its caller. */
+export type CabinetConditionName = "timeZone" | "clock" | "firewall";
+/** Which cabinets a condition is judged for: one, a site's, a client's, or every cabinet. */
+export type CabinetScope = { cabinetId: string } | { siteId: string } | { clientId: string } | "all";
+/** The values a condition is judged with: the firewall condition needs the fleet's policy, the others nothing. */
+export interface ConditionValues { fleetPolicy?: { domain: "on" | "off"; private: "on" | "off"; public: "on" | "off" } }
+
+interface CabinetCondition {
+  issueTypeId: string;
+  /** The condition over cabinet k, its site s and client cl; its own parameters, if any, start at placeholder `n`. */
+  sql: (n: number) => string;
+  /** Its own parameters, from the checked values, in placeholder order. */
+  params: (v: ConditionValues) => unknown[];
+  /** Whether only a cabinet heard from within the offline window gets an alert (the time checks), or any active one (the firewall). */
+  recentOnly: boolean;
+  closer: string;
+  fixed: string;
+}
+// Built when first used, not when this module loads: alerts.ts and rules.ts import each other, and ISSUE is rules.ts's (D104).
+let cabinetConditions: Readonly<Record<CabinetConditionName, CabinetCondition>> | null = null;
+const conditionsTable = (): Readonly<Record<CabinetConditionName, CabinetCondition>> => cabinetConditions ??= {
+  timeZone: { issueTypeId: ISSUE.timeZone, sql: () => ZONE_WRONG_SQL, params: () => [], recentOnly: true, closer: "time-check",
+    fixed: "The cabinet is in its site's time zone again." },
+  clock: { issueTypeId: ISSUE.clock, sql: () => CLOCK_OFF_SQL, params: () => [], recentOnly: true, closer: "time-check",
+    fixed: "The cabinet's clock is within its site's tolerance of the server's again." },
+  // Only the three profiles are passed on, whatever else the stored policy holds.
+  firewall: { issueTypeId: ISSUE.firewallPolicy, sql: firewallDiffersSql, recentOnly: false, closer: "firewall-policy", fixed: "The firewall matches its policy again.",
+    params: v => [JSON.stringify(Object.fromEntries(FIREWALL_PROFILES.map(k => [k, v.fleetPolicy![k]])))] },
+};
+const isFleetPolicy = (v: unknown): boolean => typeof v === "object" && v !== null && !Array.isArray(v)
+  && FIREWALL_PROFILES.every(k => (v as Record<string, unknown>)[k] === "on" || (v as Record<string, unknown>)[k] === "off");
+
+/**
+ * Opens the condition's minor alert on each active cabinet in scope that has it, and closes it on each that no longer has it or is no
+ * longer active (F21.R2, decision-log D106, D107). The offline window narrows the opening to the conditions that ask for it, and the
+ * statements are the ones time.ts and firewall-policy.ts ran; the caller says which of the two to run (a heartbeat's lock-free read
+ * usually finds neither is needed). Opening folds into the cabinet's unresolved alert of the issue; each close is audited through
+ * closeAutomatically. The condition is named, never SQL: its text comes from cabinet-conditions.ts. The name, the scope and its id, and
+ * what to run are checked before the database is touched.
+ */
+export async function foldCabinetCondition(db: Queryable, name: CabinetConditionName, scope: CabinetScope, run: { open: boolean; close: boolean },
+  values: ConditionValues = {}): Promise<{ opened: number; resolved: number }> {
+  const table = conditionsTable();
+  if (typeof name !== "string" || !Object.prototype.hasOwnProperty.call(table, name)) throw new Error("not a cabinet condition alerts.ts knows");
+  const c = table[name];
+  const id = scope === "all" ? null : typeof scope === "object" && scope !== null
+    ? ("cabinetId" in scope ? scope.cabinetId : "siteId" in scope ? scope.siteId : "clientId" in scope ? scope.clientId : undefined) : undefined;
+  if (id === undefined || (id !== null && (typeof id !== "string" || !ALERT_ID.test(id)))) throw new Error("a condition's scope is one cabinet, site or client by id, or all");
+  if (!run || typeof run !== "object" || typeof run.open !== "boolean" || typeof run.close !== "boolean") throw new Error("say whether to open and whether to close");
+  if (name === "firewall" && !isFleetPolicy(values?.fleetPolicy)) throw new Error("the firewall condition needs the fleet's policy, each profile on or off");
+  if (!run.open && !run.close) return { opened: 0, resolved: 0 };
+  // The scope's id, then the condition's own values, follow each statement's fixed parameters, so their numbers are given here.
+  const at = (n: number) => scope === "all" ? "1 = 1" : "cabinetId" in scope ? `k.id = $${n}` : "siteId" in scope ? `k.site_id = $${n}` : `s.client_id = $${n}`;
+  const scopeArgs = id === null ? [] : [id];
+  const own = c.params(values);
+  const issue = (await db.query<{ name: string; severity: string }>("SELECT name, severity FROM issue_types WHERE id = $1", [c.issueTypeId])).rows[0];
+  if (!issue) return { opened: 0, resolved: 0 };
+  const recent = c.recentOnly ? "AND k.last_heartbeat_at > DATEADD(second, -$4, SYSUTCDATETIME())" : "";
+  // alerts has triggers (they announce new alerts), so what the MERGE did is read through a table variable.
+  const o = !run.open ? { rows: [] as { act: string }[] } : await db.query<{ act: string }>(
+    `DECLARE @o TABLE (act nvarchar(10));
+     MERGE alerts WITH (HOLDLOCK, FORCESEEK) AS t
+     USING (SELECT k.id AS cabinet_id FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+             WHERE k.status = 'active' AND ${at(6)} ${recent} AND ${c.sql(6 + scopeArgs.length)}) AS src
+        ON t.cabinet_id = src.cabinet_id AND t.signature = $3 AND t.state <> 'resolved'
+      WHEN MATCHED THEN UPDATE SET last_seen = SYSUTCDATETIME()
+      WHEN NOT MATCHED THEN INSERT (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen)
+           VALUES (src.cabinet_id, CAST($1 AS uniqueidentifier), $2, $3, $5, SYSUTCDATETIME(), SYSUTCDATETIME())
+      OUTPUT $action INTO @o (act);
+     SELECT act FROM @o;`, [c.issueTypeId, issue.severity, `issue:${c.issueTypeId}`, Math.round(OFFLINE_AFTER_MS / 1000), issue.name, ...scopeArgs, ...own]);
+  const r = !run.close ? [] : await closeAutomatically(db, c.closer,
+    `UPDATE a SET state = 'resolved', resolved_at = SYSUTCDATETIME(), resolution = $2 ${CLOSED_OUTPUT}
+       FROM alerts a JOIN cabinets k ON a.cabinet_id = k.id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+      WHERE a.issue_type_id = CAST($1 AS uniqueidentifier) AND a.state <> 'resolved' AND ${at(3)}
+        AND (k.status <> 'active' OR NOT (${c.sql(3 + scopeArgs.length)}))`, [c.issueTypeId, c.fixed, ...scopeArgs, ...own]);
+  return { opened: o.rows.filter(x => x.act === "INSERT").length, resolved: r.length };
 }

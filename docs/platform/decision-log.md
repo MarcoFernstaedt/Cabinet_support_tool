@@ -6,136 +6,844 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
-## D102. SSH supersedes the development-only operator shell (2026-11-18)
+## D117. Settings rows are removed only by settings.ts, through removeSetting (2026-11-17)
 
-The operator chose SSH for cabinet access. Cabinets on the tailnet use ordinary SSH directly.
-For cabinets off the tailnet, the dev-only capability on `feat/remote-access-tunnel`
-carries one authenticated cabinet SSH session over the agent's outbound mTLS connection.
-The platform allocates a loopback TCP endpoint for an ordinary SSH client and revokes it on close.
-The agent connects directly to the existing Windows OpenSSH service at `127.0.0.1:22`. OpenSSH
-owns authentication, host keys, and execution under the authenticated cabinet account. The agent
-adds no cabinet listener and accepts no destination parameter.
-The typed operation has its own allowlist entry and records the requesting user, cabinet, and
-endpoint in audit rows on open and close.
+**What the code did** (at `db9616f`; seven entries on the ownership debt list, F21.R2):
+- **No way to remove a setting.** `services/settings.ts` owns the `settings` table and had `upsertSetting` to write a row, but nothing to
+  remove one. Six modules each removed their own fleet-level row with their own `DELETE FROM settings`, to fall back to the default:
 
-D102 supersedes D101. The repeated PowerShell child experiment lost output in 20 of 20 runs
-because of pseudoconsole output attribution. That result informed the decision to retire the
-console shell. The off-network harness reuses the enrollment proof and checks a real SSH command,
-cabinet file evidence, the agent's socket table, endpoint revocation, and both audit rows. Live
-verification remains pending.
+  | File | Line | Key |
+  |---|---|---|
+  | `approved-apps.ts` | 498 | `apps.approved` |
+  | `device-settings.ts` | 114 | `sync.ports` |
+  | `filefacts-allowlist.ts` | 213 | `filefacts.paths` |
+  | `firewall-policy.ts` | 120 | `firewall.policy` |
+  | `time.ts` | 69 | `time.zone` |
+  | `time.ts` | 144 | `time.clockTolerance` |
+  | `watched-services.ts` | 60 | `services.watched` |
 
----
-
-## D101. A development-only operator shell over the session transport (2026-11-15)
-
-**Superseded by D102.**
-
-**Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
-is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development
-branch, never on `main`, never touched by `main`.
-
-**What was considered.** The alternative I put to him was the product path: every read I run on a cabinet becomes a
-narrow typed operation with its own allowlist entry and its own audit row, which keeps `02-security-model.md:13` intact
-and would still give live diagnostics. He chose the shell and scoped it to the branch. That route is not cancelled by
-this: it stays the way a capability reaches `main`.
-
-**What it costs, said plainly.** On `feat/remote-access-tunnel` the product's central promise is false: that branch can
-run arbitrary commands on a cabinet as SYSTEM. Everything the promise protects - the security review brief, the
-compiled catalog as the only source of operations, the signed agent upgrade as the only way to add one - is untouched
-on `main`, and the branch must never be merged. A build on a real customer estate would be a different decision with
-its own review, not an extension of this one.
-
-**The guard.** The agent serves it only when its configuration names it; that key is absent from every shipped release
-and from the release packing script; a build without the key behaves exactly as today. The rest is in
-`docs/codex-tasks/session-shell-dev-only.md`: a named frame kind rather than a generic pipe, an audit row and a command
-log for every session, and a process rather than a script runner.
-
----
-
-## D100. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
-
-**Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
-presses Next and sees another page of the same amount. So the rule is the screenful, not a number - neither the 25 that
-D81 recorded nor the 10 a branch proposed.
-
-**What it means in code.** The console computes the rows per page from what fits the viewport, floors it at a readable
-minimum, and asks the server for exactly that (`console/src/components/Pager.tsx`, sent as `limit` by
-`console/src/pages/Fleet.tsx:144`). The route's own contract is unchanged: `limit` 1 to 500, `offset` 0 to 999999
-(D81), so a screenful is always inside it. Next is a page of the same size, not a jump to the end, and a resize
-re-pages from the first page rather than stranding the reader mid-list.
-
-**What else was considered.** Keeping a fixed number and correcting the documents to match: cheaper, and it was the
-alternative offered on the review of #271. It was rejected because Marco asked for the screenful, and a fixed number is
-what put a 10-row page and a 25-row specification in disagreement in the first place. A "show all" list was not
-considered: the site view is the one place a list is unbounded by site size.
-
-**What it costs.** The page size is now a function of the window, so it is not a constant any test can quote. A test
-pins the *rule* instead - the page holds what fits and Next shows the next page of the same size - and the counts
-"1-25 of 230 / page 1 of 10" that `server/test/console-site-paging-e2e.test.ts` asserts today move with the viewport
-the test drives.
-
-**Proof.** `docs/spec/06-console-spec.md:27` states the behaviour rather than the number, and D81's "each page of 25"
-records that D100 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
-it fail on a viewport whose screenful is not that constant.
-
----
-
-## D99. Opening a remote session needs a grant and a step-up code (2026-11-15)
-
-**What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
-the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`
-exists in `contracts/schemas/operations/catalog.json`; the console's guard is a minimum-role test
-(`server/src/console-api/server.ts:80`, `role(request, minimum)`), ranked by `ROLE_RANK` (`server/src/services/roles.ts`). The
-phase-2 run stopped instead of picking a role, which was right: choosing who may reach a customer's machine is not a decision
-for the run to take.
-
-**Revised the same day, on Marco's direction.** He rejected the rank-based reading of this decision: *"not all actions are
-doable by all roles - admin can just give some users more permission, example fleet wide or site wide changes."* He is right,
-and the first version was the softer error: rank is a coarse line that grows silently. `users.role` is a three-value rank,
-`CHECK (role IN ('tier1', 'tier2', 'admin'))` (`server/migrations/0001_baseline.sql:33`), so anything keyed to it hands every
-tier2 every power the platform grows later, including ones nobody has thought about yet. **A permission is something an admin
-grants, and it carries its scope.**
+  None of these took the per-key lock `upsertSetting` takes, and two (`time.ts`) built the statement text from the key.
+- **A hand-written upsert.** `writes.ts:93` wrote the fleet write pause with its own `MERGE settings`.
 
 **The decision:**
-- **A grant table, not a rank.** `user_permissions (user_id, permission, scope_kind, scope_id)`, with `scope_kind` in
-  `('fleet', 'site', 'cabinet')`: `fleet` reaches every cabinet and leaves `scope_id` NULL, `site` and `cabinet` name one.
-  Unique per `(user_id, permission, scope_kind, scope_id)`; FK to `users`; `removed_at` / `removed_by` for revocation and
-  `DENY DELETE` to the application role, following how `sites` already retires rows (`server/src/services/admin.ts:21` reads
-  `s.removed_at IS NULL`). `permission` holds the catalog operation name, so the mechanism serves `session.open` first and the
-  rest of the platform afterwards rather than being a special case for tunneling.
-- **The check is against the cabinet, not the fleet.** A session opens on cabinet C when a grant matches C: one `fleet` grant,
-  or a `site` grant for C's site, or a `cabinet` grant for C. A `site`-scoped grant therefore reaches that site's cabinets
-  and no others. Nothing in this path reads `ROLE_RANK`; an `admin` holds **no implicit** session permission, and the same
-  table is how an admin gives one to itself. That is what "admin can give some users more permission" means in code.
-- `session.open` is also a catalog entry with `kind: "write"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`
-  and **no `safetyNet`** - that field belongs to operations with a rollback net behind them (`network.*`), and a session has
-  none, so claiming one would be a lie in the catalog the agent compiles in.
-- Then the step-up, unchanged and not replaced by the grant: `consumeStepUpToken(db, token, userId, "session.open", target)`
-  (`server/src/auth/stepup.ts:37`). A grant says *who may*; the code says *this operator, now*.
-- Audit: `session.open`, `session.end`, `session.kill`, `session.refused` through the repository's existing audit path, one row
-  per transition and **not** per frame (a transcript is not an audit) - **and every grant and revocation too**, because who may
-  reach a customer's machine is itself the record worth keeping.
-- The lifecycle's own bounds - one live per cabinet, an idle timeout, a maximum length, the fleet cap - are the server's, not
-  the catalog's and not the grant's.
+- **The counterpart of `upsertSetting`.** `settings.ts` exports `removeSetting(db, key)`. It checks the key before the database is touched:
+  1 to 200 letters, digits, dots, colons, dashes or underscores, which is every key the platform uses. It takes the same per-key lock as
+  `upsertSetting`, removes only that row, and answers whether there was one. It runs in the caller's transaction.
+- **The six modules call it.** Each removal keeps its place, its transaction and its audit.
+- **`writes.ts` calls `upsertSetting`.** It writes the same value, author and time, under the per-key lock.
+- **The audit sweep's exception moves with the statement.** `audit-sweep.test.ts` excused `approved-apps.ts`'s `DELETE FROM settings`
+  because the callers of `writeLevel` audit it. The other five removals passed because their own functions write an audit row. The one
+  `DELETE` is now in `removeSetting`, which writes none, so the exception names `settings.ts` and every caller:
+  - five audit in the function that calls it: `device-settings`, `filefacts-allowlist`, `firewall-policy`, `time` (twice) and
+    `watched-services`;
+  - `approved-apps` audits in the callers of `writeLevel`.
 
-**What else was considered:**
-- **Rank-based, the first version of this entry.** Replaced on Marco's direction. Tying a new power to an existing rank is how
-  a platform ends up with powers nobody decided to hand out, and it blurs the platform's own customer-facing promise that tier
-  1 and tier 2 are different levels of trust.
-- **`minimumRole: "admin"` inside the rank model.** Rejected then, and moot now: under grants an admin can hold the permission
-  or not, per scope, like anyone else.
-- **`confirm: "click"`**, as `service.control` and the firewall rules use. Rejected: those are reversible without leaving the
-  machine. A live channel into a customer's cabinet is the class that takes a code.
+  Without the moved entry the sweep fails, naming `services/settings.ts:32`.
+- **Debt count:** all seven entries for `settings` come off, which leaves 32. The `settings` table has no debt entry left. Only the
+  accepted demo simulator and `usb-sql.ts` write it outside `settings.ts`.
 
-**What it costs:** a table, a migration and an admin surface to hand grants out before the first session can open at all -
-and every open still costs a step-up code, so a long troubleshooting call starts with an authenticator prompt. Accepted. The
-alternative is the one this decision exists to avoid: a stolen console cookie, or any tier2 who happens to exist, reaching any
-customer's cabinet in the fleet.
+**Proof:**
+- **`server/test/settings-removal.test.ts`** (new, 3 tests, against the database):
+  - **Removing.** A removal takes only the key it names and says whether it was there.
+  - **Rollback.** A removal in a transaction that rolls back leaves the row, and a write after a removal in the same transaction adds it
+    back.
+  - **Hostile input.** 12 keys are refused on a connection that throws if used: an injection, spaces, a slash, a percent sign, a newline,
+    a list and an object among them.
+- **Red checks** (`settings-removal`, `table-ownership`, `site-policies`, `writes` and `clock-tolerance`, 30 tests). Each of these fails:
 
-**Proof:** not yet, and not claimed. Phase 2 is partly written. The tests that will prove it are named under "Prove it" in
-`docs/codex-tasks/remote-access-tunnel-lifecycle.md`: no session opens without a matching grant, none opens for a grant scoped
-elsewhere, none opens without a step-up token, one audit row per transition, and the live-session bound held by the database
-rather than by the server alone.
+  | Edit | What fails |
+  |---|---|
+  | `time.ts` deleting from `settings` again | The ownership test |
+  | A removal that removes nothing | Both removal tests and two `site-policies` tests that clear the fleet zone |
+  | A removal that takes every key | The first removal test |
+  | The key check disabled | The hostile-input test |
+  | The fleet zone never cleared | The same two `site-policies` tests |
+  | The fleet write pause not written | `writes.test.ts` "a fleet or client write pause stops writes but not reads" |
+
+  Restored and `cmp` identical, 30 of 30 pass.
+- **Neighbours.** The 28 files that import a changed module, with `table-ownership`, `import-cycles`, `module-load-order`, `audit-sweep`,
+  `settings-removal`, `site-policies` and `writes`: 281 of 288 in the first run, with 5 skipped and 2 failures.
+  - **`audit-sweep`:** fixed by moving the exception, as above.
+  - **`demo.test.ts`** "every simulated cabinet reports its configuration…": it timed out waiting for drift to clear. It passed alone,
+    19 of 19. It writes no setting, so the cause is not established.
+
+---
+
+## D116. The console sign-in's account writes go through users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `b2fb6f0`; the last entry on the `users` table's debt list, F21.R2):
+- **Nine writes.** `server/src/console-api/auth-routes.ts` wrote the `users` table with its own statements, none of which checked
+  what it was given:
+
+  | Line | Write |
+  |---|---|
+  | 101 | Clearing the failure count and lifting a lock (a sign-in that needs no code) |
+  | 106 | Recording a finished sign-in |
+  | 146 | Spending a sign-in code's step, and recording the sign-in when it completes |
+  | 163 | Keeping the authenticator secret being set up |
+  | 180 | Turning the authenticator on |
+  | 206 | Setting a password the person chose |
+  | 231 | Marking the tour done |
+  | 250 | Spending a step-up code's step |
+  | 278 | Clearing the failure count after a confirmed password |
+
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+
+**The decision:**
+- **Each statement moves into `users.ts`, unchanged.** The new functions are `clearAuthFailures` (with `unlock`), `recordSignedIn`,
+  `spendSignInStep`, `pendingAuthenticatorSecret`, `enableAuthenticator`, `setOwnPassword` and `markTourCompleted`. The step-up claim was
+  already the same statement as D115's `spendCodeStep`, which it now uses. The routes still decide every stage, audit it and manage
+  sessions and devices.
+- **What each checks** before the database is touched, with a plain error:
+  - the account id is a uuid;
+  - the step is a whole number, 0 or more;
+  - the flags are booleans;
+  - the sealed secret is 1 to 1024 bytes;
+  - the password hash is 1 to 1024 characters with no spaces.
+
+  Every value comes from the session, the database or the server's own hashing, so no sign-in that works today is refused.
+- **Debt count:** the `console-api/auth-routes.ts` entry comes off, which leaves 39. The `users` table has no debt entry left; only the
+  accepted demo simulator writes it outside `users.ts`.
+
+**Proof:**
+- **`server/test/sign-in-account-writes.test.ts`** (new, 5 tests, against the database). Each function writes only the account it names.
+  - **Clearing the count.** It lifts the lock only when asked.
+  - **Sign-in steps.** A step is spent once and only when newer, clears the count, and records the sign-in only when it completes.
+  - **Authenticator setup.** It keeps the first pending secret and then turns the authenticator on; after that nothing is pending.
+  - **Password and tour.** A chosen password no longer has to be changed.
+  - **Hostile input.** 18 inputs are refused, each with its own reason, on a connection that throws if used.
+- **`server/test/sign-in-route-writes.test.ts`** (new, 3 tests, through the real routes). The first red-check pass found that no test
+  checked three of the routes' own writes, before this change or after it. The new tests check them:
+  - a sign-in that needs no code clears the count and lifts a lock that has run out;
+  - a sign-in finished with a code records it, and a correct password alone does not clear the count when a code follows;
+  - a confirmed password clears the count.
+- **Red checks** (the two new files, `console-api` and `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in the routes | The ownership test |
+  | Clearing that always lifts the lock | The clearing test |
+  | A code step that always records the sign-in | The step test |
+  | A code step taken again | The step test |
+  | The pending secret swapped | The setup test, and `console-api` "authenticator setup shows the same secret until it is confirmed" |
+  | Enabling that forgets the step | The setup test |
+  | A chosen password that must still be changed | The password test |
+  | The login route not clearing the count | The first route test |
+  | The confirm-password route not clearing the count | The third route test |
+  | The code route never recording a finished sign-in | The second route test |
+  | The account, step or secret check disabled | The hostile-input test |
+
+  The three route edits failed no test until the route tests were added. Restored and `cmp` identical, all pass.
+
+---
+
+## D115. The command line's account writes go through users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `c1a1c6d`; an entry on the ownership debt list, F21.R2):
+- **Four writes.** `server/src/cli.ts` wrote the `users` table four times with its own statements:
+  - spending an authenticator step for a command proved with `--code` (`cli.ts:115`);
+  - `user resume-writes` (`cli.ts:296`);
+  - `user add` (`cli.ts:312`);
+  - `user reset-password` (`cli.ts:327`).
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+- **No input check.** None of the four checked what it was given. A malformed username or name reached the table, whose check
+  constraint refused it with a database error.
+
+**The decision:**
+- **Each statement moves into `users.ts`, unchanged.** The new functions are `spendCodeStep`, `resumeWritesByUsername`,
+  `addUserFromCommandLine` and `setTemporaryPasswordByUsername`. The command line still authorizes each command, audits it and ends
+  sessions as before.
+- **What each checks** before the database is touched, with a plain error the command line prints (exit code 1):
+  - the account id is a uuid;
+  - the step is a whole number, 0 or more;
+  - the username follows the table's rule;
+  - the name is 1 to 128 characters with no control characters;
+  - the role is tier1, tier2 or admin;
+  - the password hash is 1 to 1024 characters with no spaces.
+- **What changes for an operator.** `user add` with a username the table would refuse now gets the rule in words, not the constraint error.
+  A name with a control character is refused now; that one the table accepted. A name made only of spaces is refused in words too, where
+  the table refused it already with a constraint error, because its length check ignores trailing spaces and counts a name of spaces as none,
+  and the command line refused an empty one before the table was reached.
+- **Behaviour kept as it was.** The command line's `user resume-writes` still resumes whatever paused the person (unlike the console's,
+  which refuses when they are not paused), and its `user add` still relies on the table's unique key for a username already used.
+- **Debt count:** the `cli.ts` entry for `users` comes off, which leaves 40. The console sign-in routes (`auth-routes.ts`) are the last
+  writer of `users` outside `users.ts`.
+
+**Proof:**
+- **`server/test/cli-account-writes.test.ts`** (new, 4 tests, against the database):
+  - **Steps.** A step is spent once and only when newer, and clears the failure count. Another account is untouched, and an unknown
+    account answers false.
+  - **Resume.** Resuming by username clears the pause and its reason. An unknown username is not found, and a capitalised one is refused.
+  - **Add and reset.** An added account must change its temporary password. A temporary password clears the lock and touches no other
+    account.
+  - **Hostile input.** 21 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`cli-account-writes`, `cli-authority` and `table-ownership`, 22 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `cli.ts` | The ownership test |
+  | A spent step taken again | The first new test |
+  | Resuming that keeps the reason | The second new test |
+  | A new account that need not change its password | The third new test |
+  | A temporary password that keeps the lock | The third new test |
+  | The username check skipped | The second and fourth new tests (TypeScript reported a type error but still built) |
+  | The step check or the name check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 22 of 22 pass.
+- **One check that stays green.** The command line ignoring a step already spent fails no test.
+  - `totp.verify` already refuses a step not newer than the last one spent, so a code used twice in a row is refused before the
+    statement runs (`cli-authority` "a code is used once" holds either way).
+  - The statement's own condition matters only for two uses of one code at once. The first new test holds that condition.
+
+---
+
+## D114. A person over their write limit is paused by users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `7b97ddc`; an entry on the ownership debt list, F21.R2):
+- **The write.** `recordLimitPause` in `server/src/services/writes.ts:75-86` paused a person's writes when a write went over their hourly
+  limit, with its own `UPDATE users`:
+  - it sets `writes_paused` and keeps a reason already given;
+  - it runs only when the person was not paused already.
+
+  Then it audited `writes.user_paused` and raised the `write_volume` security alert, with the person's username and limit.
+- **Who owns that table.** `users` belongs to `services/users.ts`, which already holds the opposite write, `resumeUserWrites`.
+
+**The decision:**
+- **The pause moves; the audit and the alert stay.** `users.ts` exports `pauseUserWritesForLimit(c, id)` with the same statement, in the
+  caller's transaction. It answers the username and limit when it paused the person, and null when they were paused already or there is no
+  such account. `writes.ts` audits and raises the alert only on an answer, as before when exactly one row changed.
+- **The account is checked** to be a uuid before the database is touched.
+- **Debt count:** the `services/writes.ts` entry for `users` comes off, which leaves 41.
+
+**Proof:**
+- **`server/test/write-limit-pause.test.ts`** (new, 3 tests, against the database):
+  - **Pausing.** A person is paused once, with the reason, and the answer gives their username and limit (id in upper case). A second
+    pause answers null, another account is untouched, and an unknown account answers null.
+  - **Reason and rollback.** A reason an Admin already gave is kept, and a pause in a transaction that rolls back leaves the account as
+    it was.
+  - **Hostile input.** Nine accounts that are not a uuid are refused on a connection that throws if used.
+- **Red checks** (`write-limit-pause`, `writes`, `write-safety` and `table-ownership`, 24 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `writes.ts` | The ownership test |
+  | The pause not recorded | Four write-limit tests in `writes.test.ts` and `write-safety.test.ts` |
+  | A pause that repeats | The first new test |
+  | The reason overwritten | The second new test |
+  | The account check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 24 of 24 pass.
+
+---
+
+## D113. A failed sign-in is counted against the account by users.ts, the users' owner (2026-11-17)
+
+**What the code did** (at `d4ccf11`; an entry on the ownership debt list, F21.R2):
+- **The write.** `recordAuthFailure` in `server/src/services/auth-failures.ts:10-16` counted a failed sign-in or step-up code against the
+  account with its own `UPDATE users`. The statement:
+  - starts the count again at 1 once an earlier lock has run out;
+  - locks the account for 15 minutes at the fifth failure;
+  - lifts a lock that has run out.
+
+  At the fifth failure the function then raised a security alert.
+- **Who owns that table.** `users` belongs to `services/users.ts`.
+- **Who calls it.** The console's sign-in and step-up routes, the command line's sign-in, and its per-command code check.
+
+**The decision:**
+- **The statement moves; the policy stays.** `users.ts` exports `countAuthFailure(db, id, lockAt, lockMinutes)` with the same statement.
+  It returns the count and the username after the change, or null when there is no such account. `auth-failures.ts` keeps the policy
+  (five failures, 15 minutes), the alert and its title, and calls it.
+- **What it checks** before the database is touched, each with its own message:
+  - the account is a uuid;
+  - the failures that lock are a whole number from 1 to 100;
+  - the minutes locked are a whole number from 1 to 1440.
+
+  Every caller passes an account id read from the database, so no sign-in that works today is refused.
+- **Debt count:** the `services/auth-failures.ts` entry for `users` comes off, which leaves 42.
+
+**Proof:**
+- **`server/test/auth-failure-count.test.ts`** (new, 3 tests, against the database):
+  - **Counting and locking.** Each failure counts one. The third of three locks the account for its 15 minutes, given the id in upper
+    case. Another account is untouched, and an unknown account answers null.
+  - **An expired lock.** A lock that has run out starts the count again at one and is lifted.
+  - **Hostile input.** 11 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`auth-failure-count`, `console-api` and `table-ownership`, 27 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `users` write back in `auth-failures.ts` | The ownership test |
+  | A failure not counted | Three `console-api` sign-in tests (five failures lock; guessing codes locks; the count starts again after a lock) |
+  | Reaching the limit not locking | The first new test and those three |
+  | A lock that ran out not starting the count again | The second new test (no `console-api` test catches this alone) |
+  | The account check or the number check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 27 of 27 pass.
+
+---
+
+## D112. A batch's event links are written by events.ts, the events' owner (2026-11-17)
+
+Numbered D112 because #271 takes D111 (D110 went to #306).
+
+**What the code did** (at `e67dc55`; an entry on the ownership debt list, F21.R2):
+- **The write.** `processBatch` in `server/src/services/alerts.ts:215-219` ended by recording, for every event of the batch that raised,
+  joined or resolved an alert or matched a rule, that alert and rule, with its own `UPDATE events … FROM OPENJSON(…)`.
+- **Who owns that table.** `events` belongs to `services/events.ts`. This was the last entry on its debt list.
+- **Who calls it.** `processBatch` has one caller, `storeEvents` in `events.ts`, in the same transaction.
+
+**The decision:**
+- **`alerts.ts` decides, `events.ts` writes.** `processBatch` returns the links (`{ e, a, r }`, only those with an alert or a rule) with its
+  outcomes. `storeEvents` passes them to a new `linkEventsToAlerts(c, cabinetId, links)` in the same transaction.
+  - `alerts.ts` imports nothing new.
+  - `events.ts` already imported `alerts.ts`, so no new import cycle.
+- **What the function checks** before the database is touched, each with its own message:
+  - the cabinet is a uuid;
+  - the links are a list of at most 100, one per event in a batch (the event batch contract's `maxItems`);
+  - each link's event is a uuid, and its alert and rule are each a uuid or null, never both null;
+  - no event is linked twice.
+
+  An empty list writes nothing.
+- **One thing it adds.** The statement touches only the given cabinet's events. The old one matched on the event id alone. A batch's
+  events are always its own cabinet's, so nothing that happens today changes.
+- **Debt count:** the `services/alerts.ts` entry for `events` comes off, which leaves 43.
+
+**Proof:**
+- **`server/test/event-links.test.ts`** (new, 3 tests, against the database):
+  - **Links.** An event raised, one suppressed and one resolved each get their alert and rule. An event not named is untouched, and
+    another cabinet's event named under this cabinet is untouched.
+  - **Rollback.** A link in a transaction that rolls back leaves the event as it was.
+  - **Hostile input.** 17 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (`event-links`, `alerts` and `table-ownership`, 31 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | An `events` write back in `alerts.ts` | The ownership test |
+  | `storeEvents` not recording the links | `alerts.test.ts` "an unrecognized error is mapped … and the next one raises the issue" |
+  | The statement not limited to the cabinet | The links test |
+  | The duplicate, size or empty-link check disabled | The hostile-input test |
+
+  Restored and `cmp` identical, 31 of 31 pass.
+
+---
+
+## D110. A failed migration's alert is raised by security.ts, and the command line asks for it (2026-11-17)
+
+**What the code did** (at `568a693`; an entry on the ownership debt list, F21.R2):
+- **The write.** `alertMigrationFailed` in `server/src/db/migrate.ts:36-44` raised the "Database migration … failed" operations alert with
+  its own `UPDATE security_alerts … IF @@ROWCOUNT = 0 INSERT …` on the owner's connection. `migrate()` called it when a migration failed
+  (`migrate.ts:71`).
+- **Who owns that table.** `security_alerts` belongs to `services/security.ts`.
+- **Why it was left** (D88): moving the write into a service would make the database layer depend on that service.
+- **What it skipped.** Every other security and operations alert goes through `raiseSecurityAlert`, which audits each raise
+  (`security.alert`) and wakes the Admins' live streams. The migration alert did neither. A version name longer than the title column
+  made it fail (it answered false), where `raiseSecurityAlert` cuts the title to fit.
+
+**The decision:**
+- **The alert moves to `security.ts`.** `alertMigrationFailed(owner, version)` raises it through `raiseSecurityAlert`, in its own
+  transaction on the owner's connection. It is still best effort and still answers whether it was raised.
+- **`migrate()` asks its caller instead.** It takes `onFailed(version)`, called after the failed migration's transaction has rolled back
+  and before its error is thrown. A failing `onFailed` never hides that error.
+- **The command line connects the two.** `platform-admin migrate` (`src/cli.ts`) passes `alertMigrationFailed`. The database layer imports
+  no service, which answers D88's reason for leaving it.
+- **What changes for an Admin:**
+  - The alert is audited, like every other operations alert.
+  - It appears on the live stream at once.
+  - A long migration name is cut to fit instead of losing the alert.
+- **Unchanged:** the kind, the signature (one open alert), the title and the detail.
+- **Who calls `migrate()` without `onFailed`.** The test database setup and the migration tests. A failure there now raises no alert;
+  none of them asserted one.
+- **Debt count:** the `db/migrate.ts` entry for `security_alerts` comes off, which leaves 44.
+
+**Proof** (`server/test/operations.test.ts`, two new tests, against the database):
+- **The alert.** A hostile version name of 339 characters (an injection and padding) is raised: it folds into the one open migration
+  alert, is stored as text cut to 256, is audited once as a repeat, and adds one notification.
+- **The callback.** A broken migration added after the real ones:
+  - fails with its own error;
+  - tells the caller its version once;
+  - leaves neither its half-built table nor a `schema_migrations` row.
+
+  A caller whose alert throws still gets the migration's error. The command line's source passes `alertMigrationFailed`.
+- **Red checks** (`operations` and `table-ownership`, 27 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A `security_alerts` write back in `migrate.ts` | The ownership test |
+  | The command line passing no alert | The callback test |
+  | `migrate()` never telling its caller | The callback test |
+  | A failing alert allowed to replace the error | The callback test |
+  | The alert's transaction not committed | The existing migration test, the new alert test, and the two system-health tests that count open alerts |
+
+  Restored and `cmp` identical, 27 of 27 pass.
+
+---
+
+## D109. The clock tolerance is set site by site, from 10 to 120 seconds (2026-11-17)
+
+**What the code did** (at `6aef428`):
+- **One fleet-wide tolerance.** "Clock is off" opened when a cabinet's clock was more than `CLOCK_TOLERANCE_SECONDS` (120) from the
+  server's (`server/src/services/cabinet-conditions.ts:15-21`).
+- **Copied in five places.** The same 120 was written out again in the heartbeat's decision to check the time (`cabinets.ts:20`, its own
+  copy "to avoid a circular import"), a fleet sync's verification (`fleet-jobs.ts:430`), the cabinet's time facts (`time.ts:98`) and the
+  diagnosis (`cabinet-findings.ts:360`).
+
+**The decision** (the owner's, spec 09 "Where the time zone, clock and firewall alerts live, and who adjusts them": what these alerts judge
+must be adjustable site by site):
+- **Three levels and a default, like the zone.** `sites.clock_tolerance_seconds` and `clients.clock_tolerance_seconds` (migration 0034)
+  and the settings row `time.clockTolerance` give the site's own, else the client's, else the fleet's, else 120 seconds. All five users
+  read one expression, `SITE_CLOCK_TOLERANCE_SQL`. `cabinet-conditions.ts` imports nothing, so `cabinets.ts` drops its copy.
+- **10 to 120 seconds, taken as recommended** (the spec gives no range):
+  - Not above 120, because the agent refuses a command issued more than two minutes ahead of its own clock (03-protocol.md). A looser
+    tolerance would hide a clock that already breaks commands.
+  - Not below 10, because the offset a heartbeat reports includes its own round trip.
+- **Where the range is checked.** The contract (`clock-tolerance`), the service before it opens a transaction, and the column checks as
+  the backstop. A fleet row outside the range, edited outside the platform, is ignored, so 120 applies.
+- **Who sets each level.** Tier 2 and up for a site or a client, the same as the zone; an Admin for the fleet.
+- **What a write does.**
+  - It is audited with what it replaced: `{before, seconds}`.
+  - It judges the cabinets it reaches again in the same transaction, so their alerts open or close at once.
+  - It answers with what applies, read back from the database.
+  - A failure rolls the whole change back. Undoing a change is setting the `before` its audit entry names.
+- **Also changed.** The setting-origins read lists the tolerance after the time zone, and the console edits it on the site page, the
+  client page, the Admin device defaults and the cabinet's Standards tab. The diagnosis gives an offset under two minutes in seconds
+  (it said "0 minutes"). The closing sentence and a sync's verified text say "within its site's tolerance" in place of "within two minutes".
+- **Unchanged:** the alert is still the cabinet's own and minor. With nothing set, every cabinet is judged at 120 as before.
+- **No new debt.** `time.ts` was already listed for `sites`, `clients` and `settings`.
+
+**Proof:**
+- **`server/test/clock-tolerance.test.ts`** (new, 7 tests, against the database):
+  - **The levels.** Each level applies in turn, and the alert opens with the site's write and closes when the site's own is cleared.
+  - **The heartbeat.** A heartbeat checks the clock against the site's 20 seconds.
+  - **Sync and diagnosis.** A fleet sync is verified only within the site's 30, and the diagnosis says "45 seconds ahead".
+  - **Permissions.** Each refused role, and nobody signed in, writes nothing.
+  - **Audit.** Each change is audited with its before.
+  - **Hostile values.** 15 bodies are refused on each of the three routes, and 3 hostile site ids. Eight values reach the service on a
+    connection that throws if used, and each is refused with its own message.
+  - **Backstop.** The column checks refuse values outside the range, and five fleet rows edited outside the platform are ignored.
+- **Red checks.** Each of these 11 edits fails that file:
+  - the alert, the heartbeat, the verification or the diagnosis back on a fixed 120;
+  - the title back to minutes;
+  - the service check disabled;
+  - the site route at Tier 1, or the fleet route at Tier 2;
+  - the fleet row's range guard removed;
+  - the audit's `before` dropped;
+  - the site route answering what it was sent instead of reading back.
+
+  Restored and `cmp` identical, 7 of 7 pass.
+
+---
+
+## D108. The demo simulator and usb-sql.ts are accepted writers, not debt (2026-11-17)
+
+**What the code did** (at `4e84a42`; the ownership debt list, F21.R2):
+- **The list.** `server/src/db/table-owners.ts` named every file other than a table's owner that writes it, as debt to move behind the
+  owner: 76 entries.
+- **Thirty of them were not meant to move.**
+  - `demo/demo.ts` (24 tables), `demo/troubleshooting.ts` (4) and `demo/config.ts` (1) are the demo simulator, which seeds its own
+    simulated cabinets' rows across the schema. The file's own header already said its reach is listed "so it stays visible".
+  - `services/usb-sql.ts` (alerts and settings) keeps the USB layer's statements as data, in a module with no database driver, so
+    `usb-sql.test.ts` checks each one against the migrations without a database; `usb-store.ts` runs them. Moving them behind
+    `alerts.ts` would end that check.
+
+**The decision** (the owner's, asked 2026-11-17: accept them as exceptions):
+- **Accepted, with a reason.** Each table that one of these files writes lists it under a new `accepted`, and `ACCEPTED_WRITERS` names
+  the reason for each of the four files. They are no longer counted as debt.
+- **Still checked.** `table-ownership.test.ts` treats an accepted writer as allowed, holds it to the same "no longer writes" rule as debt,
+  and adds a test: every accepted file has a reason, every reason is used by a table, no file is both debt and accepted, and no owner is
+  accepted for its own table. A new write by one of these files to a table that does not accept it still fails the ownership test.
+- **Debt list:** 45 entries on main after #303, with 30 accepted. Spec 01 "Module boundaries" says so.
+
+**Proof** (`table-ownership.test.ts`, 6 tests):
+- With usb-sql.ts's reason removed, with a reason no table uses, or with `demo/troubleshooting.ts` listed for `case_notes` as both debt
+  and accepted, the new test fails.
+- With a file accepted for a table it does not write, the "no longer writes" test fails.
+- With `usb-sql.ts` taken off the `alerts` table's accepted list, the unlisted-write test fails.
+- Restored and `cmp` identical, 6 of 6 pass.
+
+---
+
+## D107. The firewall alert opens and closes through alerts.ts, by named condition (2026-11-17)
+
+**What the code did** (at D106's head, `b7b9c8b`; an entry on the ownership debt list, F21.R2):
+- **The writes.** `evaluateDrift` in `server/src/services/firewall-policy.ts:93-117` opened each cabinet's minor "Firewall differs from
+  client policy" alert with its own `MERGE alerts`, and closed it with its own `UPDATE alerts` through `closeAutomatically`, both built
+  from its own condition text (`DIFFERS_SQL`, with the fleet policy as `$1`).
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`.
+
+**The decision** (the owner's, as for D106; spec 09 "Where the time zone, clock and firewall alerts live"):
+- **A third named condition.** The condition text moves to `cabinet-conditions.ts` as `firewallDiffersSql(n)` and `firewallPolicySql(n)`,
+  where `n` numbers the fleet policy's placeholder. At `n = 1` both are the same text as before, compared character for character.
+  `firewall-policy.ts` builds its own reads (the heartbeat's pre-read, the bulk candidates) from them at `$1`, as before.
+- **The fleet policy is a value, not SQL.** `foldCabinetCondition` takes it as `{ fleetPolicy }` and checks it before the database is
+  touched: an object whose three profiles are each "on" or "off". A stored policy can hold more keys (`isPolicy` in `firewall-policy.ts`
+  allows them); only the three profiles are passed on, and nothing that holds them is refused.
+- **What each condition judges.** The time checks judge only cabinets heard from within the offline window; the firewall check judges
+  every active cabinet, as it did. Each condition says which (`recentOnly`).
+- **Per cabinet, adjustable per site.** The alert stays the cabinet's own, minor. The policy it is judged against is the site's own, else
+  its client's, else the fleet's, so it is set site by site, as the owner asked.
+- **Unchanged:** which cabinets get or lose the alert, the sentence, the closer (`firewall-policy`), the audit and the transaction.
+- **One existing assertion changed:** D106's hostile-input test listed "firewall" among the names `alerts.ts` does not know. It now
+  knows it, so that case names "firewallPolicy" instead; the count of 27 there is unchanged, and nine firewall refusals are added (36).
+- **Debt list:** the `services/firewall-policy.ts` entry for `alerts` comes off, which leaves 75 once D106 has merged.
+
+**Proof:**
+- **The owner function.** `server/test/cabinet-condition-alerts.test.ts`, new firewall tests, against the database:
+  - A site with its own all-on policy: both of its cabinets that differ get a minor alert, one of them not heard from in the offline
+    window. A site following the fleet's all-off policy judges its all-on cabinet against that. Put right, the first site's alerts close,
+    each audited by `firewall-policy` with its sentence, and the other client's alert stays.
+  - A fleet policy holding a fourth key is judged on the three profiles, and a matching cabinet gets no alert.
+  - Nine malformed fleet policies (missing, null, two profiles, "yes", booleans, a JSON string, an array) are refused before a connection
+    that throws if used.
+- **Load order.** `module-load-order.test.ts` also loads `firewall-policy.js` first; all six orders pass.
+- **Red checks** (`cabinet-condition-alerts`, `firewall-policy`, `table-ownership`, `module-load-order`; 23 tests):
+  - With `firewall-policy.ts` as at D106's head, `table-ownership.test.ts` fails.
+  - With the firewall judged only on cabinets heard from recently, the site test fails.
+  - With the site's own policy left out of `firewallPolicySql`, the site test fails.
+  - With the fleet-policy check disabled, the hostile-input test fails.
+  - With a policy of more than three keys refused, the fourth-key test fails.
+  - Restored and `cmp` identical, 23 of 23 pass.
+- **Neighbours.** The 21 non-browser files that import `services/firewall-policy.js`, `services/alerts.js` or
+  `services/cabinet-conditions.js` (chosen by that exact import), with `module-load-order`, `table-ownership`, `audit-sweep` and
+  `import-cycles`: 185 of 185.
+
+---
+
+## D106. The time zone and clock alerts open and close through alerts.ts, by named condition (2026-11-17)
+
+**What the code did** (at `ee44fe6`; an entry on the ownership debt list, F21.R2):
+- **The writes.** `evaluateTime` in `server/src/services/time.ts:42-67` opened each cabinet's minor time-zone or clock alert with its own
+  `MERGE alerts`, and closed it with its own `UPDATE alerts` through `closeAutomatically`. Both statements were assembled in `time.ts`
+  from its own condition text (`ZONE_WRONG`, `CLOCK_OFF`) and a scope fragment.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. Moving the statements there as they were would have meant
+  `alerts.ts` taking SQL from its callers.
+
+**The decision** (the owner's, asked 2026-11-17; spec 09 "Where the time zone, clock and firewall alerts live"):
+- **Named conditions.** The condition texts move to a new `services/cabinet-conditions.ts`, which imports nothing. `alerts.ts` gains
+  `foldCabinetCondition(db, name, scope, { open, close })`: the caller names the condition (`timeZone` or `clock`) and a typed scope (one
+  cabinet, site or client by id, or all), and `alerts.ts` builds the same MERGE and close from its own table of conditions. No caller
+  passes SQL.
+- **What `time.ts` keeps.** The lock-free read a heartbeat makes first, which says whether either statement is needed, and the zone
+  rules. It re-exports `SITE_ZONE_SQL` and `CLOCK_TOLERANCE_SECONDS`, so `fleet-jobs.ts`, `replacement-reapply.ts` and
+  `diagnose/cabinet.ts` are unchanged.
+- **Checked before the database.** The name must be one of the table's own (not an inherited name such as `toString`), the scope's id a
+  uuid, and the open and close flags booleans.
+- **Load order.** `alerts.ts` and `rules.ts` import each other, and the table names `rules.ts`'s `ISSUE`, so it is built on first use, as
+  D104 did for the event insert. With it built at load, a process that loads `rules.js` first stops.
+- **Unchanged:** which cabinets get or lose an alert and when, the minor severity, the sentences, the closer (`time-check`), the audit and
+  the transaction. No existing assertion changed.
+- **Debt list:** the `services/time.ts` entry for `alerts` comes off, which leaves 76 on main after #300.
+
+**Proof:**
+- **The owner function.** `server/test/cabinet-condition-alerts.test.ts`, against the database:
+  - A cabinet in the wrong zone gets one minor alert; one in the right zone, one not heard from in the offline window, and a cabinet at
+    another site do not. Again, the alert is kept, not doubled. Put right, it closes, audited once by `time-check` with its sentence.
+  - A clock 300 seconds off opens the clock alert (119 seconds does not, nor the zone's). Asked only to close, nothing opens; asked only
+    to open, nothing closes. A removed cabinet's alert closes.
+  - A fold in a transaction that rolls back leaves no alert.
+  - 27 hostile inputs (unknown and inherited names, a SQL fragment as a name, an injection string as an id, malformed scopes and flags)
+    are refused before a connection that throws if used, each by its own message. Asked to run neither, nothing reaches the database.
+- **Load order.** `module-load-order.test.ts` now also loads `time.js` and `cabinet-conditions.js` first; all five orders pass.
+- **Red checks** (`cabinet-condition-alerts`, `module-load-order`, `table-ownership`; 14 tests):
+  - With `time.ts` as on main, `table-ownership.test.ts` fails.
+  - With the table of conditions built at load, the `rules.js` load-order case fails.
+  - With the MERGE's scope, or its offline window, dropped, the zone test fails.
+  - Each of the three input checks disabled on its own fails the hostile-input test.
+  - Restored and `cmp` identical, 14 of 14 pass.
+- **Neighbours.** The 20 non-browser files that import `services/time.js`, `services/alerts.js` or `services/cabinet-conditions.js`
+  (chosen by that exact import), with `module-load-order`, `table-ownership`, `audit-sweep` and `import-cycles`: 172 of 172.
+
+---
+
+## D105. An alert folded into itself keeps its events, as before D104 (2026-11-16)
+
+**What the code did** (at `ee44fe6`, since #300):
+- `moveAlertEvents` in `server/src/services/events.ts:114` refused a move whose two alerts are the same, and so stopped the rule's
+  activation that called it.
+- Before #300 (D104), `rules.ts` ran the statement in that case: the events stayed on the alert and recorded the rule
+  (`UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1` with `$1 = $2`).
+- The #300 review found the difference. No path builds that case today: the regroup folds only alerts with no issue type, under an issue
+  signature they do not carry.
+
+**The decision** (the owner's, asked 2026-11-16: go back to the earlier behaviour):
+- The refusal is removed. The statement runs as it did, so an alert folded into itself keeps its events and they record the rule, and a
+  rule going live never fails on it. The three uuid checks stay.
+- **Assertions changed:** the hostile-input test in `alert-events-move.test.ts` no longer expects the same-alert refusal, so its count
+  goes from 22 to 21 and its title drops "two alerts that differ". That is the behaviour this entry changes back.
+
+**Proof:**
+- `server/test/alert-events-move.test.ts`, new test "an alert folded into itself keeps its events and records the rule": with the same
+  alert in other letter case on both sides, both of its events stay on it and record the rule, and another alert's event is untouched.
+- **Red check:** with the refusal put back, that test fails. Restored and `cmp` identical, the file passes 4 of 4.
+
+---
+
+## D104. A rule's regroup moves the alert's events through events.ts, the events' owner (2026-11-16)
+
+**What the code did** (at `ca8e7c0`; an entry on the ownership debt list, F21.R2):
+- **The write.** When a rule goes live, `regroupOpen` in `server/src/services/rules.ts:354` folds each matching unrecognized alert into
+  its issue's alert and moved that alert's events with its own `UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1`.
+- **Who owns that table.** `events` belongs to `services/events.ts`. The regroup is audited by the rule's activation; the event move
+  itself writes no audit row, then or now.
+
+**The decision:**
+- **A new owner function.** `moveAlertEvents(c, fromAlertId, toAlertId, ruleId)` in `events.ts` holds the same statement, in the caller's
+  transaction, and returns how many events moved. The three ids must be uuids and the two alerts must differ, checked before the
+  database is touched.
+- **An import both ways, and what it needed.** `events.ts` already imports `rules.ts`, so `rules.ts` importing `events.ts` makes them
+  import each other. `events.ts` built its event insert when the module loaded, from `rules.ts`'s `RULES_STAMP_SQL`. With the import
+  added, a process that loads `rules.js` or `alerts.js` first stopped with "Cannot access 'RULES_STAMP_SQL' before initialization", the
+  failure D73 met in another pair. Main loads in all three orders. The insert is now built on first use and kept
+  (`insertEventsSql()`), so the order modules load in no longer matters. The statement's text is the same.
+- **Unchanged:** which events move, the rule they record, and the transaction. No existing assertion changed.
+- **Debt list:** the `services/rules.ts` entry for `events` comes off, which leaves 77 on main after #299.
+
+**Proof:**
+- **Load order.** `server/test/module-load-order.test.ts` loads `rules.js`, `events.js` and `alerts.js` each first, in a fresh process.
+  With the insert built at load again, the `rules.js` and `alerts.js` cases fail with the error above; with it built on first use, all
+  three pass.
+- **The owner function.** `server/test/alert-events-move.test.ts`, against the database:
+  - Both events of the alert moved from go to the alert moved to, with the rule, including one that had matched an earlier rule. An
+    event already on the target keeps its rule; another alert's event and an event with no alert are untouched. A repeat moves nothing.
+  - A move in a transaction that rolls back leaves the events where they were.
+  - 22 hostile inputs (ids including an injection string, an array and a number, and the same alert in other letter case) are refused
+    before a connection that throws if used, each by its own check's message.
+- **Red checks** (`alert-events-move`, `module-load-order`, `table-ownership`; 11 tests):
+  - With `rules.ts` as on main, `table-ownership.test.ts` fails.
+  - With the insert built at load again, the two load-order cases fail.
+  - With the move's `WHERE` made always true, the move test and the rollback test fail.
+  - With the id check, or the same-alert check, disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 11 of 11 pass.
+- **Neighbours.** The 30 non-browser files that import `services/rules.js` or `services/events.js` (chosen by that exact import), with
+  `module-load-order`, `table-ownership`, `audit-sweep` and `import-cycles`: 282 of 282.
+
+---
+
+## D103. A fleet job withdraws its outstanding commands through commands.ts, the commands' owner (2026-11-16)
+
+**What the code did** (at `73c8fcd`; an entry on the ownership debt list, F21.R2):
+- **The write.** While following a batch, `followUp` in `server/src/services/fleet-jobs.ts:343-360` withdrew the batch's commands that
+  were overdue, or still queued for a cabinet not heard from, with its own `UPDATE commands`. One delivered, or whose cabinet is offline,
+  became `expired`; one undelivered to an online cabinet became `failed`. Its expiry was pulled in to now, kept above its issue time.
+- **Its own audit.** It then wrote its own `command.expire` rows with `auditMany`: actor `command-expiry`, naming the job, why
+  (`fleet-job-withdrawal`) and whether the command had been delivered.
+- **Who owns that table.** `commands` belongs to `services/commands.ts`. With the insert moved by D102, this was the last write to
+  `commands` in `fleet-jobs.ts`.
+
+**The decision:**
+- **A new owner function.** `withdrawJobCommands(tx, jobId, commandIds, offlineAfterSeconds, batchMs)` in `commands.ts` holds the same
+  statement and the same audit, in the caller's transaction. `fleet-jobs.ts` keeps the read of the commands' outcomes that follows it.
+- **Checked before the database.** The job and every command id must be uuids, 1 to 200 of them (a job covers at most 200 cabinets,
+  `fleet-job.schema.json`), the offline window 1 to 86,400 whole seconds, and the batch budget 0 to 86,400,000 whole milliseconds.
+  Tests run jobs with a budget of 0, so 0 is allowed.
+- **A target without a command.** A target a restart left as answered but unverified has no command id, and `followUp` used to pass
+  its null key to the statement along with the others, where it matched nothing. The first version of this change refused the null, and
+  `fleet-jobs-sync-last.test.ts` "a satellite left waiting for verification by a server restart" failed (the sync cabinet stayed
+  pending instead of skipped). `followUp` now passes only the real ids, and skips the call when there are none. Nothing changes: the
+  read that follows still finds that target missing, as before.
+- **Unchanged:** which commands are withdrawn, their new status and expiry, the audit, and the transaction. No existing assertion
+  changed.
+- **Debt list:** the `services/fleet-jobs.ts` entry for `commands` comes off, which leaves 78 on main after #298. `commands` now lists
+  only `demo/demo.ts`.
+
+**Proof:**
+- **The owner function.** `server/test/job-command-withdrawal.test.ts`, against the database:
+  - Of five commands given, the one queued to an offline cabinet is withdrawn at once as expired, the one overdue to an online cabinet
+    as failed, and the delivered overdue one as expired. The one within its budget and the finished one are left alone, as is one not
+    given. Each withdrawal is audited once, with the job, the cabinet, the reason and whether it was delivered. Every expiry stays after
+    its issue time. A repeat withdraws nothing.
+  - A budget of 0 withdraws a command issued that moment, with its expiry still after its issue time.
+  - A withdrawal in a transaction that rolls back leaves the command queued and unaudited.
+  - 30 hostile inputs (ids including an injection string and 201 of them, windows and budgets that are negative, fractional, NaN,
+    infinite, too large or strings) are refused before a connection that throws if used, each by its own check's message.
+- **Red checks** (`job-command-withdrawal`, `fleet-jobs-sync-last`, `table-ownership`; 15 tests):
+  - With `fleet-jobs.ts` as on main, `table-ownership.test.ts` fails.
+  - With the filter of null ids removed, the restart test above fails.
+  - With the offline rule removed, the withdrawal test and the rollback test fail.
+  - With the audit disabled, the withdrawal test fails.
+  - Each of the four input checks disabled on its own fails the hostile-input test.
+  - Restored and `cmp` identical, 15 of 15 pass.
+- **Neighbours.** The 20 non-browser files that import `services/commands.js` or `services/fleet-jobs.js` (chosen by that exact
+  import), with `table-ownership`, `audit-sweep` and `import-cycles`: 217 of 217.
+
+---
+
+## D102. Bulk changes queue their commands through commands.ts, the commands' owner (2026-11-16)
+
+**What the code did** (at `10a9972`; entries on the ownership debt list, F21.R2):
+- **The writes.** Two bulk paths inserted queued commands into `commands` themselves, each with its own `INSERT INTO commands …
+  'queued', bulk_id`: the bulk firewall change (`server/src/services/firewall-policy.ts:190-191`) and each fleet-job batch
+  (`server/src/services/fleet-jobs.ts:297-298`).
+- **Who owns that table.** `commands` belongs to `services/commands.ts`. Its single-command path, `issueCommand`, checks the operation
+  against the catalog and the parameters against the operation's schema before anything is stored. The two bulk inserts stored what
+  they were given.
+
+**The decision:**
+- **A new owner function.** `queueBulkCommand(c, cmd)` in `commands.ts` holds the insert both paths shared, in the caller's transaction.
+  The callers keep what is theirs: the person, the fleet pause, the write limit, each cabinet's state, and the audit of what they queued.
+- **Checked where it is stored.** Before the database is touched it checks, as `issueCommand` does, that the operation is a catalog
+  write, that the parameters match its schema, that the four ids are uuids, and that the expiry is after the issue time.
+- **What that changes.** Both paths build their parameters on the server (a fleet job's plan, `fleet-jobs.ts:94-132`, where the
+  network fixes are already schema-checked; the firewall switches from the policy), so every command they queue today passes. A command
+  that did not, which only a server defect or a hand-edited `fleet_job_targets` row could produce, is now not stored: the batch's
+  transaction rolls back with the error, where before it was queued for the agent to refuse. Spec 05 "Fleet safety controls" says so.
+- **Debt list:** the `services/firewall-policy.ts` entry for `commands` comes off, which leaves 79 on main after #296. `services/fleet-jobs.ts` stays on it: it also withdraws a batch's unanswered commands with its own `UPDATE commands`
+  (`fleet-jobs.ts:345`), which is its own entry to move.
+- **No import cycle:** `commands.ts` reaches neither `fleet-jobs.ts` nor `firewall-policy.ts`.
+
+**Proof:**
+- **The owner function.** `server/test/bulk-command-queue.test.ts`, against the database:
+  - A command is stored as given: queued, in its bulk, by its issuer, with its parameters and times.
+  - One queued in a transaction that rolls back is not stored.
+  - 45 hostile inputs are refused before a connection that throws if used, each by its own check's message: ids (an injection string, a
+    number), operations (not in the catalog, a shell-like name, the wrong case, and a read with parameters its schema accepts),
+    parameters, and times (equal, earlier, invalid, strings).
+- **Red checks** (`bulk-command-queue`, `table-ownership`):
+  - With `firewall-policy.ts` as on main, `table-ownership.test.ts` fails.
+  - Each of the six checks disabled on its own fails the hostile-input test. The first version of that test accepted any refusal, and
+    two checks stayed green when disabled (a later check, or a `TypeError`, refused the same value); it now asks for each check's own
+    message.
+  - Restored and `cmp` identical, it passes.
+- **Neighbours.** The 23 non-browser files that import `services/commands.js`, `services/fleet-jobs.js` or
+  `services/firewall-policy.js`, with `table-ownership`, `audit-sweep` and `import-cycles`: 255 of 255 on the second run. On the first
+  run, `fleet-jobs.test.ts` "a cabinet that took the command and never answered is failed" failed once. That file passed 3 of 3 alone.
+  The test waits a fixed 300 ms for the batch to queue its command before marking it taken. That timing is not proven to be the cause.
+
+---
+
+## D101. A cabinet replacement closes the old cabinet's alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `dbee3d3`; an entry on the ownership debt list, F21.R2):
+- **The write.** `completeReplacement` in `server/src/services/replacement.ts:86-93` retires the replaced cabinet. It resolved every
+  unresolved alert of that cabinet itself, with its own `UPDATE alerts … WHERE cabinet_id = $1 AND state <> 'resolved'`, resolution
+  "Replaced by <name>.".
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor the user who approved the replacement, with
+  `issueTypeId`, `resolution`, `automatic: true` and `replacedBy`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `replacement.ts` wrote `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** As with D100, it is a user's action that closes these alerts, and the audit names the replacing cabinet, so
+  `closeAutomatically` (actor system) does not fit. `closeReplacedCabinetAlerts(db, userId, cabinetId, replacedBy, resolution)` in
+  `alerts.ts` holds the same statement and audits each close by that user with the same details, in the caller's transaction.
+- **Checked before the database.** The user and both cabinets (each a uuid, and the two cabinets different), and the resolution (1 to 500
+  characters, no control characters), are checked before any query.
+- **Why the resolution check refuses nothing real.** The resolution is built from the new cabinet's name. The approval contract
+  (`contracts/schemas/console/approve-enrollment.schema.json`, `cabinet`) already allows only 1 to 128 characters with no control
+  characters, so every name a replacement can carry passes.
+- **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
+  `replacement.ts` drops `auditMany`, which nothing else there used. No import cycle: `alerts.ts` does not import `replacement.ts`.
+- **Debt list:** the `services/replacement.ts` entry for `alerts` comes off, which leaves 80 on main after #295.
+
+**Proof:**
+- **Behaviour.** `server/test/cabinet-replacement.test.ts` asserts the old cabinet's alert is resolved as "Replaced by SYNC." and the
+  replacement reports one alert resolved. It passes through the new call.
+- **The owner function.** `server/test/replaced-cabinet-alert-close.test.ts`, against the database:
+  - Every unresolved alert of the replaced cabinet closes, with an issue type or without, a claimed one included. Each is audited once by
+    the user with its issue type, the resolution, `automatic: true` and `replacedBy`. One resolved already and another cabinet's alert
+    are left alone. A repeat closes nothing.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 30 hostile inputs (ids including an injection string, an array and a number; a cabinet replacing itself in other letter case;
+    resolutions) are refused before a connection that throws if used.
+- **Red checks** (`replaced-cabinet-alert-close`, `cabinet-replacement`, `table-ownership`, `audit-sweep`, `import-cycles`; 19 tests):
+  - With `replacement.ts` as on main, `table-ownership.test.ts` fails.
+  - With the cabinet scope made always true, the new close test fails.
+  - With the audit disabled, the new close test fails.
+  - With the self-replacement check disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 19 of 19 pass.
+- **Neighbours.** The 34 non-browser files that import `services/alerts.js`, `services/replacement.js` or `services/enrollment.js`
+  (chosen by that exact import), with `table-ownership`, `audit-sweep` and `import-cycles`, at main with #295 merged in: 347 of 349
+  pass, with 2 skipped that need `TEST_AGENT_DLL`. The first commit's message gives 344 of 346 for 36 files chosen by a looser text
+  match, which also caught files that only mention the words.
+
+---
+
+## D100. Switching a client's fingerprint scanner off closes its alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `82d6e84`; an entry on the ownership debt list, F21.R2):
+- **The write.** `applyScannerChoice` in `server/src/services/client-scanner.ts:57-68`, when an Admin switches a client's scanner off,
+  resolved the unresolved scanner alerts on every cabinet of that client itself: its own `UPDATE a … FROM alerts a JOIN cabinets k JOIN
+  sites s WHERE s.client_id = $1`.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor the user who switched it off, with `issueTypeId`,
+  `resolution` and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `client-scanner.ts` wrote `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** The existing closes are by one cabinet, and they audit as the system through `closeAutomatically`. This one
+  spans a client's cabinets, and it is a user's choice that closes the alerts. `closeClientIssueAlerts(db, userId, clientId,
+  issueTypeId, resolution)` in `alerts.ts` holds the same statement, and audits each close as `alert.resolve` by that user with the same
+  details, in the caller's transaction.
+- **Checked before the database.** The user, the client and the issue type (each a uuid), and the resolution (1 to 500 characters, no
+  control characters), are checked before any query.
+- **An import both ways.** `alerts.ts` already imports `scannerUsedFor` from `client-scanner.ts`, and now `client-scanner.ts` imports
+  `closeClientIssueAlerts` from `alerts.ts`. As with `crashes.ts` since #292, neither calls the other while loading, so the order they
+  load in does not matter. `import-cycles.test.ts` guards `maintenance.ts` only, and still passes.
+- **Unchanged:** which alerts close and when, the sentence, the actor, the details and the transaction. No existing assertion changed.
+  `client-scanner.ts` drops `auditMany`, which nothing else there used.
+- **Debt list:** the `services/client-scanner.ts` entry for `alerts` comes off, which leaves 81 on main after #294.
+
+**Proof:**
+- **Behaviour.** `server/test/client-scanner-sql.test.ts`, "switching off: … open scanner alerts resolved and audited", passes through the
+  new call.
+- **The owner function.** `server/test/client-issue-alert-close.test.ts`, against the database:
+  - The client's open and claimed scanner alerts, on cabinets at two sites, close and are audited once each by the user, with the
+    details as before. Another issue's alert, another client's alert and one resolved already are left alone. A repeat closes nothing.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 29 hostile inputs (ids including an injection string, an array and a number; resolutions) are refused before a connection that
+    throws if used.
+- **Red checks** (`client-issue-alert-close`, `client-scanner-sql`, `table-ownership`, `audit-sweep`, `import-cycles`; 24 tests):
+  - With `client-scanner.ts` as on main, `table-ownership.test.ts` fails.
+  - With the client scope made always true, the new close test fails.
+  - With the audit disabled, the new close test and the switch-off test fail.
+  - With the user id check disabled, the hostile-input test fails.
+  - Restored and `cmp` identical, 24 of 24 pass.
+- **Neighbours.** The 17 non-browser files that reach `alerts.ts`, `client-scanner.ts` or `fleet.ts` pass: 141 of 141.
+
+---
+
+## D99. The site-outage check closes its alerts through alerts.ts, the alerts' owner (2026-11-16)
+
+**What the code did** (at `e8c176d`; an entry on the ownership debt list, F21.R2):
+- **The write.** `checkSiteOutages` in `server/src/services/site-outage.ts:51-71` closed the site-outage alerts of sites heard from again
+  itself: up to 500 ids per statement, with its own `UPDATE a … FROM alerts a JOIN cabinets k`, and the site's liveness checked again in
+  that statement.
+- **Its own audit.** It then wrote its own `alert.resolve` rows with `auditMany`: actor `site-outage`, with `issueTypeId`, `resolution`
+  and `automatic: true`.
+- **Who owns that table.** `alerts` belongs to `services/alerts.ts`. `site-outage.ts` raises the alert through `foldAlert` and wrote
+  `alerts` nowhere else.
+
+**The decision:**
+- **A new owner function.** None of the existing closes re-checks a site's liveness, and that re-check is what keeps an alert about a
+  site that went quiet again open. `closeSiteOutageAlerts(db, by, alertIds, liveWithinSeconds, resolution)` in `alerts.ts` holds the
+  same statement. It closes only the ids given, at most `SITE_OUTAGE_CLOSE_SLICE` (500) at a time.
+- **Checked before the database.** The closer, every id (a uuid), the window (1 to 86,400 whole seconds) and the resolution (1 to 500
+  characters, no control characters) are checked before any query. Only the placeholders are composed, from the count; every value is a
+  parameter.
+- **The audit through `closeAutomatically`.** Each close is still audited as `alert.resolve` by `site-outage`, with `automatic: true`,
+  in the caller's transaction.
+- **What `site-outage.ts` keeps.** The snapshot read of which alerts to close, and the slicing. It drops `auditMany`.
+- **One difference in what is recorded.** The audit details now carry `cabinetId` and `verifiedFix` (null: no platform write fixes a
+  site outage) instead of `issueTypeId`, as every automatic close does (`automatic-close.ts`). The alert the entry targets still holds
+  its issue type. Nothing reads `issueTypeId` from an `alert.resolve` entry.
+- **Unchanged:** which alerts close and when, the sentence, the actor and the transaction. No existing assertion changed.
+- **Debt list:** the `services/site-outage.ts` entry for `alerts` comes off, which leaves 82 on main after #293.
+
+**Proof:**
+- **The owner function.** `server/test/site-outage-close.test.ts`, against the database:
+  - Given alerts at a live site close and are audited once each by `site-outage`. Those at a site not heard from in the window, at a
+    site where only a removed cabinet reports, or not given, stay open. One resolved already is not rewritten. A repeat closes nothing.
+  - The window is the one given: a cabinet heard from 400 seconds ago does not make its site live in a 300-second window, and does in
+    a 500-second one.
+  - A close in a transaction that rolls back leaves the alert open and unaudited.
+  - 36 hostile inputs (closers, ids including an injection string and 501 of them, windows, resolutions) are refused before a
+    connection that throws if used. A full slice of 500 is accepted.
+- **The check.** `server/test/integrity-system-audit.test.ts` still finds the close re-checking the site and one audited
+  `alert.resolve`. Its stand-in database now answers the close with the cabinet and resolution columns `closeAutomatically` reads back.
+  That is a change to the stand-in, not to an assertion.
+- **Red checks** (`site-outage-close`, `integrity-system-audit`, `table-ownership`, `audit-sweep`; 17 tests):
+  - With `site-outage.ts` as on main, `table-ownership.test.ts` fails.
+  - With the liveness re-check made always true, the first two tests above fail.
+  - With the id check disabled, and separately the window check, the hostile-input test fails.
+  - Restored and `cmp` identical, 17 of 17 pass.
+- **Neighbours.** The 14 non-browser files that reach `alerts.ts` or `site-outage.ts` (among them `alerts-sql`, `scale` and `demo`)
+  pass: 122 of 122.
 
 ---
 
@@ -170,8 +878,6 @@ rather than by the server alone.
   - Restored and `cmp` identical, 20 of 20 pass.
 - **Neighbours.** The 25 files that test `drives.ts` and the modules that call it (`cabinets.ts`, `maintenance.ts`, the reading routes,
   the demo) pass: 291 of 298, with 7 skipped that need `TEST_AGENT_DLL`.
-
----
 
 ---
 
@@ -238,8 +944,6 @@ rather than by the server alone.
     tests watch this close.
   - Restored and `cmp` identical, 27 of 27 pass.
 - **Neighbours:** `crashes`, `alerts-sql`, `fleet-patterns`, `scale` and `signature-alert-writes` pass, 62 of 62.
-
----
 
 ---
 
@@ -771,8 +1475,7 @@ count against a batch, and a pause would still need an Admin to resume a rollout
   else: `limit` 1 to 500, `offset` 0 to 999999, both as whole numbers in plain digits.
 - **Anything else is refused with 400.** That includes an unknown parameter, a repeated one and a leading zero. Left out, it is 200
   from the first, as before, so every other caller is unchanged.
-- **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. (The number is
-  superseded by D100: the page carries the screenful, and Next shows the next page of the same size.) While the next page loads, the site
+- **The site page asks the server for each page of 25,** and its pager counts from `cabinetCount`. While the next page loads, the site
   stays on screen, so the panels below it keep what is being typed in them.
 - **Both network standard panels are given `cabinetCount`.**
 
@@ -3598,3 +4301,144 @@ with its proof named.
 session cannot authorise a command for somebody else; the wrong password or the wrong code signs nobody in and leaves no file behind;
 `sign-out` ends the session on the server, so a copy of the file is worth nothing; an account with no authenticator set up, and one still
 holding a temporary password, cannot sign in. All six are red with `src/cli.ts` and `src/auth/cli-session.ts` reverted.
+
+---
+
+## D118. Opening a remote session needs a grant and a step-up code (2026-11-15)
+
+**What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
+the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`
+exists in `contracts/schemas/operations/catalog.json`; the console's guard is a minimum-role test
+(`server/src/console-api/server.ts:80`, `role(request, minimum)`), ranked by `ROLE_RANK` (`server/src/services/roles.ts`). The
+phase-2 run stopped instead of picking a role, which was right: choosing who may reach a customer's machine is not a decision
+for the run to take.
+
+**Revised the same day, on Marco's direction.** He rejected the rank-based reading of this decision: *"not all actions are
+doable by all roles - admin can just give some users more permission, example fleet wide or site wide changes."* He is right,
+and the first version was the softer error: rank is a coarse line that grows silently. `users.role` is a three-value rank,
+`CHECK (role IN ('tier1', 'tier2', 'admin'))` (`server/migrations/0001_baseline.sql:33`), so anything keyed to it hands every
+tier2 every power the platform grows later, including ones nobody has thought about yet. **A permission is something an admin
+grants, and it carries its scope.**
+
+**The decision:**
+- **A grant table, not a rank.** `user_permissions (user_id, permission, scope_kind, scope_id)`, with `scope_kind` in
+  `('fleet', 'site', 'cabinet')`: `fleet` reaches every cabinet and leaves `scope_id` NULL, `site` and `cabinet` name one.
+  Unique per `(user_id, permission, scope_kind, scope_id)`; FK to `users`; `removed_at` / `removed_by` for revocation and
+  `DENY DELETE` to the application role, following how `sites` already retires rows (`server/src/services/admin.ts:21` reads
+  `s.removed_at IS NULL`). `permission` holds the catalog operation name, so the mechanism serves `session.open` first and the
+  rest of the platform afterwards rather than being a special case for tunneling.
+- **The check is against the cabinet, not the fleet.** A session opens on cabinet C when a grant matches C: one `fleet` grant,
+  or a `site` grant for C's site, or a `cabinet` grant for C. A `site`-scoped grant therefore reaches that site's cabinets
+  and no others. Nothing in this path reads `ROLE_RANK`; an `admin` holds **no implicit** session permission, and the same
+  table is how an admin gives one to itself. That is what "admin can give some users more permission" means in code.
+- `session.open` is also a catalog entry with `kind: "write"`, `confirm: "code"`, `expirySeconds: 120`, `rateClass: "write"`
+  and **no `safetyNet`** - that field belongs to operations with a rollback net behind them (`network.*`), and a session has
+  none, so claiming one would be a lie in the catalog the agent compiles in.
+- Then the step-up, unchanged and not replaced by the grant: `consumeStepUpToken(db, token, userId, "session.open", target)`
+  (`server/src/auth/stepup.ts:37`). A grant says *who may*; the code says *this operator, now*.
+- Audit: `session.open`, `session.end`, `session.kill`, `session.refused` through the repository's existing audit path, one row
+  per transition and **not** per frame (a transcript is not an audit) - **and every grant and revocation too**, because who may
+  reach a customer's machine is itself the record worth keeping.
+- The lifecycle's own bounds - one live per cabinet, an idle timeout, a maximum length, the fleet cap - are the server's, not
+  the catalog's and not the grant's.
+
+**What else was considered:**
+- **Rank-based, the first version of this entry.** Replaced on Marco's direction. Tying a new power to an existing rank is how
+  a platform ends up with powers nobody decided to hand out, and it blurs the platform's own customer-facing promise that tier
+  1 and tier 2 are different levels of trust.
+- **`minimumRole: "admin"` inside the rank model.** Rejected then, and moot now: under grants an admin can hold the permission
+  or not, per scope, like anyone else.
+- **`confirm: "click"`**, as `service.control` and the firewall rules use. Rejected: those are reversible without leaving the
+  machine. A live channel into a customer's cabinet is the class that takes a code.
+
+**What it costs:** a table, a migration and an admin surface to hand grants out before the first session can open at all -
+and every open still costs a step-up code, so a long troubleshooting call starts with an authenticator prompt. Accepted. The
+alternative is the one this decision exists to avoid: a stolen console cookie, or any tier2 who happens to exist, reaching any
+customer's cabinet in the fleet.
+
+**Proof:** not yet, and not claimed. Phase 2 is partly written. The tests that will prove it are named under "Prove it" in
+`docs/codex-tasks/remote-access-tunnel-lifecycle.md`: no session opens without a matching grant, none opens for a grant scoped
+elsewhere, none opens without a step-up token, one audit row per transition, and the live-session bound held by the database
+rather than by the server alone.
+
+---
+
+---
+
+## D119. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
+
+**Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
+presses Next and sees another page of the same amount. So the rule is the screenful, not a number - neither the 25 that
+D81 recorded nor the 10 a branch proposed.
+
+**What it means in code.** The console computes the rows per page from what fits the viewport, floors it at a readable
+minimum, and asks the server for exactly that (`console/src/components/Pager.tsx`, sent as `limit` by
+`console/src/pages/Fleet.tsx:144`). The route's own contract is unchanged: `limit` 1 to 500, `offset` 0 to 999999
+(D81), so a screenful is always inside it. Next is a page of the same size, not a jump to the end, and a resize
+re-pages from the first page rather than stranding the reader mid-list.
+
+**What else was considered.** Keeping a fixed number and correcting the documents to match: cheaper, and it was the
+alternative offered on the review of #271. It was rejected because Marco asked for the screenful, and a fixed number is
+what put a 10-row page and a 25-row specification in disagreement in the first place. A "show all" list was not
+considered: the site view is the one place a list is unbounded by site size.
+
+**What it costs.** The page size is now a function of the window, so it is not a constant any test can quote. A test
+pins the *rule* instead - the page holds what fits and Next shows the next page of the same size - and the counts
+"1-25 of 230 / page 1 of 10" that `server/test/console-site-paging-e2e.test.ts` asserts today move with the viewport
+the test drives.
+
+**Proof.** `docs/spec/06-console-spec.md:27` states the behaviour rather than the number, and D81's "each page of 25"
+records that D119 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
+it fail on a viewport whose screenful is not that constant.
+
+---
+
+---
+
+## D120. A development-only operator shell over the session transport (2026-11-15)
+
+**Superseded by D121.**
+
+**Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
+is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development
+branch, never on `main`, never touched by `main`.
+
+**What was considered.** The alternative I put to him was the product path: every read I run on a cabinet becomes a
+narrow typed operation with its own allowlist entry and its own audit row, which keeps `02-security-model.md:13` intact
+and would still give live diagnostics. He chose the shell and scoped it to the branch. That route is not cancelled by
+this: it stays the way a capability reaches `main`.
+
+**What it costs, said plainly.** On `feat/remote-access-tunnel` the product's central promise is false: that branch can
+run arbitrary commands on a cabinet as SYSTEM. Everything the promise protects - the security review brief, the
+compiled catalog as the only source of operations, the signed agent upgrade as the only way to add one - is untouched
+on `main`, and the branch must never be merged. A build on a real customer estate would be a different decision with
+its own review, not an extension of this one.
+
+**The guard.** The agent serves it only when its configuration names it; that key is absent from every shipped release
+and from the release packing script; a build without the key behaves exactly as today. The rest is in
+`docs/codex-tasks/session-shell-dev-only.md`: a named frame kind rather than a generic pipe, an audit row and a command
+log for every session, and a process rather than a script runner.
+
+---
+
+---
+
+## D121. SSH supersedes the development-only operator shell (2026-11-18)
+
+The operator chose SSH for cabinet access. Cabinets on the tailnet use ordinary SSH directly.
+For cabinets off the tailnet, the dev-only capability on `feat/remote-access-tunnel`
+carries one authenticated cabinet SSH session over the agent's outbound mTLS connection.
+The platform allocates a loopback TCP endpoint for an ordinary SSH client and revokes it on close.
+The agent connects directly to the existing Windows OpenSSH service at `127.0.0.1:22`. OpenSSH
+owns authentication, host keys, and execution under the authenticated cabinet account. The agent
+adds no cabinet listener and accepts no destination parameter.
+The typed operation has its own allowlist entry and records the requesting user, cabinet, and
+endpoint in audit rows on open and close.
+
+D121 supersedes D120. The repeated PowerShell child experiment lost output in 20 of 20 runs
+because of pseudoconsole output attribution. That result informed the decision to retire the
+console shell. The off-network harness reuses the enrollment proof and checks a real SSH command,
+cabinet file evidence, the agent's socket table, endpoint revocation, and both audit rows. Live
+verification remains pending.
+
+---

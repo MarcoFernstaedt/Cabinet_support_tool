@@ -26,6 +26,165 @@ export async function settleSignIn(c: Queryable, id: string, step: number | null
   return step === null || r.rowCount === 1;
 }
 
+const USER_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Counts one failed sign-in or step-up code against an account (F3, F21.R2, decision-log D113): the count starts again at 1 once an
+ * earlier lock has run out, and reaching `lockAt` locks the account for `lockMinutes`; a lock that has run out is lifted. Returns the
+ * count and the username after the change, or null when there is no such account. auth-failures.ts holds the policy and raises the
+ * alert; this is where the users table is written. The account and both numbers are checked before the database is touched.
+ */
+export async function countAuthFailure(db: Queryable, id: string, lockAt: number, lockMinutes: number): Promise<{ failures: number; username: string } | null> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  for (const [name, v, most] of [["the failures that lock", lockAt, 100], ["the minutes locked", lockMinutes, 1440]] as const)
+    if (typeof v !== "number" || !Number.isInteger(v) || v < 1 || v > most) throw new Error(`${name} must be a whole number from 1 to ${most}`);
+  const r = (await db.query<{ failed_logins: number; username: string }>(
+    `UPDATE users SET failed_logins = CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END,
+                      locked_until = CASE WHEN (CASE WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN 1 ELSE failed_logins + 1 END) >= $2
+                                          THEN DATEADD(minute, $3, SYSUTCDATETIME())
+                                          WHEN locked_until IS NOT NULL AND locked_until <= SYSUTCDATETIME() THEN NULL ELSE locked_until END
+      OUTPUT inserted.failed_logins, inserted.username
+      WHERE id = $1`, [id, lockAt, lockMinutes])).rows[0];
+  return r ? { failures: r.failed_logins, username: r.username } : null;
+}
+
+/**
+ * Pauses one person's writes for going over their hourly limit (F21.R2, decision-log D114): the pause sticks until an Admin resumes them
+ * (resumeUserWrites), and a reason already given is kept. In the caller's transaction; writes.ts audits it and raises the alert. Returns
+ * who was paused, with their limit, or null when they were paused already or there is no such account. The account is checked before
+ * the database is touched.
+ */
+export async function pauseUserWritesForLimit(c: Queryable, id: string): Promise<{ username: string; writeLimit: number } | null> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  const r = await c.query("UPDATE users SET writes_paused = 1, writes_paused_reason = COALESCE(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND writes_paused = 0", [id]);
+  if (r.rowCount !== 1) return null;
+  const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [id])).rows[0]!;
+  return { username: who.username, writeLimit: who.write_limit };
+}
+
+// ---- The operator command line's account writes (src/cli.ts; F21.R2, decision-log D115) ---------------------------------------------
+// The command line authorizes and audits each of these itself; the users table is written here. Each checks what it is given before the
+// database is touched, with a plain error: the command line prints it and exits 1. A username is matched exactly (binary), as sign-in does.
+
+const ROLES: readonly string[] = ["tier1", "tier2", "admin"];
+const checkUsername = (username: unknown): void => {
+  if (typeof username !== "string" || !USERNAME_PATTERN.test(username))
+    throw new Error("a username is 2 to 64 characters: lower-case letters, digits, dot, dash or underscore");
+};
+const checkPasswordHash = (hash: unknown): void => {
+  if (typeof hash !== "string" || hash.length < 1 || hash.length > 1024 || /\s/.test(hash)) throw new Error("a password hash is 1 to 1024 characters with no spaces");
+};
+
+/**
+ * Spends an authenticator step for a command that proves itself with a code: only a step newer than the last one spent is taken, and
+ * the failure count is cleared. Returns false when the step was already spent (the code was used before).
+ */
+export async function spendCodeStep(c: Queryable, id: string, step: number): Promise<boolean> {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+  if (typeof step !== "number" || !Number.isSafeInteger(step) || step < 0) throw new Error("an authenticator step is a whole number, 0 or more");
+  return (await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0 WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)", [id, step])).rowCount === 1;
+}
+
+/** Lets a person write again, whatever paused them, from the command line. Returns the account's id, or null when there is no such username. */
+export async function resumeWritesByUsername(c: Queryable, username: string): Promise<string | null> {
+  checkUsername(username);
+  const r = await c.query<{ id: string }>("UPDATE users SET writes_paused = 0, writes_paused_reason = NULL, writes_resumed_at = SYSUTCDATETIME() OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1", [username]);
+  return r.rows[0]?.id ?? null;
+}
+
+/** Adds an account from the command line, with a temporary password that must be changed at first sign-in. */
+export async function addUserFromCommandLine(c: Queryable, u: { id: string; username: string; name: string; role: string; passwordHash: string }): Promise<void> {
+  if (typeof u !== "object" || u === null) throw new Error("an account to add is an object");
+  if (typeof u.id !== "string" || !USER_ID.test(u.id)) throw new Error("the account must be a uuid");
+  checkUsername(u.username);
+  if (typeof u.name !== "string" || u.name.trim().length < 1 || u.name.length > 128 || /[\u0000-\u001f\u007f]/.test(u.name)) throw new Error("a name is 1 to 128 characters with no control characters");
+  if (typeof u.role !== "string" || !ROLES.includes(u.role)) throw new Error("a role is tier1, tier2 or admin");
+  checkPasswordHash(u.passwordHash);
+  await c.query("INSERT INTO users (id, username, name, role, password_hash, must_change_password) VALUES ($1, $2, $3, $4, $5, 1)",
+    [u.id, u.username, u.name, u.role, u.passwordHash]);
+}
+
+/** Gives a person a temporary password from the command line and clears their lock. Returns the account's id, or null when there is no such username. */
+export async function setTemporaryPasswordByUsername(c: Queryable, username: string, passwordHash: string): Promise<string | null> {
+  checkUsername(username);
+  checkPasswordHash(passwordHash);
+  const r = await c.query<{ id: string }>("UPDATE users SET password_hash = $2, must_change_password = 1, failed_logins = 0, locked_until = NULL OUTPUT inserted.id WHERE username COLLATE Latin1_General_100_BIN2 = $1",
+    [username, passwordHash]);
+  return r.rows[0]?.id ?? null;
+}
+
+// ---- The console's sign-in writes (src/console-api/auth-routes.ts; F3, F21.R2, decision-log D116) ------------------------------------
+// The routes decide each step of a sign-in, audit it and manage the session; the users table is written here. Each checks what it is
+// given before the database is touched, with a plain error. A step-up code is spent with spendCodeStep above.
+
+const checkAccount = (id: unknown): void => {
+  if (typeof id !== "string" || !USER_ID.test(id)) throw new Error("the account must be a uuid");
+};
+const checkStep = (step: unknown): void => {
+  if (typeof step !== "number" || !Number.isSafeInteger(step) || step < 0) throw new Error("an authenticator step is a whole number, 0 or more");
+};
+
+/**
+ * Clears the account's failure count once a sign-in step has proved the person; with `unlock`, a lock is lifted too (a sign-in that
+ * needs no authenticator code). A correct password alone must not clear it when a code follows: the route decides.
+ */
+export async function clearAuthFailures(c: Queryable, id: string, o: { unlock: boolean }): Promise<void> {
+  checkAccount(id);
+  if (typeof o !== "object" || o === null || typeof o.unlock !== "boolean") throw new Error("say whether the lock is lifted too");
+  await c.query(o.unlock ? "UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1" : "UPDATE users SET failed_logins = 0 WHERE id = $1", [id]);
+}
+
+/** Records that the person finished signing in now. */
+export async function recordSignedIn(c: Queryable, id: string): Promise<void> {
+  checkAccount(id);
+  await c.query("UPDATE users SET last_login_at = SYSUTCDATETIME() WHERE id = $1", [id]);
+}
+
+/**
+ * Spends the authenticator step of a sign-in code: only a step newer than the last one spent is taken, so two requests racing with one
+ * code cannot both pass; the failure count is cleared, and with `complete` the sign-in is recorded as finished. Returns false when the
+ * step was already spent.
+ */
+export async function spendSignInStep(c: Queryable, id: string, step: number, complete: boolean): Promise<boolean> {
+  checkAccount(id);
+  checkStep(step);
+  if (typeof complete !== "boolean") throw new Error("say whether the sign-in is complete");
+  return (await c.query("UPDATE users SET totp_last_step = $2, failed_logins = 0, last_login_at = CASE WHEN $3 = 1 THEN SYSUTCDATETIME() ELSE last_login_at END WHERE id = $1 AND (totp_last_step IS NULL OR totp_last_step < $2)",
+    [id, step, complete])).rowCount === 1;
+}
+
+/**
+ * The sealed secret of an authenticator being set up: the one already pending, else `sealed`, kept from now on until setup completes
+ * (or an Admin resets it), so no later request swaps it. Returns null when the account's authenticator is already on, or there is no such
+ * account.
+ */
+export async function pendingAuthenticatorSecret(c: Queryable, id: string, sealed: Buffer): Promise<Buffer | null> {
+  checkAccount(id);
+  if (!Buffer.isBuffer(sealed) || sealed.length < 1 || sealed.length > 1024) throw new Error("a sealed secret is 1 to 1024 bytes");
+  return (await c.query<{ totp_secret_enc: Buffer | null }>(
+    "UPDATE users SET totp_secret_enc = COALESCE(totp_secret_enc, $2) OUTPUT inserted.totp_secret_enc WHERE id = $1 AND totp_enabled = 0", [id, sealed])).rows[0]?.totp_secret_enc ?? null;
+}
+
+/** Turns the person's authenticator on, with the step of the code that proved it as the last one spent. */
+export async function enableAuthenticator(c: Queryable, id: string, step: number): Promise<void> {
+  checkAccount(id);
+  checkStep(step);
+  await c.query("UPDATE users SET totp_enabled = 1, totp_last_step = $2 WHERE id = $1", [id, step]);
+}
+
+/** Sets the password the person chose; it no longer has to be changed. */
+export async function setOwnPassword(c: Queryable, id: string, passwordHash: string): Promise<void> {
+  checkAccount(id);
+  checkPasswordHash(passwordHash);
+  await c.query("UPDATE users SET password_hash = $2, must_change_password = 0 WHERE id = $1", [id, passwordHash]);
+}
+
+/** Records that the person finished the console's tour. */
+export async function markTourCompleted(db: Queryable, id: string): Promise<void> {
+  checkAccount(id);
+  await db.query("UPDATE users SET tour_completed = 1 WHERE id = $1", [id]);
+}
+
 /** Accounts, with the deleted ones too when an Admin asks for them (to reactivate one). */
 export async function listUsers(db: Queryable, includeDeleted = false) {
   const rows = (await db.query<{ id: string; username: string; name: string; role: Role; status: string; totp_enabled: boolean; write_limit: number; can_approve_fixes: boolean;

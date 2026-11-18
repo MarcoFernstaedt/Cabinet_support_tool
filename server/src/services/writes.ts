@@ -6,6 +6,8 @@ import { audit, lock, safeJson, transaction, type Pool, type Queryable, type Tx 
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { Refused } from "./errors.js";
 import { raiseSecurityAlert } from "./security.js";
+import { pauseUserWritesForLimit } from "./users.js";
+import { upsertSetting } from "./settings.js";
 
 export const WRITE_OPERATIONS = [...catalog.values()].filter(e => e.kind === "write").map(e => e.name);
 
@@ -74,13 +76,13 @@ export async function pauseOnWriteLimit<T>(pool: Pool, userId: string, write: ()
 
 async function recordLimitPause(pool: Pool, userId: string): Promise<void> {
   await transaction(pool, async c => {
-    const r = await c.query("UPDATE users SET writes_paused = 1, writes_paused_reason = COALESCE(writes_paused_reason, 'Went over the hourly write limit.') WHERE id = $1 AND writes_paused = 0", [userId]);
-    if (r.rowCount === 1) {
+    // The pause is the account's, written by users.ts (D114); the audit and the alert stay here.
+    const who = await pauseUserWritesForLimit(c, userId);
+    if (who) {
       await audit(c, { actorKind: "system", actorId: "write-limit", action: "writes.user_paused", targetKind: "user", targetId: userId, outcome: "succeeded" });
-      const who = (await c.query<{ username: string; write_limit: number }>("SELECT username, write_limit FROM users WHERE id = $1", [userId])).rows[0];
       await raiseSecurityAlert(c, { kind: "write_volume", signature: `write_volume|${userId}`, userId,
-        title: `Unusual write volume from ${who?.username ?? "a user"}: over ${who?.write_limit ?? "the"} writes in an hour; their writes are paused`,
-        detail: { writeLimit: who?.write_limit ?? null } });
+        title: `Unusual write volume from ${who.username}: over ${who.writeLimit} writes in an hour; their writes are paused`,
+        detail: { writeLimit: who.writeLimit } });
     }
   });
 }
@@ -89,9 +91,8 @@ export async function setFleetPause(pool: Pool, adminId: string, paused: boolean
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, paused ? "writes.pause" : "writes.resume", "fleet");
     const value: FleetPause = { paused, reason, by: adminId, at: new Date().toISOString() };
-    await c.query(`MERGE settings WITH (HOLDLOCK) AS t USING (SELECT N'writes.paused' AS [key]) AS s ON t.[key] = s.[key]
-                   WHEN MATCHED THEN UPDATE SET [value] = $1, changed_by = $2, changed_at = SYSUTCDATETIME()
-                   WHEN NOT MATCHED THEN INSERT ([key], [value], changed_by) VALUES (N'writes.paused', $1, $2);`, [safeJson(value), adminId]);
+    // The settings row is settings.ts's to write (D117).
+    await upsertSetting(c, "writes.paused", value, adminId);
     await audit(c, { actorKind: "user", actorId: adminId, action: paused ? "writes.pause" : "writes.resume", outcome: "succeeded", details: { scope: "fleet", reason } });
   });
 }

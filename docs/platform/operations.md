@@ -36,7 +36,7 @@ Admins only: the **System health** page (Admin -> System health, `GET /api/admin
 | `ops_ca` | the certificate authority expires within 60 days | on its own |
 | `ops_errors` | 20 or more server errors and at least 2% of requests over 5 minutes | an Admin closes it |
 | `ops_shed` | more than 5% of requests turned away in each of 10 minutes (each minute with at least 20 requests) | an Admin closes it |
-| `ops_migration` | a database migration failed (raised by `platform-admin migrate`) | an Admin closes it |
+| `ops_migration` | a database migration failed (raised by `platform-admin migrate` through `security.ts`, audited like the others; D110) | an Admin closes it |
 | `audit_chain`, `certificate` | already existed: a broken audit chain; a cabinet certificate about to expire | as before |
 
 The checks run every 10 minutes (and 30 seconds after start-up). Rates are judged per server process.

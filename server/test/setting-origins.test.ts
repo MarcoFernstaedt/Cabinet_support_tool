@@ -146,7 +146,7 @@ test("the read is for a signed-in person, for a cabinet that exists; a removed c
 
 test("every setting a client or site can hold is one the origins read covers (a new column fails here until it is added)", async () => {
   const SETTING: Record<string, string> = { scanner_hardware_ids: "scannerIds", sync_ports: "syncPorts", firewall_policy: "firewallPolicy", watched_services: "watchedServices",
-    time_zone: "timeZone", network_baseline: "networkBaseline", approved_apps: "approvedApps", filefacts_paths: "fileFactsPaths", fingerprint_scanner: "scannerUse",
+    time_zone: "timeZone", clock_tolerance_seconds: "clockTolerance", network_baseline: "networkBaseline", approved_apps: "approvedApps", filefacts_paths: "fileFactsPaths", fingerprint_scanner: "scannerUse",
     scanner_service: "scannerUse" };
   // What a client or site is, not a setting its cabinets follow.
   const NOT_SETTINGS = new Set(["id", "name", "client_id", "created_at", "removed_at", "demo", "write_paused", "write_pause_reason"]);

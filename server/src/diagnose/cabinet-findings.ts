@@ -51,6 +51,8 @@ export interface CabinetEvidence {
   cabinet: { id: string; name: string; role: string };
   /** The site's time zone (one of the seven the platform sets), if the site has one. */
   siteTimeZone: string | null;
+  /** How far the clock may be off at the cabinet's site before it counts as off (D109); 120 seconds when not given. */
+  clockToleranceSeconds?: number;
   /** When the reads were made. */
   now: number;
   /** false when the cabinet's client uses no fingerprint scanner: the scanner was not read, and is reported as not used. */
@@ -357,8 +359,8 @@ function time(e: CabinetEvidence, make: Make): Part {
   if (o.timeService === "stopped" || o.timeService === "not_installed")
     f.push(make({ id: "time-service", area: "time", severity: "problem", certainty: "confirmed", title: `The Windows Time service is ${o.timeService === "stopped" ? "stopped" : "not installed"}`,
       evidence: ["Without it the clock drifts. Clocks that differ by more than a few minutes break sign-in and sync between machines."], fix: "Start the Windows Time service (Services → Windows Time), then sync the clock.", priority: 68, issueTypeId: ISSUE_IDS.clock }));
-  if (skew !== null && Math.abs(skew) > 120)
-    f.push(make({ id: "time-skew", area: "time", severity: "warning", certainty: "confirmed", title: `The clock is ${Math.abs(skew) >= 3600 ? `${Math.round(Math.abs(skew) / 3600)} hours` : `${Math.round(Math.abs(skew) / 60)} minutes`} ${skew > 0 ? "ahead of" : "behind"} the server`,
+  if (skew !== null && Math.abs(skew) > (e.clockToleranceSeconds ?? 120))
+    f.push(make({ id: "time-skew", area: "time", severity: "warning", certainty: "confirmed", title: `The clock is ${Math.abs(skew) >= 3600 ? `${Math.round(Math.abs(skew) / 3600)} hours` : Math.abs(skew) >= 120 ? `${Math.round(Math.abs(skew) / 60)} minutes` : `${Math.abs(skew)} seconds`} ${skew > 0 ? "ahead of" : "behind"} the server`,
       evidence: [`The cabinet says it is ${clean(o.utcTime, 30)} UTC; the server's clock differs by ${Math.abs(skew)} seconds.`],
       fix: "Sync the clock. If it drifts again, check the Windows Time source (or the battery on the motherboard).", priority: 70, issueTypeId: ISSUE_IDS.clock, action: act("time.sync", {}, "Sync the clock now") }));
   if (e.siteTimeZone && e.siteTimeZone !== o.timeZoneId)

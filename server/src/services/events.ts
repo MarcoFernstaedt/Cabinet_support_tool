@@ -8,7 +8,7 @@ import { audit, isUniqueViolation, safeJson, transaction, type Pool, type Querya
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { upsertSetting } from "./settings.js";
 import { crashArgs, crashPredicate } from "./crashes.js";
-import { processBatch, type Outcome } from "./alerts.js";
+import { processBatch, type EventLink, type Outcome } from "./alerts.js";
 import { Refused } from "./errors.js";
 import { recordFirewallEvent } from "./commands.js";
 import { countRuleHits, RULES_STAMP_SQL } from "./rules.js";
@@ -57,7 +57,7 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
     // batch carrying the same event is "already there": the statement is run again and the other batch's row is skipped.
     let inserted: { event_id: string; version: string | null }[] = [];
     for (let attempt = 1; ; attempt++) {
-      try { inserted = (await c.query<{ event_id: string; version: string | null }>(INSERT_EVENTS, [cabinetId, safeJson(rows)])).rows; break; }
+      try { inserted = (await c.query<{ event_id: string; version: string | null }>(insertEventsSql(), [cabinetId, safeJson(rows)])).rows; break; }
       catch (err) { if (!isUniqueViolation(err) || attempt >= 2) throw err; }
     }
     const fresh = new Set(inserted.map(r => r.event_id.toLowerCase()));
@@ -73,6 +73,7 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
       if (e.kind === "firewall_changed") await recordFirewallEvent(c, cabinetId, e);
     }
     const processed = await processBatch(c, cabinetId, stored, inserted[0]?.version ?? null);
+    await linkEventsToAlerts(c, cabinetId, processed.links);
     return { stored: stored.length, outcomes: processed.outcomes, ruleHits: processed.ruleHits };
   });
   countRuleHits(pool, result.ruleHits);
@@ -86,7 +87,10 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
 }
 
 // One statement for the whole batch; the rows come back with the rules stamp, so the engine knows whether its rules in memory are current.
-const INSERT_EVENTS = `
+// Built on first use, not when the module loads: rules.ts and events.ts import each other (D104), and a process that loads rules.ts first
+// would read RULES_STAMP_SQL here before rules.ts had set it (test/module-load-order.test.ts).
+let insertEvents: string | null = null;
+const insertEventsSql = (): string => insertEvents ??= `
   DECLARE @o TABLE (event_id uniqueidentifier NOT NULL);
   INSERT INTO events (event_id, cabinet_id, kind, occurred_at, source, command_id, severity_hint, detail, device)
     OUTPUT inserted.event_id INTO @o
@@ -96,6 +100,51 @@ const INSERT_EVENTS = `
              detail nvarchar(max) '$.detail' AS JSON, device nvarchar(max) '$.device' AS JSON) j
      WHERE NOT EXISTS (SELECT 1 FROM events e WITH (UPDLOCK, HOLDLOCK) WHERE e.event_id = j.event_id);
   SELECT o.event_id, v.stamp AS [version] FROM @o o CROSS JOIN (SELECT ${RULES_STAMP_SQL} AS stamp) v;`;
+
+const EVENT_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** The most links one call takes: one per event in a batch (contracts/schemas/envelopes/event-batch.schema.json, maxItems). */
+const MAX_LINKS = 100;
+
+/**
+ * Records, for each of one cabinet's events, the alert it raised, joined or resolved and the rule that matched it, in one statement
+ * (F21.R2, decision-log D112): alerts.ts processBatch decides them and hands them here, in the caller's transaction. An event of
+ * another cabinet is never touched. The cabinet, every id and the count are checked before the database is touched; an empty list
+ * writes nothing. Returns how many events the statement changed.
+ */
+export async function linkEventsToAlerts(c: Queryable, cabinetId: string, links: readonly EventLink[]): Promise<number> {
+  if (typeof cabinetId !== "string" || !EVENT_UUID.test(cabinetId)) throw new Error("the cabinet must be a uuid");
+  if (!Array.isArray(links)) throw new Error("the links are a list");
+  if (links.length > MAX_LINKS) throw new Error(`at most ${MAX_LINKS} links, one per event in a batch`);
+  const seen = new Set<string>();
+  for (const l of links) {
+    if (typeof l !== "object" || l === null || Array.isArray(l)) throw new Error("a link is an event, its alert and its rule");
+    if (typeof l.e !== "string" || !EVENT_UUID.test(l.e)) throw new Error("a link's event must be a uuid");
+    for (const [name, v] of [["alert", l.a], ["rule", l.r]] as const)
+      if (v !== null && (typeof v !== "string" || !EVENT_UUID.test(v))) throw new Error(`a link's ${name} must be a uuid or null`);
+    if (l.a === null && l.r === null) throw new Error("a link names an alert, a rule or both");
+    if (seen.has(l.e.toLowerCase())) throw new Error("an event is linked once");
+    seen.add(l.e.toLowerCase());
+  }
+  if (links.length === 0) return 0;
+  const rows = links.map(l => ({ e: l.e, a: l.a, r: l.r }));
+  return (await c.query(`UPDATE e SET alert_id = j.a, matched_rule = j.r FROM events e
+                           JOIN OPENJSON($2) WITH (e uniqueidentifier '$.e', a uniqueidentifier '$.a', r uniqueidentifier '$.r') j ON e.event_id = j.e
+                          WHERE e.cabinet_id = $1`, [cabinetId, JSON.stringify(rows)])).rowCount ?? 0;
+}
+
+/**
+ * Moves an alert's events to the alert it was folded into, and records the rule that matched them (F21.R2, decision-log D104): a rule
+ * going live regroups an unrecognized alert under its issue's alert (rules.ts regroupOpen), and the events go with it. In the caller's
+ * transaction; the regroup itself is audited there (rule.activate). The three ids are checked before the database is touched. An alert
+ * folded into itself keeps its events and records the rule, as the statement in rules.ts did (D105): a rule going live never fails on
+ * it. Returns how many events the statement changed.
+ */
+export async function moveAlertEvents(c: Queryable, fromAlertId: string, toAlertId: string, ruleId: string): Promise<number> {
+  for (const [name, v] of [["alert to move from", fromAlertId], ["alert to move to", toAlertId], ["rule", ruleId]] as const)
+    if (typeof v !== "string" || !EVENT_UUID.test(v)) throw new Error(`the ${name} must be a uuid`);
+  return (await c.query("UPDATE events SET alert_id = $2, matched_rule = $3 WHERE alert_id = $1", [fromAlertId, toAlertId, ruleId])).rowCount ?? 0;
+}
 
 // ---- Retention (F21.R2, decision-log D75) -----------------------------------------------------------------------------------------------
 
