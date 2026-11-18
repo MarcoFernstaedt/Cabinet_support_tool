@@ -11,15 +11,24 @@ namespace Cabinet.Agent.SessionShellRepro;
 /// <summary>A local, byte-exact instrument for repeated PowerShell children in the product ConPTY.</summary>
 public static class Program
 {
+    private readonly record struct Command(string Line, string Done, string? Failed, string? Started,
+        int Child, bool ExpectFailure, string? TracePath = null);
+
     public static async Task<int> Main(string[] args)
     {
         if (!OperatingSystem.IsWindows()) { Console.Error.WriteLine("Requires Windows ConPTY."); return 2; }
-        if (args.Length > 1 || (args.Length == 1 && (!int.TryParse(args[0], out int seconds) || seconds < 1)))
+        bool repeat = args.Length > 0 && args[0] == "--repeat";
+        int count = 0;
+        int timeout = 45;
+        int timeoutIndex = repeat ? 2 : 0;
+        if (args.Length > timeoutIndex + 1 ||
+            (repeat && (args.Length < 2 || !int.TryParse(args[1], out count) || count < 1)) ||
+            (args.Length > timeoutIndex && (!int.TryParse(args[timeoutIndex], out timeout) || timeout < 1)))
         {
             Console.Error.WriteLine("Usage: Cabinet.Agent.SessionShellRepro.exe [timeout-seconds-per-command (default 45)]");
+            Console.Error.WriteLine("       Cabinet.Agent.SessionShellRepro.exe --repeat N [timeout-seconds-per-command (default 45)]");
             return 2;
         }
-        int timeout = args.Length == 0 ? 45 : int.Parse(args[0]);
         var watch = Stopwatch.StartNew();
         object gate = new();
         int lineIndex = 0, childIndex = 0;
@@ -53,8 +62,7 @@ public static class Program
             { Event($"OUTPUT_CLOSED {error.GetType().Name}: {error.Message}"); }
         });
 
-        (string Line, string Done, string? Failed, string? Started, int Child, bool ExpectFailure)
-            PowerShell(string source, int child, bool expectFailure = false)
+        Command PowerShell(string source, int child, bool expectFailure = false)
         {
             string nonce = Guid.NewGuid().ToString("N");
             string script = $$"""
@@ -76,12 +84,38 @@ public static class Program
                 }
                 exit $exitCode
                 """;
-            return ("powershell.exe -NoProfile -NonInteractive -EncodedCommand " +
+            return new("powershell.exe -NoProfile -NonInteractive -EncodedCommand " +
                 Convert.ToBase64String(Encoding.Unicode.GetBytes(script)) + "\r",
                 "DONE_" + nonce, "FAIL_" + nonce, "START_" + nonce, child, expectFailure);
         }
 
-        (string Line, string Done, string? Failed, string? Started, int Child, bool ExpectFailure)[] commands = {
+        Command RepeatChild(int child)
+        {
+            string nonce = Guid.NewGuid().ToString("N");
+            string marker = "DONE_" + nonce;
+            string tracePath = Path.Combine(Path.GetTempPath(), $"Cabinet.SessionShellRepro.{nonce}.trace");
+            string escapedTracePath = tracePath.Replace("'", "''", StringComparison.Ordinal);
+            // The trace bypasses the console. Its first entry proves the script reached the
+            // write, and its second records whether the managed write and flush returned.
+            string script = $$"""
+                $ErrorActionPreference = 'Stop'
+                $trace = '{{escapedTracePath}}'
+                [IO.File]::WriteAllText($trace, "before-write pid=$PID utc=$([DateTime]::UtcNow.ToString('O'))" + [Environment]::NewLine)
+                try {
+                    [Console]::Out.WriteLine('{{marker}}')
+                    [Console]::Out.Flush()
+                } catch {
+                    [IO.File]::AppendAllText($trace, "write-or-flush-error: $($_.Exception)" + [Environment]::NewLine)
+                    exit 1
+                }
+                [IO.File]::AppendAllText($trace, "after-flush utc=$([DateTime]::UtcNow.ToString('O'))" + [Environment]::NewLine)
+                """;
+            return new("powershell.exe -NoProfile -NonInteractive -EncodedCommand " +
+                Convert.ToBase64String(Encoding.Unicode.GetBytes(script)) + "\r",
+                marker, null, null, child, false, tracePath);
+        }
+
+        Command[] commands = repeat ? Enumerable.Range(1, count).Select(RepeatChild).ToArray() : [
             PowerShell("[Console]::Out.WriteLine(('CHILD_' + 'STDOUT')); [Console]::Error.WriteLine(('CHILD_' + 'STDERR'))", 1),
             PowerShell("""
                 try {
@@ -101,11 +135,11 @@ public static class Program
                 }
                 throw 'Intentional repro failure'
                 """, 2, expectFailure: true),
-            ("set /a 483+217\r", "700", null, null, 0, false),
-            ("set /a 631+109\r", "740", null, null, 0, false),
-            ("set /a 205+744\r", "949", null, null, 0, false),
+            new("set /a 483+217\r", "700", null, null, 0, false),
+            new("set /a 631+109\r", "740", null, null, 0, false),
+            new("set /a 205+744\r", "949", null, null, 0, false),
             PowerShell("""$identity=whoami; [Console]::Out.WriteLine([string]$identity); $machine=($identity -match '^NT AUTHORITY\\') -or ($identity -match ('^' + [regex]::Escape($env:COMPUTERNAME) + '\\')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }""", 3)
-        };
+        ];
         var outcomes = new (string Status, bool Started, bool Passed)[commands.Length];
         Array.Fill(outcomes, ("NOT_SENT", false, false));
         try
@@ -113,8 +147,8 @@ public static class Program
             Event($"START identity={Environment.UserDomainName}\\{Environment.UserName} timeout={timeout}s; no network state is changed");
             foreach (var command in commands)
             {
-                // Same 1.5s settling period as acceptance; output retains the previous attribution until send.
-                await Task.Delay(1500);
+                // Keep the acceptance settling period in sequence mode only.
+                if (!repeat) await Task.Delay(1500);
                 lock (gate)
                 {
                     lineIndex++;
@@ -133,14 +167,14 @@ public static class Program
                 catch (TimeoutException)
                 {
                     Event("INPUT_TIMEOUT; terminating shell tree");
-                    outcomes[lineIndex - 1] = ("INPUT_TIMEOUT", false, false);
+                    outcomes[lineIndex - 1] = ("INPUT_TIMEOUT", File.Exists(command.TracePath), false);
                     terminal.Terminate();
                     break;
                 }
                 catch (IOException error)
                 {
                     Event($"INPUT_CLOSED: {error.Message}");
-                    outcomes[lineIndex - 1] = ("INPUT_CLOSED", false, false);
+                    outcomes[lineIndex - 1] = ("INPUT_CLOSED", File.Exists(command.TracePath), false);
                     break;
                 }
                 Event("INPUT_FLUSHED");
@@ -163,7 +197,7 @@ public static class Program
                     }
                     if (output.Contains(command.Done, StringComparison.Ordinal))
                     {
-                        bool streamsPresent = lineIndex != 1 ||
+                        bool streamsPresent = repeat || lineIndex != 1 ||
                             (output.Contains("CHILD_STDOUT", StringComparison.Ordinal) &&
                              output.Contains("CHILD_STDERR", StringComparison.Ordinal));
                         status = command.ExpectFailure ? "UNEXPECTED_SUCCESS" :
@@ -184,8 +218,9 @@ public static class Program
                     }
                     await Task.Delay(25);
                 }
-                outcomes[lineIndex - 1] = (status, started, passed);
+                outcomes[lineIndex - 1] = (status, started || File.Exists(command.TracePath), passed);
                 Event(status);
+                if (repeat) Event($"VERDICT {Verdict(outcomes[lineIndex - 1])}");
                 if (status == "SHELL_EXIT") break;
             }
         }
@@ -199,11 +234,46 @@ public static class Program
         {
             var command = commands[i];
             var outcome = outcomes[i];
-            string started = command.Started is null ? "-" : outcome.Started.ToString();
-            Console.WriteLine($"SUMMARY line={i + 1} child={command.Child} status={outcome.Status} startSeen={started}");
+            if (command.TracePath is { } tracePath)
+            {
+                Console.WriteLine($"SUMMARY line={i + 1} child={command.Child} status={outcome.Status} verdict={Verdict(outcome)}");
+                PrintTrace(command.Child, tracePath);
+            }
+            else
+            {
+                string started = command.Started is null ? "-" : outcome.Started.ToString();
+                Console.WriteLine($"SUMMARY line={i + 1} child={command.Child} status={outcome.Status} startSeen={started}");
+            }
         }
+        if (repeat)
+            Console.WriteLine($"TALLY requested={count} delivered={outcomes.Count(o => o.Passed)} " +
+                $"startedWithoutOutcome={outcomes.Count(o => Verdict(o) == "started without outcome")} " +
+                $"unconfirmed={outcomes.Count(o => Verdict(o) == "unconfirmed")} " +
+                $"notSent={outcomes.Count(o => o.Status == "NOT_SENT")}");
         int result = outcomes.All(outcome => outcome.Passed) ? 0 : 1;
         Event($"RESULT code={result}; child index attributes bytes to the last submitted command, not a proven output producer");
         return result;
+    }
+
+    private static string Verdict((string Status, bool Started, bool Passed) outcome) =>
+        outcome.Status == "NOT_SENT" ? "not sent" : outcome.Passed ? "delivered" :
+        outcome.Started ? "started without outcome" : "unconfirmed";
+
+    private static void PrintTrace(int child, string path)
+    {
+        try
+        {
+            foreach (string line in File.ReadLines(path))
+                Console.WriteLine($"TRACE child={child} {line}");
+            File.Delete(path);
+        }
+        catch (FileNotFoundException)
+        {
+            Console.WriteLine($"TRACE child={child} absent");
+        }
+        catch (Exception error) when (error is IOException or UnauthorizedAccessException)
+        {
+            Console.WriteLine($"TRACE child={child} unavailable: {error.Message}");
+        }
     }
 }

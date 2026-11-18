@@ -43,6 +43,8 @@ let observer, db, api, notifier, feed, remote, agentProcess;
 let fallbackRegistered = false, fallbackDeadline = 0, fallbackRunsAt = 0, containerStopped = false;
 let tailnetDownAt, tailnetRestoredAt, peerAddress;
 const shellCommandEvidence = [];
+const shellChecks = [];
+let readShellOutput;
 const taskName = 'cabinet-acceptance-tailscale-restore';
 const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
 const platformContainer = runId + '-platform';
@@ -70,6 +72,39 @@ async function run(binary, args, options = {}) {
 }
 const quote = text => "'" + text.replaceAll("'", "''") + "'";
 async function ps(source, options = {}) { return await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop';" + source, 'utf16le').toString('base64')], options); }
+async function verifyShellChecks() {
+  const pending = shellChecks.filter(({ evidence }) => evidence.verdict === 'pending');
+  if (!pending.length) return;
+  let files, readError;
+  try {
+    if (!sshAvailable) throw new Error('SSH unavailable');
+    const paths = pending.map(({ evidence }) => quote(evidence.path)).join(',');
+    files = JSON.parse(await ps(`$paths=@(${paths}); for ($i=0; $i -lt 20; $i++) { if (Test-Path -LiteralPath $paths[-1] -PathType Leaf) { break }; Start-Sleep -Milliseconds 250 }; $result=@{}; foreach ($path in $paths) { if (Test-Path -LiteralPath $path -PathType Leaf) { $result[$path]=[IO.File]::ReadAllText($path) } }; [Console]::OutputEncoding=[Text.Encoding]::UTF8; ConvertTo-Json -InputObject $result -Compress`, { timeout: 20000 }));
+  } catch (error) {
+    for (const { evidence } of pending) evidence.verdict = 'evidence read failed';
+    readError = new Error(`Could not read cabinet check files over SSH: ${error.message}`);
+  }
+  try {
+    const output = Buffer.concat(await readShellOutput()).toString().replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+    for (const { evidence, markers } of pending) {
+      const outcome = markers.echo ? output.split(/\r?\n/).some(line => line.trim() === markers.done)
+        : output.includes(markers.done);
+      evidence.console = markers.failed && output.includes(markers.failed) ? 'FAIL received'
+        : outcome ? 'result received'
+        : markers.start && output.includes(markers.start) ? 'START only' : 'no marker';
+    }
+  } catch (error) {
+    console.error('Could not read shell console hints:', error.message);
+  }
+  if (readError) throw readError;
+  for (const { evidence, expected } of pending) {
+    evidence.fileEvidence = files[evidence.path] ?? null;
+    evidence.verdict = evidence.fileEvidence === null ? 'missing file'
+      : evidence.fileEvidence.trim() === expected ? 'pass' : 'unexpected file contents';
+  }
+  const failures = pending.filter(({ evidence }) => evidence.verdict !== 'pass');
+  assert.equal(failures.length, 0, failures.map(({ evidence }) => `${evidence.label}: ${evidence.verdict}`).join('; '));
+}
 const shedReasons = new Map();
 let sshAvailable = true, interrupted;
 let admissionDiagnostics = () => null;
@@ -311,92 +346,79 @@ try {
   await until(async () => (await observer.query("SELECT id FROM commands WHERE cabinet_id = $1 AND operation = 'session.open' AND status = 'succeeded'", [cabinetId])).rows[0], 'agent session opening');
   const shell = new SessionShell(observer);
   await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.resize', columns: 100, rows: 30 }, operator);
+  readShellOutput = async () => {
+    const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
+    return rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame)
+      .filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64'));
+  };
+  function newShellCheck(label, expected, markers) {
+    const id = randomUUID().replaceAll('-', '');
+    const path = remote + '\\check-' + id + '.txt';
+    const evidence = { label, id, path, fileEvidence: null, console: 'unavailable', verdict: 'pending' };
+    shellCommandEvidence.push(evidence);
+    const check = { evidence, expected, markers: markers(id) };
+    shellChecks.push(check);
+    return check;
+  }
+  async function typeShellLine(line) {
+    await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(line).toString('base64') }, operator);
+  }
+  async function shellPowerShell(source, label, expected = 'PASS') {
+    const { evidence: { path }, markers: { start, done, failed } } = newShellCheck(label, expected, id =>
+      ({ start: 'START_' + id, done: 'DONE_' + id, failed: 'FAIL_' + id }));
+    const flush = '[Console]::Out.Flush(); [Console]::Error.Flush()';
+    const encoded = Buffer.from(`$ErrorActionPreference='Stop'; $checkPath=${quote(path)}; $checkResult='PASS'; $checkMarker='${done}'; try { try { [Console]::Out.WriteLine('${start}'); ${flush} } catch {}; ${source} } catch { $checkResult='FAIL: ' + $_; $checkMarker='${failed}' }; [IO.File]::WriteAllText($checkPath + '.tmp', $checkResult); [IO.File]::Move($checkPath + '.tmp', $checkPath); try { [Console]::Out.WriteLine($checkMarker); ${flush} } catch {}; Start-Sleep -Milliseconds 250; if ($checkMarker -eq '${failed}') { exit 1 }`, 'utf16le').toString('base64');
+    // Leave time for cmd.exe to regain the prompt after the previous child exits.
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    await typeShellLine(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`);
+  }
   if (offNetwork) {
-    async function shellPowerShell(source, label) {
-      const id = randomUUID().replaceAll('-', '');
-      const start = 'START_' + id;
-      const done = 'DONE_' + id;
-      const failed = 'FAIL_' + id;
-      const flush = '[Console]::Out.Flush(); [Console]::Error.Flush()';
-      const encoded = Buffer.from(`$ErrorActionPreference='Stop'; [Console]::Out.WriteLine(('START_' + '${id}')); ${flush}; try { ${source}; [Console]::Out.WriteLine(('DONE_' + '${id}')); ${flush} } catch { Write-Output $_; [Console]::Out.WriteLine(('FAIL_' + '${id}')); ${flush}; exit 1 } finally { Start-Sleep -Milliseconds 250 }`, 'utf16le').toString('base64');
-      // A Windows console drops input typed while the previous child is still tearing down:
-      // its exit flushes the pending input buffer, so keystrokes sent the instant DONE_ prints
-      // never reach the shell. Wait for the console to settle before typing the next command -
-      // what an operator does when waiting for a prompt - so each check runs in its own child.
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`).toString('base64') }, operator);
-      const evidence = { label, id, startReceived: false, outcome: null, result: 'execution unconfirmed' };
-      shellCommandEvidence.push(evidence);
-      try {
-        return await until(async () => {
-          const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-          const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-          evidence.startReceived = output.includes(start);
-          evidence.outcome = output.includes(failed) ? failed : output.includes(done) ? done : null;
-          evidence.result = evidence.outcome ? `finished (${evidence.outcome})` : evidence.startReceived ? 'started, no outcome received' : 'execution unconfirmed';
-          assert.ok(!output.includes(failed), `${label} failed through operator shell: ${output}`);
-          return output.includes(done) ? output : null;
-        }, label, { deadlineError: () => new Error(`${label}: ${evidence.result}`) });
-      } finally {
-        console.log(`${label}: ${evidence.result}`);
-      }
-    }
-    // Completion tokens are assembled inside the child, so input echo/title cannot satisfy this check.
-    const firstOutput = await shellPowerShell(`Write-Output ('CHILD_' + 'STDOUT'); [Console]::Error.WriteLine(('CHILD_' + 'STDERR'))`, 'first child process output');
-    assert.ok(firstOutput.includes('CHILD_STDOUT'), 'First child stdout missing');
-    assert.ok(firstOutput.includes('CHILD_STDERR'), 'First child stderr missing');
+    await shellPowerShell(`$stdout=Write-Output ('CHILD_' + 'STDOUT'); $stderr=('CHILD_' + 'STDERR'); Write-Output $stdout; [Console]::Error.WriteLine($stderr); $checkResult=@('PASS', $stdout, $stderr) -join [char]10`,
+      'first child process output', 'PASS\nCHILD_STDOUT\nCHILD_STDERR');
     await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
-    // Consecutive plain shell commands in the session's own cmd.exe, three of them, each
-    // answering with a computed value the typed line does not contain, so input echo cannot
-    // satisfy it. This is the instrument for the consecutive-command defect: the PowerShell
-    // checks above complete, while the third command typed into one session has been observed
-    // to be delivered, echoed in fragments, and never run. It runs before the whoami check
-    // only while that defect is open; move it after when the defect is fixed.
-    async function shellLine(line, expect, label) {
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-      await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(`${line}\r`).toString('base64') }, operator);
-      return await until(async () => {
-        const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-        const output = rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame).filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64').toString()).join('').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-        return output.includes(expect) ? output : null;
-      }, label);
-    }
+    // Keep the arithmetic in the session's own cmd.exe. Print the captured value
+    // as a hint after redirecting the command's result to its evidence file.
     for (let n = 0; n < 3; n++) {
       const a = 100 + Math.floor(Math.random() * 800);
       const b = 100 + Math.floor(Math.random() * 800);
-      await shellLine(`set /a ${a}+${b}`, String(a + b), `plain consecutive command ${n + 1} of 3`);
+      const expected = String(a + b);
+      const { evidence: { path } } = newShellCheck(`plain consecutive command ${n + 1} of 3`, expected, () => ({ done: expected, echo: true }));
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      await typeShellLine(`set /a ${a}+${b} >"${path}" && type "${path}"\r`);
     }
-    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -match '^NT AUTHORITY\\') -or ($identity -match ('^' + [regex]::Escape($env:COMPUTERNAME) + '\\')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
+    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -like 'NT AUTHORITY\\*') -or ($identity -like ($env:COMPUTERNAME + '\\*')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
     await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
     const desktopMarker = runId + '.txt';
     await shellPowerShell(`$path=Join-Path $env:USERPROFILE ${quote('Desktop/' + desktopMarker)}; $created=$false; try { $file=[System.IO.File]::Open($path, 'CreateNew', 'Write'); $created=$true; try { $file.WriteByte(65) } finally { $file.Dispose() }; if (-not (Test-Path -LiteralPath $path)) { throw 'Marker missing' } } finally { if ($created) { Remove-Item -LiteralPath $path } }; if (Test-Path -LiteralPath $path) { throw 'Marker cleanup failed' }`, 'off-network marker write and cleanup');
     assert.ok(Date.now() < fallbackRunsAt - 15000, 'Off-network proof exceeded fallback window');
     await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; ${tailscaleNodeRestore}`, 'Tailscale restoration through operator shell');
-    assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
     await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
     sshAvailable = true;
     tailnetRestoredAt = new Date().toISOString();
+    assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
+    // The public shell is the only path during the outage. Read its files once SSH returns.
+    await verifyShellChecks();
     await ps(`Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }; Remove-Item C:\\tailscale-watchdog.hold -ErrorAction SilentlyContinue`);
     fallbackRegistered = false;
   }
   const marker = 'CABINET_SHELL_' + randomUUID().replaceAll('-', '');
-  const command = `echo ${marker}\rwhoami\rhostname\rexit 7\r`;
+  const { evidence: { path } } = newShellCheck('final shell echo', marker, () => ({ done: marker, echo: true }));
+  const command = `>"${path}" echo ${marker} && type "${path}"\rwhoami\rhostname\rexit 7\r`;
   await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(command).toString('base64') }, operator);
   await until(async () => (await observer.query('SELECT closed_at FROM remote_sessions WHERE id = $1', [sessionId])).rows[0]?.closed_at, 'shell exit');
   const frames = (await observer.query('SELECT direction, frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows.map(r => ({ ...r, frame: typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame }));
   const output = frames.filter(f => f.frame.kind === 'shell.out').map(f => Buffer.from(f.frame.data, 'base64').toString()).join('');
-  assert.ok(output.includes(marker), 'real command output missing');
+  await verifyShellChecks();
   assert.ok(frames.some(f => f.frame.kind === 'shell.exit' && f.frame.code === 7));
   const commands = (await observer.query('SELECT input_data, complete FROM session_shell_commands WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-  assert.equal(commands.length, offNetwork ? 10 : 4); assert.ok(commands.every(c => c.complete));
+  assert.equal(commands.length, offNetwork ? 13 : 4); assert.ok(commands.every(c => c.complete));
   assert.equal(commands.slice(offNetwork ? -4 : 0).map(c => Buffer.from(c.input_data, 'base64').toString()).join(''), command);
   assert.equal((await verifyAuditChain(observer)).ok, true);
-  console.log(`GREEN: real Windows process output, exit 7, ${offNetwork ? 'ten' : 'four'} durable commands, both directions and audit chain verified`);
+  console.log(`GREEN: cabinet file evidence, exit 7, ${offNetwork ? 'thirteen' : 'four'} durable commands, both directions and audit chain verified`);
   console.log(output);
   console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: offNetwork ? 'public' : 'tailnet', offNetworkTested: offNetwork, ...(offNetwork ? { platformHost, platformPort, peerAddress, tailnetDownAt, tailnetRestoredAt } : {}) }));
   await stopAgent(true);
 } finally {
-  if (shellCommandEvidence.length) console.log(JSON.stringify({ sessionShellCommands: shellCommandEvidence }));
   let recoveryError;
   if (fallbackRegistered) {
     // Keep the API alive while recovery is pending. Do not remove the safety net
@@ -415,6 +437,10 @@ try {
       }
     }
   }
+  if (shellChecks.some(({ evidence }) => evidence.verdict === 'pending')) {
+    try { await verifyShellChecks(); } catch (error) { console.error(error.message); }
+  }
+  if (shellCommandEvidence.length) console.log(JSON.stringify({ sessionShellCommands: shellCommandEvidence }));
   if (agentProcess && remote && sshAvailable) {
     try { await ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`); } catch { /* primary failure remains non-zero */ }
   }
