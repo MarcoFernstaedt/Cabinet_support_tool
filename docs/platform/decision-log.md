@@ -54,6 +54,10 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
   `cabinet-replacement` imports none of these modules (it goes through the routes), so the file selection left it out. I ran the three
   write edits against it on their own afterwards, and it is 4 of 4 green once restored.
+- **The audit sweep.** The full gate then failed `audit-sweep`: `retireCabinet` sets `status = 'removed'` in a function that does not
+  audit, because its caller does. The sweep's `NOT_TRANSITIONS` list gains one entry for it, in the same way `removeSetting` was listed
+  in D117. No assertion changed. The reason is held from outside: with the `cabinet.revoke` audit dropped from `completeReplacement`,
+  `cabinet-replacement` fails (8 of 9 across it and `audit-sweep`). Restored and `cmp` identical, 9 of 9.
 
 ---
 
