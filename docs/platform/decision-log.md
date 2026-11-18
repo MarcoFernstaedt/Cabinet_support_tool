@@ -6,6 +6,52 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D119. A cabinet's make and model are written in one place, config-ingest.ts (2026-11-18)
+
+**What the code did** (at `68e1f67`; two entries on the ownership debt list, F21.R2):
+- **Two writers of one pair of columns.** `cabinets.manufacturer` and `cabinets.model` were set by two files with the same statement, each
+  trimming what the cabinet reported to 200 characters:
+  - `config-ingest.ts:90`, from a configuration snapshot's hardware item;
+  - `commands.ts:252`, from a `system.hardware` result.
+
+  With two writers, D118 could give the columns no owner, so both files stayed on the debt list. `commands.ts` also sets `ipv4` and
+  `ipv4_at` from a `network.config` result, and nothing else writes those.
+- **What no test held.** A `system.hardware` result keeping the make and model. With that write taken out of `commands.ts`, every test
+  still passed.
+
+**The decision:**
+- **One owner for the pair.** `config-ingest.ts` owns `manufacturer` and `model` and exports
+  `rememberCabinetModel(c, cabinetId, { manufacturer, model })`, the statement both files ran. `commands.ts` calls it for a
+  `system.hardware` result, in the same transaction as before.
+- **What it does.** It checks the cabinet is a uuid before the database is touched, and trims each value to 200 characters. A value the
+  cabinet did not give (missing, empty or not text) keeps the stored one, and with neither nothing is written.
+  - The `commands.ts` path used `?.trim()` and would have thrown on a value that was not text. The output contract refuses one before it
+    gets there, so nothing that works today changes.
+- **`commands.ts` owns `ipv4` and `ipv4_at`.**
+- **Debt count:** both files are now covered by their own columns, so both entries for `cabinets` come off, which leaves 20.
+
+**Proof:**
+- **`server/test/cabinet-model.test.ts`** (new, 3 tests, against the database):
+  - **Keeping the values.** They are trimmed and kept. An empty make, or a value that is not text, keeps the stored one, and another cabinet
+    is untouched.
+  - **Nothing to keep, and hostile input.** Four empty reports write nothing on a connection that throws if used, and seven bad cabinet ids
+    are refused there.
+  - **The command path.** A real `system.hardware` result, the contract's `typical.json`, sent through `issueCommand` and `storeResult`,
+    keeps the make and model it reports.
+- **`table-ownership.test.ts`'s covered set** gains `commands.ts` and `config-ingest.ts` for `cabinets`.
+- **Red checks** (`cabinet-model`, `baselines`, `readings` and `table-ownership`, 50 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `commands.ts` writing the columns itself again | The unlisted-write and covered-set tests |
+  | A `system.hardware` result no longer kept | The command-path test (no test failed on this before it) |
+  | An empty value overwriting the stored one | The first two new tests |
+  | The cabinet check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 50 of 50 pass.
+
+---
+
 ## D118. A setting column on a client, site or cabinet is owned by its feature module (2026-11-18)
 
 **What the code did** (at `271121a`; the last 32 entries on the ownership debt list, F21.R2):
