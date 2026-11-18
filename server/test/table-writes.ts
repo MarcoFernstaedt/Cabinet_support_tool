@@ -78,6 +78,9 @@ export function setColumns(clause: string): string[] | null {
   const parts: string[] = [];
   let depth = 0, start = 0;
   for (let i = 0; i < clause.length; i++) {
+    const skip = opaqueEnd(clause, i);
+    if (skip === null) return null;
+    if (skip > i) { i = skip - 1; continue; }
     const ch = clause[i]!;
     if (ch === "(") depth++;
     else if (ch === ")") depth--;
@@ -96,13 +99,32 @@ export function setColumns(clause: string): string[] | null {
 
 /**
  * The text of a SET clause: from just after SET up to the WHERE, OUTPUT or FROM that ends it, or the end of the statement's text (a
- * semicolon, quote or backtick), each counted only outside parentheses, so a subquery's own FROM or WHERE does not end the clause early
- * and hide the assignments after it (review of #313). Null when the statement's text ends while a parenthesis is still open: the reader
- * cannot tell where the clause stops, so the write is not read as a column update.
+ * semicolon, double quote or backtick), each counted only outside parentheses, quoted strings and comments, so a subquery's own FROM or
+ * WHERE, or the word "from" in a string or a comment, does not end the clause early and hide the assignments after it (review of #313).
+ * Null when the statement's text ends while a parenthesis, a string or a comment is still open: the reader cannot tell where the clause
+ * stops, so the write is not read as a column update.
  */
+/**
+ * Where a piece of SQL the reader must not look inside ends, when one starts at `i`: a quoted string ('…', with '' for a quote inside it),
+ * a line comment (-- to the end of the line) or a block comment. `i` itself when none starts there; null when the text ends inside one
+ * (review of #313: a word or a comma inside them is not the statement's own).
+ */
+export function opaqueEnd(text: string, i: number): number | null {
+  if (text[i] === "'") {
+    for (let j = i + 1; j < text.length; j++) if (text[j] === "'") { if (text[j + 1] === "'") j++; else return j + 1; }
+    return null;
+  }
+  if (text.startsWith("--", i)) { const nl = text.indexOf("\n", i); return nl === -1 ? null : nl + 1; }
+  if (text.startsWith("/*", i)) { const end = text.indexOf("*/", i + 2); return end === -1 ? null : end + 2; }
+  return i;
+}
+
 export function setClause(text: string): string | null {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
+    const skip = opaqueEnd(text, i);
+    if (skip === null) return null;
+    if (skip > i) { i = skip - 1; continue; }
     const ch = text[i]!;
     if (ch === "(") depth++;
     else if (ch === ")") depth--;

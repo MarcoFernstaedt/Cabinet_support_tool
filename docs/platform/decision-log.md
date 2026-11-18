@@ -67,7 +67,11 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   - a clause it cannot split is unreadable;
   - a subquery's own `FROM` or `WHERE` does not end the `SET` clause early. The clause is cut only outside parentheses, and a statement
     that ends inside an open one is unreadable (`setClause`, added after review of #313). Before this, `SET a = (SELECT … FROM … WHERE
-    …), b = …` was read as setting `a` alone, so a file setting a column it does not own could count as covered.
+    …), b = …` was read as setting `a` alone, so a file setting a column it does not own could count as covered;
+  - a quoted string (`'…'`, with `''` inside it) and a comment (`--` to the end of the line, `/* … */`) are just as opaque. A word in one
+    no longer ends the clause, a comma in one no longer splits it, and text that ends inside one is unreadable (`opaqueEnd`, also after
+    review of #313). Before this, `SET write_pause_reason = 'paused from the console', write_paused = 1` was read as setting the reason
+    alone.
 - **Red checks.** Each of these fails:
 
   | Edit | What fails |
@@ -80,6 +84,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
   | The reader splitting at a comma inside a call | The reader test |
   | The reader not reading an alias's columns | The reader test, the unlisted-write test and the covered-set test |
   | The `SET` clause cut at any depth again | The reader test, on the subquery case |
+  | Strings and comments read like the rest of the statement again | The reader test, on the string case |
 
   Restored and `cmp` identical, 8 of 8 pass.
 
