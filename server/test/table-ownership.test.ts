@@ -85,7 +85,7 @@ test("a column owner that sets another feature's column, or writes its table any
   const covered: string[] = [];
   for (const [table, o] of Object.entries(TABLE_OWNERS)) for (const file of new Set(Object.values(o.columns ?? {}))) if (coveredByColumns(table, file)) covered.push(`${table} ${file}`);
   assert.deepEqual(covered.sort(), [
-    "cabinets services/rollouts.ts", "cabinets services/settings.ts", "cabinets services/sync-cabinets.ts",
+    "cabinets services/commands.ts", "cabinets services/config-ingest.ts", "cabinets services/rollouts.ts", "cabinets services/settings.ts", "cabinets services/sync-cabinets.ts",
     "clients services/firewall-policy.ts", "clients services/time.ts", "clients services/writes.ts",
     "sites services/firewall-policy.ts", "sites services/network-baseline.ts", "sites services/settings.ts", "sites services/time.ts",
   ], "the files each table's columns cover; a change here is a change to what counts as debt");

@@ -81,14 +81,23 @@ async function viaPlatform(c: Queryable, cabinetId: string, category: Category, 
   return r.rows.length > 0;
 }
 
-/** What the cabinet says about its make and model, kept on the cabinet so the model baseline can apply to it. */
-async function rememberModel(c: Queryable, cabinetId: string, items: readonly Item[]): Promise<void> {
-  const hardware = items.find(i => i.key === "hardware")?.values;
+/**
+ * Keeps what a cabinet says about its make and model on the cabinet, so the model baseline can apply to it. This module owns those two
+ * columns (decision-log D119): a configuration snapshot sets them here, and so does a system.hardware result, through commands.ts. Each
+ * is trimmed to 200 characters; one the cabinet did not give (missing, empty, or not text) leaves the stored one as it was, and with
+ * neither nothing is written. The cabinet is checked before the database is touched.
+ */
+export async function rememberCabinetModel(c: Queryable, cabinetId: string, reported: { manufacturer?: unknown; model?: unknown }): Promise<void> {
+  if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("the cabinet must be a uuid");
   const text = (v: unknown) => (typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 200) : null);
-  const manufacturer = text(hardware?.manufacturer), model = text(hardware?.model);
+  const manufacturer = text(reported?.manufacturer), model = text(reported?.model);
   if (manufacturer === null && model === null) return;
   await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1", [cabinetId, manufacturer, model]);
 }
+
+/** The make and model a configuration snapshot's hardware item gives. */
+const rememberModel = (c: Queryable, cabinetId: string, items: readonly Item[]): Promise<void> =>
+  rememberCabinetModel(c, cabinetId, items.find(i => i.key === "hardware")?.values ?? {});
 
 /** Stores one verified snapshot inside the caller's transaction, which holds the cabinet's configuration lock (see ingestConfig). Returns what it was to the cabinet's history. */
 export async function storeSnapshot(c: Queryable, cabinetId: string, s: Snapshot, source: "agent" | "refresh", now = new Date(), known?: ReadonlyMap<string, CurrentRow | undefined>): Promise<{ result: IngestResult; versionId: number }> {
