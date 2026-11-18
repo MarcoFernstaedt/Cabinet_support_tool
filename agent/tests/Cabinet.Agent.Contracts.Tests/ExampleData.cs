@@ -43,6 +43,8 @@ public static class ExampleData
         {
             "session-control" => typeof(SessionControl),
             "session-frame" => typeof(SessionDiagnosticFrame),
+            "ssh-transport-data" => typeof(SshTransportData),
+            "ssh-transport-claim" => typeof(SshTransportClaim),
             "command" => typeof(Command),
             "result" => typeof(Result),
             "event" => typeof(AgentEvent),

@@ -13,7 +13,7 @@ internal static class DevelopmentSshTransport
 
     internal static async Task RunAsync(AgentApiClient api, AgentConfig config, CancellationToken token)
     {
-        if (!config.DevelopmentSshTransportEnabled || config.ReadOnlyMode)
+        if (config.DevelopmentSshTransportEnabled is not true || config.ReadOnlyMode)
             await Task.Delay(Timeout.InfiniteTimeSpan, token).ConfigureAwait(false);
 
         while (!token.IsCancellationRequested)

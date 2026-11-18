@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { transaction, audit, type Pool } from "../db/db.js";
-import type { SessionEnd } from "./session-records.js";
+import { insertCompletedSshSessionRecord, type SessionEnd } from "./session-records.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { requireCabinetPermission, sshTransportPermission } from "./user-permissions.js";
 import { Refused } from "./errors.js";
@@ -163,12 +163,9 @@ export class SshTransport {
     else session.socket?.destroy();
     const closed = transaction(this.pool, async tx => {
       const end: SessionEnd = reason === "expired" ? "idle" : reason === "agent_timeout" ? "error" : "explicit";
-      // Record completed SSH transports without enrolling the relay in the console session lifecycle.
-      await tx.query(`INSERT INTO remote_sessions (id, cabinet_id, operator_id, kind, open_reason, opened_at, last_seen_at,
-        closed_at, end_kind, close_reason)
-        SELECT $1, $2, $3, 'ssh', 'Development SSH transport', $4, t.at, t.at, $5, $6
-        FROM (SELECT SYSUTCDATETIME() AS at) t`,
-      [session.id, session.cabinetId, session.operatorId, session.openedAt, end, reason]);
+      await insertCompletedSshSessionRecord(tx, {
+        id: session.id, cabinetId: session.cabinetId, operatorId: session.operatorId, openedAt: session.openedAt, end, reason,
+      });
       await audit(tx, { actorKind: "user", actorId: session.operatorId,
         action: "ssh.transport.close", targetKind: "cabinet", targetId: session.cabinetId, outcome: "succeeded",
         details: { transportId: session.id, endpoint: session.endpoint, reason } });

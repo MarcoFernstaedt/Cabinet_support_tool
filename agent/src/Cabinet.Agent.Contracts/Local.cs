@@ -28,8 +28,9 @@ public sealed record AgentConfig
     public required Guid? CabinetId { get; init; }
     public bool SessionsEnabled { get; init; }
     /// <summary>Accepted for compatibility with existing config files. The agent ignores it.</summary>
-    public bool DevelopmentShellEnabled { get; init; }
-    public bool DevelopmentSshTransportEnabled { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? DevelopmentShellEnabled { get; init; }
+    /// <summary>Only true allows a development build to connect to the existing SSH server on 127.0.0.1:22.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public bool? DevelopmentSshTransportEnabled { get; init; }
     public required bool ReadOnlyMode { get; init; }
     public required CabinetRole? CabinetRole { get; init; }
     public required ScannerConfig Scanner { get; init; }

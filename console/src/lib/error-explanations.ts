@@ -33,6 +33,9 @@ const pausedWrites = (who: string): Explanation => ({
 
 const codeExplanations: Record<string, Explanation> = {
   frame_too_large: { title: "Session message too large", detail: "The session message exceeds the transport size limit.", fix: "Send less terminal input at once and try again." },
+  empty_frame: { title: "Empty SSH message", detail: "The cabinet sent an SSH upload with no data.", fix: "If the connection keeps failing, tell Tier 2 which cabinet you were connecting to." },
+  ssh_transport_busy: { title: "SSH transport busy", detail: "Another connection or transfer may be using the SSH transport, or the platform may be shutting down.", fix: "Wait a minute or close an unused SSH connection, then try again." },
+  ssh_transport_unavailable: { title: "SSH transport unavailable", detail: "SSH requires a real cabinet with writes enabled and a running platform.", fix: "Wait a minute and try again. If it persists, ask Tier 2 to check the cabinet and platform." },
   relay_backpressure: { title: "Session queue full", detail: "The other end has not yet received the queued session messages.", fix: "Wait for the session to catch up before sending more input." },
   shell_frame_required: { title: "Invalid shell message", detail: "The shell received an unsupported session message.", fix: "Refresh the console and reopen the shell session." },
   shell_line_too_large: { title: "Terminal input too long", detail: "The pending terminal input exceeds the line size limit.", fix: "End this session and use shorter input in a new session." },

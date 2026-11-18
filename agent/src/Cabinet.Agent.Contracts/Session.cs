@@ -18,3 +18,13 @@ public sealed record SessionDiagnosticFrame(
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Data = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Kind = null,
     [property: JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? Code = null);
+
+public sealed record SshTransportData
+{
+    public required string Data { get; init; }
+}
+
+public sealed record SshTransportClaim
+{
+    public required Guid? TransportId { get; init; }
+}

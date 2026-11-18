@@ -52,6 +52,17 @@ export async function insertSessionRecord(tx: Tx, input: { cabinetId: string; op
   return id;
 }
 
+/** Record a completed SSH transport directly in history. The caller audits the transport close in the same transaction. */
+export async function insertCompletedSshSessionRecord(tx: Tx, input: {
+  id: string; cabinetId: string; operatorId: string; openedAt: Date; end: SessionEnd; reason: string;
+}): Promise<void> {
+  await tx.query(`INSERT INTO remote_sessions (id, cabinet_id, operator_id, kind, open_reason, opened_at, last_seen_at,
+    closed_at, end_kind, close_reason)
+    SELECT $1, $2, $3, 'ssh', 'Development SSH transport', $4, t.at, t.at, $5, $6
+    FROM (SELECT SYSUTCDATETIME() AS at) t`,
+  [input.id, input.cabinetId, input.operatorId, input.openedAt, input.end, input.reason]);
+}
+
 /** Idempotent close: a racing or repeated close neither overwrites history nor appends another transition. */
 export async function closeSessionRecord(tx: Tx, id: string, end: SessionEnd, reason: string, actor: SessionActor): Promise<boolean> {
   text(reason, 1000);
