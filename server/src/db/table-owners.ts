@@ -10,6 +10,12 @@ export interface Ownership {
   also: readonly string[];
   /** Other files accepted as writers of the table, each for the reason ACCEPTED_WRITERS gives (D108). Not debt, still checked. */
   accepted?: readonly string[];
+  /**
+   * Setting columns owned by the feature module they belong to, not by the table's owner (decision-log D118): column -> file. A file
+   * whose every write of the table is a plain UPDATE of columns it owns here is not debt. Creating, removing or renaming a row, and any
+   * column no feature owns, stay with the table's owner.
+   */
+  columns?: Readonly<Record<string, string>>;
 }
 
 /**
@@ -77,9 +83,11 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   cabinet_certificates: { owner: "services/cabinets.ts", also: [] },
   cabinet_drift: { owner: "services/baseline-drift.ts", also: [] },
   cabinet_health: { owner: "services/cabinet-health.ts", also: [] },
-  cabinets: { owner: "services/cabinets.ts", also: ["agent-api/presence.ts", "services/admin.ts", "services/approved-apps.ts", "services/commands.ts", "services/config-ingest.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/replacement.ts", "services/rollouts.ts", "services/settings.ts", "services/sync-cabinets.ts", "services/watched-services.ts"], accepted: ["demo/demo.ts"] },
+  cabinets: { owner: "services/cabinets.ts", also: ["agent-api/presence.ts", "services/admin.ts", "services/approved-apps.ts", "services/commands.ts", "services/config-ingest.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/replacement.ts", "services/watched-services.ts"], accepted: ["demo/demo.ts"],
+    columns: { scanner_hardware_ids: "services/settings.ts", in_office: "services/rollouts.ts", sync_address: "services/sync-cabinets.ts", sync_address_source: "services/sync-cabinets.ts", sync_cabinet_id: "services/sync-cabinets.ts" } },
   case_notes: { owner: "services/case-notes.ts", also: [], accepted: ["demo/troubleshooting.ts"] },
-  clients: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/client-scanner.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/firewall-policy.ts", "services/fleet-import.ts", "services/time.ts", "services/watched-services.ts", "services/writes.ts"], accepted: ["demo/demo.ts"] },
+  clients: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/client-scanner.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts", "services/watched-services.ts"], accepted: ["demo/demo.ts"],
+    columns: { firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", write_paused: "services/writes.ts", write_pause_reason: "services/writes.ts" } },
   commands: { owner: "services/commands.ts", also: [], accepted: ["demo/demo.ts"] },
   config_changes: { owner: "services/config-ingest.ts", also: [] },
   config_current: { owner: "services/config-ingest.ts", also: [] },
@@ -119,7 +127,8 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   sessions: { owner: "auth/sessions.ts", also: [] },
   settings: { owner: "services/settings.ts", also: [], accepted: ["demo/demo.ts", "services/usb-sql.ts"] },
   sign_ins: { owner: "auth/sessions.ts", also: [] },
-  sites: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/firewall-policy.ts", "services/fleet-import.ts", "services/network-baseline.ts", "services/settings.ts", "services/time.ts", "services/watched-services.ts"], accepted: ["demo/demo.ts"] },
+  sites: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts", "services/watched-services.ts"], accepted: ["demo/demo.ts"],
+    columns: { firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", sync_ports: "services/settings.ts", network_baseline: "services/network-baseline.ts" } },
   step_up_tokens: { owner: "auth/stepup.ts", also: [] },
   symptom_rule_history: { owner: "services/rules.ts", also: [] },
   symptom_rules: { owner: "services/rules.ts", also: [], accepted: ["demo/demo.ts"] },

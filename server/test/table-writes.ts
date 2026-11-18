@@ -61,3 +61,85 @@ export function tableWriters(srcDir: string, tables: ReadonlySet<string>): Map<s
   }
   return out;
 }
+
+/** One file's writes of one table, as the column-ownership rule reads them (decision-log D118). */
+export interface WriteShape {
+  /** The columns each plain `UPDATE <table> SET …` sets, lower case, one list per statement. */
+  updates: string[][];
+  /** Every other write of the table: INSERT, DELETE, MERGE, an UPDATE through an alias, or an UPDATE whose SET the reader cannot split. */
+  other: number;
+}
+
+/**
+ * The columns a SET clause assigns, or null when it cannot be read: everything after SET up to WHERE, OUTPUT or FROM, or the end of the
+ * statement's text, split at the commas outside parentheses; each part must start with a column name and `=`.
+ */
+export function setColumns(clause: string): string[] | null {
+  const parts: string[] = [];
+  let depth = 0, start = 0;
+  for (let i = 0; i < clause.length; i++) {
+    const ch = clause[i]!;
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "," && depth === 0) { parts.push(clause.slice(start, i)); start = i + 1; }
+  }
+  parts.push(clause.slice(start));
+  const columns: string[] = [];
+  for (const part of parts) {
+    // A column may carry the statement's alias (`k.sync_cabinet_id = …`).
+    const m = /^\s*(?:[a-z_][a-z0-9_]*\.)?\[?([a-z_][a-z0-9_]*)\]?\s*=/i.exec(part);
+    if (!m) return null;
+    columns.push(m[1]!.toLowerCase());
+  }
+  return columns.length > 0 ? columns : null;
+}
+
+/** Table -> file -> the shape of that file's writes of it (D118). Only tables in `tables` are reported. */
+export function tableWriteShapes(srcDir: string, tables: ReadonlySet<string>): Map<string, Map<string, WriteShape>> {
+  const out = new Map<string, Map<string, WriteShape>>();
+  const shape = (t: string, f: string): WriteShape => {
+    const byFile = out.get(t) ?? out.set(t, new Map()).get(t)!;
+    return byFile.get(f) ?? byFile.set(f, { updates: [], other: 0 }).get(f)!;
+  };
+  for (const p of files(srcDir)) {
+    const file = relative(srcDir, p).split("\\").join("/");
+    const text = readFileSync(p, "utf8");
+    for (const m of text.matchAll(new RegExp(`${WRITE.source}\\[?([a-z_][a-z0-9_]*)\\]?`, "gi"))) {
+      const verb = m[1]!.toUpperCase(), name = m[2]!.toLowerCase();
+      const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 2000);
+      if (!tables.has(name)) {
+        // Through an alias: an UPDATE's columns are read as for the table itself; a DELETE is another kind of write.
+        if (verb === "UPDATE" || verb === "DELETE") {
+          const via = new RegExp(`\\b(?:FROM|JOIN)\\s+\\[?([a-z_][a-z0-9_]*)\\]?(?:\\s+AS)?\\s+${name}\\b`, "i").exec(after.slice(0, 600));
+          if (via && tables.has(via[1]!.toLowerCase())) {
+            const table = via[1]!.toLowerCase();
+            const set = verb === "UPDATE" ? /^\s*SET\b/i.exec(after) : null;
+            const columns = set ? setColumns(after.slice(set[0].length).split(/\bWHERE\b|\bOUTPUT\b|\bFROM\b|[;`"]/i)[0]!) : null;
+            if (columns) shape(table, file).updates.push(columns); else shape(table, file).other++;
+          }
+        }
+        continue;
+      }
+      if (verb !== "UPDATE") { shape(name, file).other++; continue; }
+      const set = /^\s*(?:WITH\s*\([^)]*\)\s*)?SET\b/i.exec(after);
+      const clause = set ? after.slice(set[0].length).split(/\bWHERE\b|\bOUTPUT\b|\bFROM\b|[;`"]/i)[0]! : null;
+      const columns = clause === null ? null : setColumns(clause);
+      if (columns) shape(name, file).updates.push(columns); else shape(name, file).other++;
+    }
+  }
+  return out;
+}
+
+/** Table -> the columns the migrations give it: those in its CREATE TABLE, and those added later with ALTER TABLE … ADD. */
+export function migrationColumns(migrationsDir: string): Map<string, Set<string>> {
+  const out = new Map<string, Set<string>>();
+  const add = (t: string, c: string) => (out.get(t) ?? out.set(t, new Set()).get(t)!).add(c.toLowerCase());
+  for (const f of readdirSync(migrationsDir).filter(n => n.endsWith(".sql")).sort()) {
+    const sql = readFileSync(join(migrationsDir, f), "utf8");
+    for (const m of sql.matchAll(/CREATE TABLE \[?([a-z_0-9]+)\]? \(([\s\S]*?)\n\);/gi))
+      for (const c of m[2]!.matchAll(/^\s*\[([a-z_0-9]+)\]\s/gim)) add(m[1]!.toLowerCase(), c[1]!);
+    for (const m of sql.matchAll(/ALTER TABLE \[?([a-z_0-9]+)\]? ADD\s([\s\S]*?)(?:;|\nGO\b)/gi))
+      for (const c of m[2]!.matchAll(/(?:^|,)\s*\[([a-z_0-9]+)\]\s/gim)) add(m[1]!.toLowerCase(), c[1]!);
+  }
+  return out;
+}
