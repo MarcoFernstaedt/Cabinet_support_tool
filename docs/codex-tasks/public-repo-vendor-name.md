@@ -14,8 +14,8 @@ are install paths, service names, pipe names, release identity or signing identi
    and every per-tree `README.md` (`agent/`, `server/`, `console/`, `contracts/`, `deploy/`, `scripts/`).
    Rewrite the prose so the sentence still reads naturally - do not leave a hole or a doubled space.
    Where the text says the product belongs to the company, say what it is instead: a cabinet
-   diagnostics platform, or the vendor-neutral "the operator". Replace any example host such as
-   `diag.mashura.example` with a neutral placeholder such as `diagnostics.example.com`.
+   diagnostics platform, or the vendor-neutral "the operator". Use a neutral placeholder such as
+   `diagnostics.example.com` for example hosts.
 2. **Comments in source.** `server/src`, `console/src`, `agent/src`, `contracts/`, `deploy/`, `scripts/`.
    Change comments and doc-comments only. Do not change executable code on those lines.
 3. **Example and placeholder schema identifiers.** Schema `$id` values currently use the vendor name in

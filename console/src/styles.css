@@ -1,4 +1,4 @@
-/* Mashura Support Console: the design system (docs/spec/12-milestones-8-to-12.md "Console redesign").
+/* Support console: the design system (docs/spec/12-milestones-8-to-12.md "Console redesign").
    Every colour, size, space and radius below comes from these tokens; components never use raw values.
    Brand: Midnight Navy + Electric Cyan. Cyan marks interaction only (primary buttons, active navigation, links, focus).
    Status colours mean status only, and always come with a text label. */

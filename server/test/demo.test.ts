@@ -96,7 +96,7 @@ test.before(async () => {
   const { token } = await createBootstrapToken(db.app, admin.id);
   const requestId = await submitEnrollment(db.app, { csr: csrFor(ecKey()), bootstrapToken: token, fingerprints: {
     hostname: "MY-HP", serialNumber: null, macAddresses: [], provisionedClient: null, provisionedSite: null, onlineSince: "2026-10-06T08:00:00Z", osVersion: "Windows 11", agentVersion: "0.5.0" } }, "127.0.0.1");
-  realCabinet = (await approveEnrollment(db.app, key, requestId, { clientName: "Mashura Office", siteName: "HQ", cabinetName: "Marco's HP", role: "standalone" }, admin.id)).cabinetId;
+  realCabinet = (await approveEnrollment(db.app, key, requestId, { clientName: "Example Office", siteName: "HQ", cabinetName: "Marco's HP", role: "standalone" }, admin.id)).cabinetId;
   await db.app.query("UPDATE cabinets SET last_heartbeat_at = SYSUTCDATETIME(), read_only = 0 WHERE id = $1", [realCabinet]);
 });
 test.after(async () => { await app.close(); await stream.stop(); await db.drop(); });
@@ -171,7 +171,7 @@ test("demo mode adds the simulated fleet, and its problems become real alerts th
   assert.ok(!(await openAlert(await demoCabinet("healthy"), ISSUE.firewallPolicy)), "a healthy cabinet has nothing");
   const fleet = (await call("GET", "/api/fleet/clients", undefined, ca)).body as { name: string; demo: boolean }[];
   assert.deepEqual(fleet.filter(c => c.demo).map(c => c.name).sort(), DEMO_FLEET.map(c => c.name).sort());
-  assert.ok(fleet.some(c => c.name === "Mashura Office" && !c.demo), "the real client is listed too, not marked demo");
+  assert.ok(fleet.some(c => c.name === "Example Office" && !c.demo), "the real client is listed too, not marked demo");
   // Every simulated cabinet has its installed software read, so the obvious search finds the scanner software across the fleet.
   const found = await searchReadings(db.app, "software.list", "bioscan", {});
   assert.equal(found.cabinetsRead, expected);

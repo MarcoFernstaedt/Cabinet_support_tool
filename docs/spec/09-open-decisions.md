@@ -22,7 +22,7 @@ Every agent binary must be Authenticode-signed, and the agent checks its own fil
 
 ## Hosting (needed by milestone 2)
 
-On Mashura's own servers or in a cloud. Default: whichever your infrastructure team already runs and patches, since the server is the most valuable target in the system.
+On the operator's own servers or in a cloud. Default: whichever your infrastructure team already runs and patches, since the server is the most valuable target in the system.
 
 ## Database hosting (needed by milestone 2)
 
@@ -54,7 +54,7 @@ Tier 2 and Admin accounts always have two-factor, because their actions need a c
 
 ## Console network access (needed by milestone 3)
 
-Default: the console is reachable only from Mashura's internal network or VPN. Overnight staff working remotely connect through the VPN.
+Default: the console is reachable only from the operator's internal network or VPN. Overnight staff working remotely connect through the VPN.
 
 ## Session timeouts (needed by milestone 3)
 
@@ -97,7 +97,7 @@ The spec did not pin these down. Each has a working default in contracts/schemas
 - **Failure codes.** Besides the eleven rejection codes, a command that started but did not succeed reports one of: execution_failed, timeout, not_found, unavailable, safety_net_rollback.
 - **eventlog.query paging.** pageSize 1–500, default 100, with a beforeRecordId cursor for the next page. The spec says "100 per page, capped at 500 per call"; this reads it as a default page of 100 and a hard cap of 500.
 - **network.test DNS lookups.** The schema chooses one of the four target kinds and, for dns_server, which configured server (index 0–3). Proposed: the lookup always resolves the platform server's own hostname, so no free-form name can be supplied. TCP ports must also appear in the agent's local allowed-port list.
-- **firewall.setRule fields.** Addresses are IPv4 or IPv4 CIDR only (no keywords such as LocalSubnet, no IPv6); ports are lists of ranges, at most 16 entries each; programPath must be an absolute local .exe path. Rules created by the platform must be named "MashuraDiag" plus a separator and a suffix. Existing rules can be updated under their current name.
+- **firewall.setRule fields.** Addresses are IPv4 or IPv4 CIDR only (no keywords such as LocalSubnet, no IPv6); ports are lists of ranges, at most 16 entries each; programPath must be an absolute local .exe path. Rules created by the platform must be named with the reserved platform prefix followed by a separator and suffix. Existing rules can be updated under their current name.
 - **firewall.setProfile with no limit.** Expressed as noTimeLimit: true instead of a duration. The schema allows it; the server must still refuse it for non-Admins.
 - **Server time on responses.** Every agent API response body carries serverTime (server-ack, commands-response, enroll and renew responses), rather than relying on an HTTP header.
 - **Heartbeat clock skew.** An optional clockSkewSeconds field so the agent can report drift.
@@ -209,7 +209,7 @@ Decided here, open to change:
   Package installs and driver uninstalls have no safety net, because they cannot be rolled back safely.
 - **Firewall snapshots.** The cabinet keeps the last 20 snapshots, taken with `netsh advfirewall export` before every firewall write. A restore saves the current firewall first, so it can be undone too.
 - **Profile timers.** Turning a profile off needs a duration (1 minute to 8 hours, 60 minutes by default in the console). Only an Admin may choose no limit. The timer is kept on disk by the broker and survives a restart or reboot. The broker checks it every 5 seconds and at startup.
-- **Firewall rules the platform creates** must be named `MashuraDiag …`, and are put in the group "Mashura cabinet diagnostics". Editing or deleting any rule needs its exact name, and is refused if two rules share that name.
+- **Firewall rules the platform creates** must be named with the reserved platform prefix and placed in the platform’s firewall rule group. Editing or deleting any rule needs its exact name, and is refused if two rules share that name.
 - **The write pause and limits.**
   - Writes can be paused fleet-wide or per client. A paused cabinet still accepts diagnostics.
   - A user who goes over their hourly limit (20 by default) has their writes paused until an Admin resumes them.
@@ -411,7 +411,7 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 
 See docs/platform/security-review.md and docs/platform/threat-model.md.
 
-- **Tenant isolation.** Every signed-in person sees every client, because Mashura's support team supports them all. If clients or partners ever get accounts, each account needs a client scope enforced in every query, with tests. Open until that need exists.
+- **Tenant isolation.** Every signed-in person sees every client, because the operator's support team supports them all. If clients or partners ever get accounts, each account needs a client scope enforced in every query, with tests. Open until that need exists.
 - **Firewall rules Tier 2 may change.** Tier 2 can change or delete any Windows firewall rule by its exact name, including Windows' own. Should built-in rules be read-only? Open for the product owner.
 - **Driver trust.** Drivers signed by Microsoft's hardware publisher are accepted when their class is allowed and a second Admin approves them. An allow-list of approved driver catalogs would be stricter; open.
 

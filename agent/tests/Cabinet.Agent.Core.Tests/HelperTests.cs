@@ -106,7 +106,7 @@ public sealed class DnsWireTests
 {
     private static byte[] Reply(ushort id, int rcode, params byte[][] addresses)
     {
-        var q = DnsWire.BuildQuery(id, "diag.mashura.example").ToList();
+        var q = DnsWire.BuildQuery(id, "diag.example.com").ToList();
         q[2] = 0x81; q[3] = (byte)(0x80 | rcode);
         q[7] = (byte)addresses.Length;
         foreach (byte[] a in addresses) q.AddRange(new byte[] { 0xC0, 0x0C, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4 }.Concat(a));
@@ -116,7 +116,7 @@ public sealed class DnsWireTests
     [Fact]
     public void A_query_is_well_formed()
     {
-        byte[] q = DnsWire.BuildQuery(0x1234, "diag.mashura.example");
+        byte[] q = DnsWire.BuildQuery(0x1234, "diag.example.com");
         Assert.Equal(new byte[] { 0x12, 0x34, 0x01, 0, 0, 1, 0, 0, 0, 0, 0, 0, 4, (byte)'d' }, q[..14]);
         Assert.Equal(new byte[] { 0, 0, 1, 0, 1 }, q[^5..]);
     }

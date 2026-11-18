@@ -5,6 +5,6 @@
   "commandId": "4c1b2a3d-9e8f-4a7b-b6c5-d4e3f2a1b0c9",
   "severityHint": "minor",
   "detail": {
-    "message": "Rule MashuraDiag Sync TCP 1433 created."
+    "message": "Rule Sync TCP 1433 created."
   }
 }

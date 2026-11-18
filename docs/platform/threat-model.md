@@ -1,6 +1,6 @@
 # Threat model
 
-A STRIDE review of the Mashura cabinet diagnostics platform, October 2026. It covers the agent (network service and broker), the agent API, the console API and console, the database, the deployment on the VPS, and demo mode. The rules it checks against are in [docs/spec/02-security-model.md](../spec/02-security-model.md) and [CLAUDE.md](../../CLAUDE.md). Findings and their status are in [security-review.md](security-review.md).
+A STRIDE review of the cabinet diagnostics platform, October 2026. It covers the agent (network service and broker), the agent API, the console API and console, the database, the deployment on the VPS, and demo mode. The rules it checks against are in [docs/spec/02-security-model.md](../spec/02-security-model.md) and [CLAUDE.md](../../CLAUDE.md). Findings and their status are in [security-review.md](security-review.md).
 
 ## What we protect
 
@@ -52,7 +52,7 @@ A STRIDE review of the Mashura cabinet diagnostics platform, October 2026. It co
 
 ## Tenant isolation
 
-Not implemented, by design: Mashura's support team supports every client, so every signed-in person sees every client. If clients or third parties are ever given accounts, the platform would need a client scope on each account, enforced in every query (cabinets, events, alerts, commands, incidents, diagnoses, audit), plus tests that one client's account cannot read or change another's. This is recorded in [09-open-decisions.md](../spec/09-open-decisions.md).
+Not implemented, by design: the operator's support team serves every client, so every signed-in person sees every client. If clients or third parties are ever given accounts, the platform would need a client scope on each account, enforced in every query (cabinets, events, alerts, commands, incidents, diagnoses, audit), plus tests that one client's account cannot read or change another's. This is recorded in [09-open-decisions.md](../spec/09-open-decisions.md).
 
 ## Demo isolation
 

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-An internal support tool that lets Mashura support staff diagnose CUBEX and Zimbis cabinets from a web console instead of remoting into each machine. It reads event logs, devices, drivers, drive health, updates, network and firewall settings, and makes a small set of approved changes: network and DNS settings, firewall settings, and installing signed drivers and installers from an approved library. LogMeIn Resolve handles remote desktop and screen sharing. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) connects an ordinary SSH client to the cabinet’s existing OpenSSH service.
+An internal support tool that lets support staff diagnose CUBEX and Zimbis cabinets from a web console instead of remoting into each machine. It reads event logs, devices, drivers, drive health, updates, network and firewall settings, and makes a small set of approved changes: network and DNS settings, firewall settings, and installing signed drivers and installers from an approved library. LogMeIn Resolve handles remote desktop and screen sharing. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) connects an ordinary SSH client to the cabinet’s existing OpenSSH service.
 
 ## Components
 

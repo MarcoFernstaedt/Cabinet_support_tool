@@ -143,7 +143,7 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     // 3. It appears on the same page (which refreshes by itself); the Admin files it and approves it.
     const request = p.getByRole("region", { name: /Request from / });
     await request.waitFor({ timeout: 60_000 });
-    await request.getByLabel("Client").fill("Mashura Office");
+    await request.getByLabel("Client").fill("Example Office");
     await request.getByLabel("Site").fill("Support desk");
     await request.getByLabel("Cabinet name").fill("Marco's HP");
     await request.getByLabel("Role").selectOption("standalone");
@@ -172,10 +172,10 @@ test("set up and demo: add a support member, enrol a real agent from the setup p
     await p.getByText(/Demo mode is on\. 121 simulated cabinets/).waitFor({ timeout: 30_000 });
     await p.goto(origin);
     const fleet = p.getByRole("table", { name: "Clients" });
-    await fleet.getByRole("row", { name: /Mashura Office/ }).waitFor();
+    await fleet.getByRole("row", { name: /Example Office/ }).waitFor();
     for (const name of ["Demo · Riverside Veterinary Group", "Demo · Lakeside Health", "Demo · Summit Animal Hospitals"])
       await fleet.getByRole("row", { name: new RegExp(name) }).getByText("Demo", { exact: true }).waitFor();
-    assert.equal(await fleet.getByRole("row", { name: /Mashura Office/ }).getByText("Demo", { exact: true }).count(), 0, "the real client is not marked demo");
+    assert.equal(await fleet.getByRole("row", { name: /Example Office/ }).getByText("Demo", { exact: true }).count(), 0, "the real client is not marked demo");
 
     // The overnight crash incident on the Incidents page: the driver stands out, the update does not.
     await p.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Incidents" }).click();

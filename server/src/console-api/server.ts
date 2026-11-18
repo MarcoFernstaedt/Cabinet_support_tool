@@ -51,7 +51,7 @@ export interface ConsoleApiOptions {
   pool: Pool;
   secrets: SecretBox;
   issuingKey: IssuingKey;
-  /** The console's exact origin, e.g. https://cabinets.mashura.internal. State-changing requests must carry it. */
+  /** The console's exact origin, e.g. https://diagnostics.example.com. State-changing requests must carry it. */
   origin: string;
   stream: ResultStream;
   /** The software library's store; omitted in tests that do not upload packages. */

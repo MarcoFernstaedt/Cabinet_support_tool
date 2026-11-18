@@ -4,7 +4,7 @@
 
 - React with TypeScript, built with Vite into static files
 - Served from the same origin as the console API, so no cross-origin setup is needed
-- Reachable only from Mashura's internal network or VPN
+- Reachable only from the operator's internal network or VPN
 - Holds no secrets. Every permission check also happens on the server.
 
 ## Global layout

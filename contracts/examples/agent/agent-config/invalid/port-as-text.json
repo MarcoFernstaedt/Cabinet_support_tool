@@ -9,7 +9,7 @@
     "address": null
   },
   "platformServer": {
-    "host": "diag.mashura.example",
+    "host": "diagnostics.example.com",
     "port": "8443; rm -rf"
   },
   "allowedTcpPorts": [],

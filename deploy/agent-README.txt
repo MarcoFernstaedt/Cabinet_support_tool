@@ -1,4 +1,4 @@
-Mashura Cabinet Agent for Windows 10 and 11 (32-bit and 64-bit)
+Cabinet Agent for Windows 10 and 11 (32-bit and 64-bit)
 
 Install (the normal way):
   1. In the console, open Setup and download the agent (both files if your cabinets are mixed: the installer picks

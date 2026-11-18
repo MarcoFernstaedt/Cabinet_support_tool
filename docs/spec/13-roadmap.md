@@ -123,7 +123,7 @@ Built (October 2026):
 
 ## Accounts and sign-in (October 2026)
 
-- **Branding.** The console is the **Mashura Support Console**. The sign-in page asks for the Mashura Support Team credentials and says nothing about recording; the audit log still records what it must (sign-ins, account changes, cabinet access and every change to a cabinet), but the interface reads like any other web application.
+- **Branding.** The console uses the operator’s branding. The sign-in page asks for support team credentials and says nothing about recording; the audit log still records what it must (sign-ins, account changes, cabinet access and every change to a cabinet), but the interface reads like any other web application.
 - **Authenticator setup is a QR code** drawn in the browser from the setup link (the key never goes to another service). There is no phone link. The key is behind a collapsed "Cannot scan it?" line for people who cannot scan.
   - Each setup's account label carries a four-letter tag from its secret, for example `sam (JGCA)`, so an account set up again is a different entry in the app from the old one.
   - **Dependency added:** `qrcode-generator` 2.0.4 in the console (MIT, no dependencies of its own), because a QR encoder is not in the standard library and writing one by hand is a risk for no benefit.

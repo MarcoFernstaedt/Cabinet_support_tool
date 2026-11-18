@@ -208,10 +208,10 @@ public class ConfigBuilderTests
         {
             TakenAt = Fixtures.Start, Truncated = false,
             Startup = [new StartupItem { Name = "BioScan", Command = "\"C:\\Program Files\\BioScan\\scan.exe\" --token=SECRET", Location = "HKLM Run" }],
-            Tasks = [new ScheduledTaskInfo { Path = "\\Mashura\\", Name = "Nightly check", State = TaskState.Ready, LastRun = Fixtures.Start, LastResult = 0, NextRun = Fixtures.Start.AddDays(1) }],
+            Tasks = [new ScheduledTaskInfo { Path = "\\ExampleOperator\\", Name = "Nightly check", State = TaskState.Ready, LastRun = Fixtures.Start, LastResult = 0, NextRun = Fixtures.Start.AddDays(1) }],
         });
         Assert.DoesNotContain("SECRET", ConfigCanonical.Json(tasks.Items));
-        Assert.Equal(["startup:HKLM Run/BioScan", "task:\\Mashura\\Nightly check"], tasks.Items.Select(i => i.Key));
+        Assert.Equal(["startup:HKLM Run/BioScan", "task:\\ExampleOperator\\Nightly check"], tasks.Items.Select(i => i.Key));
         // A task's last run, result and next run move by themselves: only its state is part of the configuration.
         Assert.Equal(["state"], tasks.Items.Single(i => i.Key.StartsWith("task:")).Values.Keys);
         var hosts = ConfigBuilders.Hosts(new NetworkHostsOutput

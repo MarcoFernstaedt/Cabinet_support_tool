@@ -1,6 +1,6 @@
 # Cabinet Diagnostics Platform
 
-This repository builds the Mashura cabinet diagnostics platform. The specification lives in docs/spec and is the source of truth. Read docs/spec/00-README.md, docs/spec/01-architecture.md and docs/spec/02-security-model.md before any work, then the spec files for the part you are building.
+This repository builds the cabinet diagnostics platform. The specification lives in docs/spec and is the source of truth. Read docs/spec/00-README.md, docs/spec/01-architecture.md and docs/spec/02-security-model.md before any work, then the spec files for the part you are building.
 
 Rules that never bend:
 

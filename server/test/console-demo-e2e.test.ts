@@ -246,7 +246,7 @@ test("the guided demo: check the site, fix the firewall with one click and see i
     await next();
     await page.getByRole("heading", { name: "Pending cabinets" }).waitFor();
     await marked('[data-tour="approve-cabinet"]');
-    await page.getByLabel("Client", { exact: true }).fill("Mashura Office");
+    await page.getByLabel("Client", { exact: true }).fill("Example Office");
     await page.getByLabel("Site", { exact: true }).fill("Support desk");
     // No approved baseline applies to a new client: the approval asks for the decision.
     await page.getByLabel("Capture this cabinet's configuration as the site baseline draft").check();

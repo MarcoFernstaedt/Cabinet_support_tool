@@ -1,6 +1,6 @@
 # Contributing
 
-This repository is a production platform for Mashura's cabinet fleet. It is read by the people who support real
+This repository is a production diagnostics platform for medication cabinets. It is read by the people who support real
 cabinets and by whoever inherits it next. The standard below exists so that reading this history — a commit, a diff, a
 test — tells you an engineer built it.
 

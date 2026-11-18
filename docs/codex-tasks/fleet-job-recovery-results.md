@@ -17,7 +17,7 @@ EPERM
 ```text
 $ npm run build
 
-> @mashura/cabinet-server@0.1.0 build
+> [server package]@0.1.0 build
 > tsc -p tsconfig.json
 
 ```
@@ -129,7 +129,7 @@ not ok 1 - dist/test/fleet-jobs-sync-last.test.js
 ```text
 $ npm run build # resume loop temporarily disabled with if (false)
 
-> @mashura/cabinet-server@0.1.0 build
+> [server package]@0.1.0 build
 > tsc -p tsconfig.json
 
 ```

@@ -149,7 +149,7 @@ public sealed class ContractTests
         {
             Path = "C:\\ProgramData",
             Page = 1,
-            Entries = new[] { new FileEntry { Name = "Mashura", Type = FileEntryType.Directory, SizeBytes = null, ModifiedAt = at } },
+            Entries = new[] { new FileEntry { Name = "ExampleOperator", Type = FileEntryType.Directory, SizeBytes = null, ModifiedAt = at } },
             HasMore = false,
         };
         var result = new Result

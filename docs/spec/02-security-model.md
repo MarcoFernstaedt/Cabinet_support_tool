@@ -45,7 +45,7 @@ console shell is retired. See the [server API and acceptance procedure](05-serve
 - All console traffic uses HTTPS. No plain HTTP listener exists.
 - All agent traffic uses mutual TLS. The agent verifies the server against a pinned certificate authority, and the server verifies the agent's own certificate.
 - The agent API listens on a separate port and hostname from the console API, so a flaw in one does not expose the other.
-- The console is reachable only from Mashura's internal network or VPN. Only the agent API faces the internet.
+- The console is reachable only from the operator's internal network or VPN. Only the agent API faces the internet.
 - The agent opens no inbound ports and connects outward to the configured platform hostname. The dev-only SSH transport also connects to the cabinet’s existing loopback SSH endpoint.
 - TLS 1.2 minimum, TLS 1.3 preferred.
 

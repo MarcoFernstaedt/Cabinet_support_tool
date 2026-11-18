@@ -1,6 +1,6 @@
 # Cabinet Diagnostics Platform: Build Specs
 
-These files are the build specification for the Mashura cabinet diagnostics platform. They are written to be coded from directly, by you or by a coding agent.
+These files are the build specification for the cabinet diagnostics platform. They are written to be coded from directly, by you or by a coding agent.
 
 ## Order to go through them
 

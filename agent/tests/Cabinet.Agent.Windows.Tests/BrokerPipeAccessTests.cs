@@ -27,7 +27,7 @@ public sealed class BrokerPipeAccessTests
 
     private static (CancellationTokenSource Stop, Task Serving, string Name, List<string> Log) Start(SecurityIdentifier aclSid, SecurityIdentifier callerSid)
     {
-        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        string name = "CabinetAgent.Test." + Guid.NewGuid().ToString("N");
         var log = new List<string>();
         var stop = new CancellationTokenSource();
         Task serving = new BrokerPipeServer(Handler(), m => { lock (log) log.Add(m); }, name, aclSid, callerSid).RunAsync(stop.Token);
@@ -103,7 +103,7 @@ public sealed class BrokerPipeAccessTests
     [Fact]
     public async Task The_caller_account_is_read_from_the_client_process_token()
     {
-        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        string name = "CabinetAgent.Test." + Guid.NewGuid().ToString("N");
         using var server = new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         Task accept = server.WaitForConnectionAsync();
         using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous, TokenImpersonationLevel.Identification);
@@ -133,7 +133,7 @@ public sealed class KeyStoreTests
     [Fact]
     public void The_provisioned_key_is_non_exportable_and_usable_for_the_granted_account()
     {
-        string name = "Mashura.CabinetAgent.Test." + Guid.NewGuid().ToString("N");
+        string name = "CabinetAgent.Test." + Guid.NewGuid().ToString("N");
         string me = System.Security.Principal.WindowsIdentity.GetCurrent().User!.Value;
         try
         {
@@ -152,7 +152,7 @@ public sealed class KeyStoreTests
     [Fact]
     public void The_agent_never_creates_a_key_itself()
     {
-        var store = new CngAgentKeyStore("Mashura.CabinetAgent.Missing." + Guid.NewGuid().ToString("N"));
+        var store = new CngAgentKeyStore("CabinetAgent.Missing." + Guid.NewGuid().ToString("N"));
         Assert.Throws<System.Security.Cryptography.CryptographicException>(() => store.CreateSigningRequestPem());
     }
 }

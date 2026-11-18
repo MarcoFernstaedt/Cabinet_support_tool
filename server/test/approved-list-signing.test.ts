@@ -143,7 +143,7 @@ test("the scripts refuse: a key inside the repository, an existing key file, a s
     assert.ok(!existsSync(join(work, "s.pem")));
 
     const notList = join(work, "manifest.json");
-    writeFileSync(notList, JSON.stringify({ product: "mashura-cabinet-agent", version: "1.0.0" }));
+    writeFileSync(notList, JSON.stringify({ product: "example-other-product", version: "1.0.0" }));
     const refused = ps("Sign-ApprovedList.ps1", `-ListFile '${notList}' -KeyFile '${keyFile}' -Yes`, work);
     assert.notEqual(refused.status, 0, "a file that is not a list is refused");
     assert.ok(!existsSync(join(work, "manifest.signature.json")));

@@ -24,7 +24,7 @@ How to show the platform to the support team: your real agent on your own Window
       - Put the installer next to the agent file on the laptop and double-click it.
    3. **Approve it.**
       - The laptop shows up on the same page within a minute.
-      - Check its host name and serial number, file it under a client and site (for example "Mashura Office" / "Support desk"), and approve.
+      - Check its host name and serial number, file it under a client and site (for example "Example Office" / "Support desk"), and approve.
    4. **See it work.** Links to the laptop's event logs, services, fingerprint scanner checks, firewall and network.
 4. **Turn demo mode on**, at the bottom of the same page.
 

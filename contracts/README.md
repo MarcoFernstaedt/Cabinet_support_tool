@@ -26,7 +26,7 @@ trust/upgrade/upgrade-keys.json the release signing keys and the agent's code-si
 load.mjs                        loads every schema into one Ajv instance (used by tests and the server)
 ```
 
-Schema `$id`s use `https://schemas.mashura.example/...`. `.example` is a reserved domain, so nothing ever fetches them over the network; tools load them from these files.
+Schema `$id` values identify schemas in the local registries. The server loads schemas from disk and the agent loads embedded copies. Both resolve references locally.
 
 ## Commands
 

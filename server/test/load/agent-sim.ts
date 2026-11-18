@@ -721,7 +721,7 @@ export class SimAgent {
         device: { hardwareIds: ["USB\\VID_1234&PID_5678"], deviceInstanceId: "USB\\VID_1234&PID_5678\\6&2A1B3C4D&0&2", name: "Fingerprint Reader", state },
         detail: { message: state === "disconnected" ? "The fingerprint scanner was disconnected." : "The fingerprint scanner is working again.", fields: { usbPort: "Port_#0002.Hub_#0003" } } };
     } else if (u < 0.95) {
-      ev = { eventId, kind: "firewall_changed", occurredAt, severityHint: "minor", detail: { message: "Rule MashuraDiag Sync TCP 1433 created." } };
+      ev = { eventId, kind: "firewall_changed", occurredAt, severityHint: "minor", detail: { message: "Rule Sync TCP 1433 created." } };
     } else if (u < 0.98) {
       ev = { eventId, kind: "smart_warning", occurredAt, severityHint: "major", detail: { message: "Drive predicts failure.", fields: { model: "NVMe 256GB" } } };
     } else {

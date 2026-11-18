@@ -12,7 +12,7 @@
     },
     {
       "category": "tasks",
-      "key": "task:\\Mashura\\Nightly check",
+      "key": "task:\\ExampleOperator\\Nightly check",
       "mode": "present"
     },
     {

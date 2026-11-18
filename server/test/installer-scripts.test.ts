@@ -275,7 +275,7 @@ test("the reviewed vocabulary refuses the writes a word list missed (review of #
   const base = readFileSync(join(installDir, "Test-CabinetAgent.ps1"), "utf8");
   const probes: [string, string][] = [
     ["a download", `(New-Object Net.WebClient).DownloadFile("https://example.invalid/a.ps1", (Join-Path $env:TEMP "a.ps1"))`],
-    ["a registry delete", `[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\\Mashura", $true).DeleteValue("X")`],
+    ["a registry delete", `[Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\\ExampleOperator", $true).DeleteValue("X")`],
     ["a script block from text", `([ScriptBlock]::Create([Text.Encoding]::UTF8.GetString([Convert]::FromBase64String("U2V0LVNlcnZpY2U=")))).Invoke()`],
     ["a .NET file write", `[IO.File]::WriteAllBytes("C:\\x", [byte[]]@())`],
     ["a .NET folder delete", `[IO.Directory]::Delete("C:\\x", $true)`],

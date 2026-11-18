@@ -98,7 +98,7 @@ Network:
 Firewall:
 
 - firewall.setProfile: turn one profile on or off and set its default inbound and outbound actions. Turning a profile off requires a duration, default 60 minutes and at most 8 hours, after which the agent turns it back on by itself. The timer is saved to disk, so it survives a reboot. Turning a profile off with no time limit is Admin only.
-- firewall.setRule: create, change, enable, disable or delete one rule, including rules that already existed on the cabinet. Uses structured fields only: name, direction, action, protocol, local and remote ports, local and remote addresses, program path and profiles. No free-text rule strings are accepted. Rules the platform creates get names starting with MashuraDiag so they are easy to tell apart.
+- firewall.setRule: create, change, enable, disable or delete one rule, including rules that already existed on the cabinet. Uses structured fields only: name, direction, action, protocol, local and remote ports, local and remote addresses, program path and profiles. No free-text rule strings are accepted. Rules the platform creates get names starting with the reserved platform prefix so they are easy to tell apart.
 - firewall.restore: put back one of the firewall snapshots the agent saved itself, chosen by snapshot ID.
 
 Software:
