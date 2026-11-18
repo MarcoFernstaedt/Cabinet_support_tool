@@ -154,6 +154,8 @@ export function opaqueEnd(text: string, i: number): number | null {
 export function setClause(text: string): string | null {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
+    // Part of the clause built at run time (`${…}`): the reader cannot know what it sets, so the write is not a column update (D120).
+    if (text.startsWith("${", i)) return null;
     const skip = opaqueEnd(text, i);
     if (skip === null) return null;
     if (skip > i) { i = skip - 1; continue; }
