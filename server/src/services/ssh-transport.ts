@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { createServer, type Socket } from "node:net";
 import { transaction, audit, type Pool } from "../db/db.js";
+import type { SessionEnd } from "./session-records.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { requireCabinetPermission, sshTransportPermission } from "./user-permissions.js";
 import { Refused } from "./errors.js";
@@ -22,6 +23,7 @@ class Transport {
     this.listener.close();
   });
   endpoint?: { host: string; port: number };
+  openedAt!: Date;
   socket?: Socket;
   timer?: NodeJS.Timeout;
   lease?: NodeJS.Timeout;
@@ -48,7 +50,7 @@ export class SshTransport {
     });
     this.cabinets.set(cabinetId, session);
     try {
-      const endpoint = await transaction(this.pool, async tx => {
+      const { endpoint, openedAt } = await transaction(this.pool, async tx => {
         await requireCabinetPermission(tx, operatorId, cabinetId, sshTransportPermission);
         await consumeStepUpToken(tx, stepUpToken, operatorId, sshTransportPermission, cabinetId);
         const cabinet = await tx.query("SELECT id FROM cabinets WHERE id = $1 AND read_only = 0 AND demo_scenario IS NULL", [cabinetId]);
@@ -62,8 +64,10 @@ export class SshTransport {
         const endpoint = { host, port: address.port };
         await audit(tx, { actorKind: "user", actorId: operatorId, action: "ssh.transport.open", targetKind: "cabinet",
           targetId: cabinetId, outcome: "succeeded", details: { transportId: session.id, endpoint } });
-        return endpoint;
+        const { rows: [clock] } = await tx.query<{ opened_at: Date }>("SELECT SYSUTCDATETIME() AS opened_at");
+        return { endpoint, openedAt: clock!.opened_at };
       });
+      session.openedAt = openedAt;
       session.endpoint = endpoint;
       session.timer = setTimeout(() => session.onClose("expired"), 60_000);
       if (this.stopping) {
@@ -158,6 +162,13 @@ export class SshTransport {
     if (flush) session.socket?.destroySoon();
     else session.socket?.destroy();
     const closed = transaction(this.pool, async tx => {
+      const end: SessionEnd = reason === "expired" ? "idle" : reason === "agent_timeout" ? "error" : "explicit";
+      // Record completed SSH transports without enrolling the relay in the console session lifecycle.
+      await tx.query(`INSERT INTO remote_sessions (id, cabinet_id, operator_id, kind, open_reason, opened_at, last_seen_at,
+        closed_at, end_kind, close_reason)
+        SELECT $1, $2, $3, 'ssh', 'Development SSH transport', $4, t.at, t.at, $5, $6
+        FROM (SELECT SYSUTCDATETIME() AS at) t`,
+      [session.id, session.cabinetId, session.operatorId, session.openedAt, end, reason]);
       await audit(tx, { actorKind: "user", actorId: session.operatorId,
         action: "ssh.transport.close", targetKind: "cabinet", targetId: session.cabinetId, outcome: "succeeded",
         details: { transportId: session.id, endpoint: session.endpoint, reason } });

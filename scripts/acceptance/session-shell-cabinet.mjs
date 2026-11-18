@@ -248,6 +248,12 @@ async function platformControl(action) {
   return JSON.parse(await run('docker', ['exec', platformContainer, 'node', '-e',
     `require('node:http').get({ socketPath: '/tmp/acceptance-control.sock', path: '/${action}' }, response => response.pipe(process.stdout)).on('error', () => process.exit(1))`], { timeout: 10000 }));
 }
+let primaryFailed = false;
+function reportPrimaryFailure(error) {
+  primaryFailed = true;
+  process.exitCode = 1;
+  console.error('Acceptance failed:', error);
+}
 try {
   // This build is from the current working tree, including review changes.
   await run('dotnet', ['publish', 'agent/tests/Cabinet.Agent.ShellCabinet', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '--disable-build-servers', '-p:BuildInParallel=false', `-p:DevelopmentSshTransport=${offNetwork}`, '-o', join(work, 'bin')], { stdio: 'inherit' });
@@ -340,7 +346,7 @@ try {
     // confirm the node is back before the safety net is allowed to remove itself.
     const tailscaleNodeRestore = `$ts=${quote(tailscale)}; & $ts up *> $null; Start-Sleep -Seconds 3; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { Restart-Service Tailscale -Force; Start-Sleep -Seconds 12 }; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node did not come back' }; if ((Get-Service Tailscale).Status -ne 'Running') { (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }`;
     tailnetEvidencePath = remote + '\\tailnet-before-recovery.txt';
-    const recovery = `try { try { $state = (& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState; [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state) } finally { ${tailscaleNodeRestore} } } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false } }`;
+    const recovery = `try { try { $state = (& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState; [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state) } finally { ${tailscaleNodeRestore} } } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false -ErrorAction SilentlyContinue } }`;
     // Set the flag before registration: even a lost SSH response must enter cleanup.
     fallbackRegistered = true;
     fallbackRunsAt = Date.now() + 6 * 60_000;
@@ -403,6 +409,12 @@ try {
       assert.equal(details.transportId, transportId);
       assert.deepEqual(details.endpoint, endpoint);
     }
+    const { rows: [session] } = await observer.query(
+      'SELECT cabinet_id, operator_id, kind, closed_at FROM remote_sessions WHERE id = $1', [transportId]);
+    assert.ok(session?.closed_at, 'SSH transport must retain a closed session record');
+    assert.equal(session.cabinet_id, cabinetId);
+    assert.equal(session.operator_id, operator);
+    assert.equal(session.kind, 'ssh');
     // Docker may accept on the published host port even after the transport
     // closes. Probe the actual listener in its own network namespace.
     assert.equal(await run('docker', ['exec', platformContainer, 'node', '-e',
@@ -415,8 +427,14 @@ try {
   enrollmentVerified = true;
   if (!offNetwork) console.log(JSON.stringify({ database: db.name, cabinetId, enrollmentVerified: true }));
   if (sshAvailable) await stopAgent(true);
+  if (interrupted) throw interrupted;
+} catch (error) {
+  reportPrimaryFailure(error);
 } finally {
-  let recoveryError;
+  const cleanupErrors = [];
+  async function cleanup(action) {
+    try { await action(); } catch (error) { cleanupErrors.push(error); }
+  }
   if (fallbackRegistered) {
     // Keep the API alive while recovery is pending. Do not remove the safety net
     // before it has restored connectivity on a failed off-network run.
@@ -426,15 +444,29 @@ try {
     }
     while (true) {
       try {
-        await ps(`if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)); if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }; Remove-Item C:\\tailscale-watchdog.hold -ErrorAction SilentlyContinue`, { timeout: 12000 });
+        await ps(`
+          if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }
+          (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+          if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node is not running' }
+          function Read-FallbackTask {
+            Get-ScheduledTask -ErrorAction Stop | Where-Object { $_.TaskName -eq ${quote(taskName)} -and $_.TaskPath -eq '\\' }
+          }
+          $task = Read-FallbackTask
+          if ($task) { $task | Unregister-ScheduledTask -Confirm:$false -ErrorAction SilentlyContinue }
+          $hold = 'C:\\tailscale-watchdog.hold'
+          if (Test-Path -LiteralPath $hold) { Remove-Item -LiteralPath $hold -Force -ErrorAction SilentlyContinue }
+          $fallbackTask = @(Read-FallbackTask).Count
+          $holdExists = Test-Path -LiteralPath $hold
+          if ($fallbackTask -ne 0 -or $holdExists) { throw "Fallback cleanup incomplete (fallbackTask=$fallbackTask, hold=$holdExists)" }
+        `, { timeout: 12000 });
         sshAvailable = true; fallbackRegistered = false; break;
       } catch (error) {
-        if (Date.now() >= fallbackDeadline) { recoveryError = new Error(`Fallback cleanup could not reach cabinet: ${error.message}`); break; }
+        if (Date.now() >= fallbackDeadline) { cleanupErrors.push(new Error('Fallback cleanup failed', { cause: error })); break; }
         await new Promise(r => setTimeout(r, 1000));
       }
     }
   }
-  if (offNetwork && enrollmentVerified && sshAvailable && !recoveryError) {
+  if (offNetwork && enrollmentVerified && sshAvailable && !primaryFailed) {
     try {
       const state = await ps(`[IO.File]::ReadAllText(${quote(tailnetEvidencePath)})`, { timeout: 12000 });
       assert.equal(state, 'Stopped', 'Cabinet file must record Tailscale stopped before recovery');
@@ -456,28 +488,36 @@ try {
         platformPort, peerAddress, tailnetDownAt, tailnetStateBeforeRecovery: state,
         sshTransport: { transportId: sshProof.transportId, endpoint: sshProof.endpoint, evidence } }));
     } catch (error) {
-      recoveryError = error;
+      reportPrimaryFailure(error);
     }
   }
   if (agentProcess && remote && sshAvailable) {
-    try { await ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`); } catch { /* primary failure remains non-zero */ }
+    await cleanup(() => ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`));
   }
-  // Container teardown and deployment restoration must run even if API close fails.
-  try { await api?.close(); } catch (error) { recoveryError ??= error; }
+  await cleanup(() => api?.close());
   if (platformContainerCreated) {
     try { console.error(await run('docker', ['logs', platformContainer])); } catch { /* creation may have failed */ }
-    try { await run('docker', ['rm', '-f', platformContainer]); } catch (error) { recoveryError ??= error; }
+    await cleanup(() => run('docker', ['rm', '-f', platformContainer]));
   }
-  if (containerStopped) {
-    try { await run('docker', ['start', 'cabinet-server-1']); } catch (error) { recoveryError ??= error; }
-  }
-  await notifier?.stop(); feed?.stop();
-  // Keep the database enrollment and audit records for review; do not erase the evidence.
-  await observer?.end();
-  await db?.app.end();
-  rmSync(work, { recursive: true, force: true });
-  if (db) console.log(`Acceptance records retained in ${db.name}${offNetwork ? '' : '; off-network acceptance still needs a public platform endpoint'}.`);
+  if (containerStopped) await cleanup(() => run('docker', ['start', 'cabinet-server-1']));
+  await cleanup(() => notifier?.stop());
+  await cleanup(() => feed?.stop());
+  // Keep the database enrollment and audit records for review.
+  await cleanup(() => observer?.end());
+  await cleanup(() => db?.app.end());
+  await cleanup(() => rmSync(work, { recursive: true, force: true }));
   for (const [signal, handler] of signalHandlers) process.removeListener(signal, handler);
-  if (recoveryError) throw recoveryError;
-  if (interrupted) throw interrupted;
+  if (interrupted && !primaryFailed) reportPrimaryFailure(interrupted);
+  if (!primaryFailed) {
+    console.log(offNetwork && !sshAvailable
+      ? 'Acceptance transport checks passed. Evidence readback requires cabinet recovery.'
+      : 'Acceptance checks passed.');
+  }
+  if (cleanupErrors.length) {
+    process.exitCode = 1;
+    for (const error of cleanupErrors) console.error('Acceptance cleanup failed:', error);
+  } else {
+    console.log('Acceptance cleanup passed.');
+  }
+  if (db) console.log(`Acceptance records retained in ${db.name}${offNetwork ? '' : '; off-network acceptance still needs a public platform endpoint'}.`);
 }
