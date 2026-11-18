@@ -1,10 +1,10 @@
-# The SSH transport shipped without its contract types or console explanations
+# The SSH transport shipped without its contract types, its explanations, or its table ownership
 
 The full gate on `feat/remote-access-tunnel` after pulling `main` up to date returns red: **7 contracts
-failures and 1 console failure.** Every one traces to the SSH transport work, not to `main`. The
-acceptance harness proves the transport works end to end; it does not run the contracts suite or the
-console suite, and repository Actions have been dead since the billing stopped, so nothing else was
-watching. Fix the gaps, do not loosen the tests.
+failures, 1 console failure and 1 server failure.** Every one traces to the SSH transport work, not to
+`main`. The acceptance harness proves the transport works end to end; it does not run the contracts,
+console or server suites, and repository Actions have been dead since the billing stopped, so nothing
+else was watching. Fix the gaps, do not loosen the tests.
 
 ## Defect 1 - four contracts failures: no C# type for the new envelopes
 
@@ -54,11 +54,28 @@ explanations for the three codes it names, following the existing entries exactl
 tone, and the same "who can actually do something about this" guidance the file already uses. Do not
 weaken the test and do not add an exclusion list.
 
+## Defect 4 - one server failure: a cross-module table write
+
+```
+server/dist/test/table-ownership.test.js:37
+no file writes a table it does not own unless the debt list names it
+  + actual: [ 'services/ssh-transport.ts writes remote_sessions (owned by services/session-records.ts)' ]
+  - expected: []
+```
+
+The transport writes the `remote_sessions` table itself, but `services/session-records.ts` owns it. The
+guard offers two exits and only one of them is right here: **go through the owning module.** Add the
+function the transport needs to `services/session-records.ts` and call it, so the table keeps a single
+writer. Do not add the file to the debt list and do not add it to the accepted-writer list - the debt
+list is for legacy sprawl, and this is a new write that can simply be done properly. Check that the
+session-records tests still describe the module's behaviour after the addition.
+
 ## Verify
 
 - `dotnet test agent/tests/Cabinet.Agent.Contracts.Tests` - 0 failures (the gate's baseline for this
   suite is 0, so it must be clean, not merely improved).
 - `cd console && npm test` - 129 pass, 0 fail.
+- `cd server && npm test` - 1249 tests, 0 fail.
 - The remaining declared baselines are `Core:1` and `Windows:37`; do not try to fix those here and do not
   change the baselines.
 - Anything you cannot make pass, say so plainly with the failing test name rather than reporting the
@@ -66,5 +83,5 @@ weaken the test and do not add an exclusion list.
 
 ## Constraints
 
-- No behaviour change to the transport itself; this is the contract surface around it.
+- No behaviour change to the transport itself; this is the contract and ownership surface around it.
 - Do not commit; leave the changes in the working tree. Dev branch only.
