@@ -9,6 +9,7 @@
 import { randomUUID } from "node:crypto";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import { audit, auditMany, isUniqueViolation, transaction, type AuditEntry, type Pool, type Queryable } from "../db/db.js";
+import { insertClient, insertSite } from "./admin.js";
 import { Refused } from "./errors.js";
 
 export interface ImportRow { client: string; site: string }
@@ -80,13 +81,13 @@ export async function importClientsAndSites(pool: Pool, adminId: string, rows: r
           if (!r.clientId) {
             r.clientId = randomUUID();
             created.set(key(r.client), r.clientId);
-            await c.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [r.clientId, r.client]);
+            await insertClient(c, r.clientId, r.client);
             entries.push({ actorKind: "user", actorId: adminId, action: "client.create", targetKind: "client", targetId: r.clientId, outcome: "succeeded", details: { name: r.client, via: "import" } });
           }
         }
         if (!r.siteId) {
           r.siteId = randomUUID();
-          await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [r.siteId, r.clientId, r.site]);
+          await insertSite(c, r.siteId, r.clientId, r.site);
           entries.push({ actorKind: "user", actorId: adminId, action: "site.create", targetKind: "site", targetId: r.siteId, outcome: "succeeded", details: { clientId: r.clientId, name: r.site, via: "import" } });
         }
       }
