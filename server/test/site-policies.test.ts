@@ -168,6 +168,10 @@ test("a new site's policies are confirmed with its first approval; an existing s
   assert.deepEqual([JSON.parse(site.p), site.z], [PUBLIC_ONLY, "Mountain Standard Time"]);
   const actions = (await db.app.query<{ action: string }>("SELECT action FROM audit_log WHERE target_id = $1 ORDER BY seq", [ok.body.siteId])).rows.map(r => r.action);
   assert.deepEqual(actions, ["site.firewall_policy", "site.time_zone"], "each policy is audited as its own change");
+  // The zone goes through time.ts, the column's owner (D125), and its entry still names the approval that set it.
+  const zoneEntry = (await db.app.query<{ details: Record<string, unknown> }>("SELECT details FROM audit_log WHERE action = 'site.time_zone' AND target_id = $1", [ok.body.siteId])).rows;
+  assert.deepEqual(zoneEntry.map(r => r.details), [{ before: null, timeZone: "Mountain Standard Time", enrollment: requestId }]);
+  const created = (await db.app.query<{ c: number }>("SELECT COUNT(*) AS c FROM clients WHERE name = 'Policy Health' AND removed_at IS NULL")).rows[0]!.c;
 
   // The same site again: it exists, so its policies are its page's, not an approval's. Nothing is approved.
   const again = await pending();
@@ -186,6 +190,10 @@ test("a new site's policies are confirmed with its first approval; an existing s
   assert.equal(r.status, 200, JSON.stringify(r.body));
   const west = (await db.app.query<{ p: string | null; z: string | null }>("SELECT firewall_policy AS p, time_zone AS z FROM sites WHERE id = $1", [r.body.siteId])).rows[0]!;
   assert.deepEqual([west.p, west.z], [null, null]);
+  // The later approvals reused the client, and created only the site that did not exist.
+  assert.equal(Number((await db.app.query<{ c: number }>("SELECT COUNT(*) AS c FROM clients WHERE name = 'Policy Health' AND removed_at IS NULL")).rows[0]!.c), 1);
+  assert.equal(Number(created), 1);
+  assert.deepEqual((await db.app.query<{ name: string }>("SELECT s.name FROM sites s JOIN clients c ON c.id = s.client_id WHERE c.name = 'Policy Health' ORDER BY s.name")).rows.map(x => x.name), ["East", "West"]);
 });
 
 test("hostile site policies in an approval are refused before anything else runs", async () => {

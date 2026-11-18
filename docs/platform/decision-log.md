@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D125. An enrolment approval creates its client and site through admin.ts, and sets the site's zone through time.ts (2026-11-18)
+
+**What the code did** (at `3e31b39`; two entries on the ownership debt list, F21.R2):
+- **The statements.** `approveEnrollment` in `server/src/services/enrollment.ts` wrote both tables itself:
+  - it created the client it names with its own `IF NOT EXISTS … INSERT INTO clients` (`:196`);
+  - it created the site the same way (`:208`);
+  - it set a new site's time zone with a bare `UPDATE sites SET time_zone` (`:223`) and audited it itself.
+- **The debt it caused.** `admin.ts` owns both tables and `time.ts` owns `sites.time_zone` (D118), so `enrollment.ts` was listed as debt
+  on clients and sites.
+
+**The decision:**
+- **Rows through their owner.** A client or site the approval names is created with `insertClient` or `insertSite` (D124) when the read
+  just before found no live one of that name. That read holds an update and range lock, the same condition the `IF NOT EXISTS` checked; a
+  concurrent insert that wins anyway is still taken as the same outcome, as before.
+- **The zone through its owner.** A new site's zone is written with `writeSiteTimeZone` in `time.ts`, which the site's page already uses.
+  It takes an optional `{ enrollment }`, so the audit entry keeps naming the request that set the zone, as it did.
+- **What differs.** Three things now happen that did not before, and none of them changes the outcome:
+  - the entry's `before` is read from the row, not written as null; a new site has no zone, so it is still null;
+  - `writeSiteTimeZone` refuses a site that is not live, and the site was created in the same transaction, so it is live;
+  - it checks the site's cabinets' clocks again, and the new site has none yet.
+- **Debt count:** `enrollment.ts` comes off clients and sites, which leaves 4, all on cabinets.
+
+**Proof:**
+- **`server/test/site-policies.test.ts`**, "a new site's policies are confirmed with its first approval…", gains assertions. No existing
+  assertion was changed. They check that:
+  - the `site.time_zone` entry's details are exactly `{ before: null, timeZone, enrollment: requestId }`;
+  - after three approvals naming the same client, there is one live client of that name, with the sites East and West.
+- **Red checks** (every file that imports `enrollment.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | The approval inserts a client itself again | The ownership test (1 of 277) |
+  | The new client not created | Every approval of a new client: `admin`'s and `agent-api`'s cabinets cannot be enrolled, and those files fail from their first test. The run then hung, was stopped at one hour, and was run again with a 15-minute limit, which failed the same way |
+  | The zone written without its request | The site-policies test above (1 of 277) |
+  | `writeSiteTimeZone` drops the request | The site-policies test above (1 of 277) |
+
+  Restored and `cmp` identical, 277 of 277 pass.
+
+---
+
 ## D124. The bulk import creates its clients and sites through admin.ts (2026-11-18)
 
 **What the code did** (at `20f7b86`; two entries on the ownership debt list, F21.R2):
