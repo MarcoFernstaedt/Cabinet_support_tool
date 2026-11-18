@@ -3,7 +3,7 @@
 // Uses an isolated database, a new CNG identity, and a temporary Windows host running the production agent connection.
 // Existing cabinet services, configuration and enrollment are not changed. No public endpoint is simulated.
 import assert from 'node:assert/strict';
-import { BlockList, createConnection, isIP } from 'node:net';
+import { BlockList, isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
@@ -52,6 +52,8 @@ const taskName = 'cabinet-acceptance-tailscale-restore';
 const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
 const platformContainer = runId + '-platform';
 const platformImage = 'cabinet-shell-acceptance:local';
+const sshPortMin = 19000;
+const sshPortMax = 19099;
 let platformContainerCreated = false;
 const signalHandlers = new Map();
 if (offNetwork) for (const signal of ['SIGINT', 'SIGTERM']) {
@@ -144,12 +146,24 @@ async function until(read, label, { expectExit = false, deadlineError = () => ne
   throw deadlineError();
 }
 async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`]); }
-// This bootstrap runs inside the built server image. The control listener is
-// a Unix socket inside the container. Host networking makes the assigned TCP
-// loopback endpoint available to the host SSH client without proxying it.
+async function requirePlatformReachable() {
+  const target = `${platformHost}:${platformPort}`;
+  try {
+    await ps(`$client=[Net.Sockets.TcpClient]::new(); try { $connect=$client.ConnectAsync(${quote(platformHost)}, ${platformPort}); if (-not $connect.Wait(5000)) { throw 'TCP connect timed out' }; $connect.GetAwaiter().GetResult() } finally { $client.Dispose() }`, { timeout: 20000 });
+  } catch (error) {
+    const failure = new Error(`Platform reachability preflight failed from cabinet ${cabinetHost} to ${target}: ${error.message}`, { cause: error });
+    console.error(failure.message);
+    throw failure;
+  }
+  console.log(`Platform reachability preflight passed from cabinet ${cabinetHost} to ${target}`);
+}
+// This bootstrap runs inside the built server image. Docker forwards published
+// ports to the bridge interface, so relay only the assigned SSH port to loopback.
 async function containerPlatform() {
   const { readFileSync } = await import('node:fs');
   const { createServer } = await import('node:http');
+  const { createConnection, createServer: createTcpServer } = await import('node:net');
+  const { networkInterfaces } = await import('node:os');
   const { randomBytes } = await import('node:crypto');
   const base = '/build/server/dist/src/';
   const { createPool } = await import(base + 'db/db.js');
@@ -161,6 +175,8 @@ async function containerPlatform() {
   const { SecretBox } = await import(base + 'auth/secrets.js');
   const { SshTransport } = await import(base + 'services/ssh-transport.js');
   const config = JSON.parse(readFileSync('/acceptance/platform.json', 'utf8'));
+  const bridgeAddress = Object.values(networkInterfaces()).flat().find(address => !address.internal && address.family === 'IPv4')?.address;
+  if (!bridgeAddress) throw new Error('Acceptance platform has no IPv4 bridge address');
   const pkiDir = '/acceptance/' + (await import('node:fs')).readdirSync('/acceptance').find(n => n.startsWith('acceptance-pki-'));
   const issuingKey = await developmentIssuingKey(pkiDir);
   const pool = await createPool(config.databaseUrl);
@@ -191,7 +207,30 @@ async function containerPlatform() {
         const malformed = await consoleApi.inject({ ...options, payload: { ...options.payload, host: '127.0.0.2', port: 23 } });
         if (malformed.statusCode !== 400) throw new Error('Console accepted a caller-supplied SSH destination');
         const opened = await consoleApi.inject(options);
-        response.end(JSON.stringify({ status: opened.statusCode, body: opened.json() }));
+        const body = opened.json();
+        if (opened.statusCode === 200) {
+          const { host, port } = body.endpoint;
+          if (host !== '127.0.0.1' || !Number.isInteger(port) || port < config.sshPortMin || port > config.sshPortMax)
+            throw new Error(`SSH transport endpoint is outside the published loopback range: ${host}:${port}`);
+          const relay = createTcpServer(client => {
+            if (client.remoteAddress !== config.bridgeGateway) {
+              client.destroy();
+              return;
+            }
+            clearTimeout(expiry);
+            relay.close();
+            const transport = createConnection({ host, port });
+            client.on('error', () => transport.destroy());
+            transport.on('error', () => client.destroy());
+            client.pipe(transport).pipe(client);
+          });
+          await new Promise((resolve, reject) => {
+            relay.once('error', reject);
+            relay.listen({ host: bridgeAddress, port }, resolve);
+          });
+          const expiry = setTimeout(() => relay.close(), 60_000);
+        }
+        response.end(JSON.stringify({ status: opened.statusCode, body }));
       } catch (error) {
         response.end(JSON.stringify({ error: error.message }));
       }
@@ -230,11 +269,18 @@ try {
     await run('docker', ['build', '-f', 'deploy/Dockerfile', '--target', 'server-build', '-t', platformImage, '.']);
     const sqlContainer = process.env.SHELL_DATABASE_CONTAINER ?? 'cab-test-mssql';
     const [sql] = JSON.parse(await run('docker', ['inspect', sqlContainer]));
+    const [network, endpoint] = Object.entries(sql.NetworkSettings.Networks)[0] ?? [];
+    assert.ok(endpoint?.IPAddress && endpoint.Gateway, 'SQL container must have an IPv4 bridge endpoint');
+    assert.equal(await run('docker', ['network', 'inspect', '--format', '{{.Driver}}', network]), 'bridge');
     const databaseUrl = new URL(db.appUrl);
-    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(databaseUrl.hostname), 'Host networking requires a local test database');
+    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(databaseUrl.hostname), 'Container SQL mapping requires a local test database');
     const binding = sql.NetworkSettings.Ports['1433/tcp'] ?? [];
     assert.ok(binding.some(b => b.HostPort === (databaseUrl.port || '1433')), 'SQL container must publish the acceptance database port');
-    writeFileSync(join(work, 'platform.json'), JSON.stringify({ databaseUrl: databaseUrl.toString(), platformHost, tls }));
+    databaseUrl.hostname = endpoint.IPAddress;
+    databaseUrl.port = '1433';
+    writeFileSync(join(work, 'platform.json'), JSON.stringify({
+      databaseUrl: databaseUrl.toString(), tls, bridgeGateway: endpoint.Gateway, sshPortMin, sshPortMax,
+    }));
     writeFileSync(join(work, 'platform.mjs'), '(' + containerPlatform.toString() + ')().catch(error => { console.error(error); process.exit(1); });');
     const running = await run('docker', ['inspect', '--format', '{{.State.Running}}', 'cabinet-server-1']);
     if (running === 'true') {
@@ -243,7 +289,11 @@ try {
     }
     // Set before creation so cleanup also handles an interrupted/failed docker run.
     platformContainerCreated = true;
-    await run('docker', ['run', '-d', '--name', platformContainer, '--network', 'host', '--mount', `type=bind,src=${work},dst=/acceptance,readonly`,
+    const sshPorts = `${sshPortMin}-${sshPortMax}`;
+    await run('docker', ['run', '-d', '--name', platformContainer, '--network', network,
+      '--sysctl', `net.ipv4.ip_local_port_range=${sshPortMin} ${sshPortMax}`,
+      '-p', '8443:8443', '-p', `127.0.0.1:${sshPorts}:${sshPorts}`,
+      '--mount', `type=bind,src=${work},dst=/acceptance,readonly`,
       '--entrypoint', 'node', platformImage, '/acceptance/platform.mjs']);
     await until(async () => {
       try { return (await platformControl('status')).ready; } catch { return false; }
@@ -258,6 +308,7 @@ try {
     await api.listen({ host: '0.0.0.0', port: platformListenPort });
   }
   const server = `https://${platformHost}:${platformPort}`;
+  await requirePlatformReachable();
   const operator = randomUUID();
   await observer.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'shell-acceptance', 'Shell acceptance operator', 'tier2')", [operator]);
   const bootstrap = await createBootstrapToken(observer, operator);
@@ -352,11 +403,12 @@ try {
       assert.equal(details.transportId, transportId);
       assert.deepEqual(details.endpoint, endpoint);
     }
-    await assert.rejects(new Promise((resolveConnection, reject) => {
-      const socket = createConnection(endpoint);
-      socket.once('error', reject);
-      socket.once('connect', () => { socket.destroy(); resolveConnection(); });
-    }), { code: 'ECONNREFUSED' });
+    // Docker may accept on the published host port even after the transport
+    // closes. Probe the actual listener in its own network namespace.
+    assert.equal(await run('docker', ['exec', platformContainer, 'node', '-e',
+      `const socket = require('node:net').createConnection(${JSON.stringify(endpoint)});
+      socket.once('error', error => console.log(error.code));
+      socket.once('connect', () => { socket.destroy(); console.log('connected'); });`], { timeout: 10000 }), 'ECONNREFUSED');
     sshProof = { transportId, endpoint, cabinetPrincipal };
   }
   assert.equal((await verifyAuditChain(observer)).ok, true);
