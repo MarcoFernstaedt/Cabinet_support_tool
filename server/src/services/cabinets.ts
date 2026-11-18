@@ -255,6 +255,35 @@ export async function listCabinets(db: Queryable): Promise<CabinetSummary[]> {
 
 const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
 
+/** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
+const CONTACT_CHUNK = 500;
+/** A contact time as the presence batch writes it: Date.prototype.toISOString's own form, in UTC. */
+const CONTACT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Records when each active cabinet was last heard from, for the presence batch (agent-api/presence.ts; F21.R2, decision-log D126):
+ * cabinets.last_heartbeat_at, which every "offline after 5 minutes" judgement reads, is never moved backwards, and a removed or pending
+ * cabinet is not written. Written in statements of 500 rows. Every id and time is checked before the database is touched, so a bad entry
+ * refuses the whole batch, as the database's own conversion error did. Returns the rows written.
+ */
+export async function recordContacts(c: Queryable, contacts: readonly { id: string; at: string }[]): Promise<number> {
+  if (!Array.isArray(contacts)) throw new Error("contacts are a list of cabinet ids and times");
+  for (const e of contacts) {
+    if (typeof e !== "object" || e === null || typeof e.id !== "string" || !CABINET_ID.test(e.id)) throw new Error("a contact names a cabinet by its uuid");
+    if (typeof e.at !== "string" || !CONTACT_AT.test(e.at) || Number.isNaN(Date.parse(e.at))) throw new Error("a contact time is an ISO 8601 UTC time");
+  }
+  let written = 0;
+  for (let i = 0; i < contacts.length; i += CONTACT_CHUNK) {
+    const r = await c.query(
+      `UPDATE k SET last_heartbeat_at = j.[at]
+         FROM cabinets k JOIN OPENJSON($1) WITH (id uniqueidentifier '$.id', [at] datetime2(3) '$.at') j ON k.id = j.id
+        WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < j.[at])`,
+      [JSON.stringify(contacts.slice(i, i + CONTACT_CHUNK).map(e => ({ id: e.id, at: e.at })))]);
+    written += r.rowCount ?? 0;
+  }
+  return written;
+}
+
 /**
  * Removes these cabinets' raw health samples taken before `before`, once the caller has folded them into health_hourly in the same
  * transaction (F21.R2, decision-log D77): the nightly retention run is the only caller, and audits the run as retention.run with the count.

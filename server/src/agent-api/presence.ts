@@ -1,10 +1,9 @@
 // Presence (docs/spec/03-protocol.md "Protocol 1.1"): a long poll counts as contact. Contact is kept in memory and written in one
 // batched statement a minute, into cabinets.last_heartbeat_at, which every "offline after 5 minutes" judgement reads. With polls every
 // 25 s and a flush every 60 s, a connected cabinet's recorded contact is never more than about 90 s old, well inside the threshold.
+// The write itself is cabinets.ts's, the table's owner (recordContacts, decision-log D126).
 import { errorInfo, type Queryable } from "../db/db.js";
-
-/** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
-const CHUNK = 500;
+import { recordContacts } from "../services/cabinets.js";
 
 export class Presence {
   private seen = new Map<string, number>();
@@ -40,21 +39,13 @@ export class Presence {
       const batch = this.seen;
       this.seen = new Map();
       const entries = [...batch].map(([id, at]) => ({ id, at: new Date(at).toISOString() }));
-      let written = 0;
       try {
-        for (let i = 0; i < entries.length; i += CHUNK) {
-          const r = await this.db.query(
-            `UPDATE k SET last_heartbeat_at = j.[at]
-               FROM cabinets k JOIN OPENJSON($1) WITH (id uniqueidentifier '$.id', [at] datetime2(3) '$.at') j ON k.id = j.id
-              WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < j.[at])`, [JSON.stringify(entries.slice(i, i + CHUNK))]);
-          written += r.rowCount;
-        }
+        return await recordContacts(this.db, entries);
       } catch (e) {
         // Kept for the next try, unless a newer contact arrived meanwhile.
         for (const [id, at] of batch) if ((this.seen.get(id) ?? 0) < at) this.seen.set(id, at);
         throw e;
       }
-      return written;
     };
     const next = (this.flushing ?? Promise.resolve(0)).then(run);
     this.flushing = next.catch(() => 0);
