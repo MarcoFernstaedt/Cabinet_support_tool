@@ -88,7 +88,18 @@ export function setColumns(clause: string): string[] | null {
   }
   parts.push(clause.slice(start));
   const columns: string[] = [];
-  for (const part of parts) {
+  for (const raw of parts) {
+    // A part may start with a comment that explains it (alerts.ts writes one before `severity = …`): skip the comments and the
+    // whitespace before the column (review of #313).
+    let at = 0;
+    for (;;) {
+      while (at < raw.length && /\s/.test(raw[at]!)) at++;
+      const end = opaqueEnd(raw, at);
+      if (end === null) return null;
+      if (end === at || raw[at] === "'") break;
+      at = end;
+    }
+    const part = raw.slice(at);
     // A column may carry the statement's alias (`k.sync_cabinet_id = …`).
     const m = /^\s*(?:[a-z_][a-z0-9_]*\.)?\[?([a-z_][a-z0-9_]*)\]?\s*=/i.exec(part);
     if (!m) return null;

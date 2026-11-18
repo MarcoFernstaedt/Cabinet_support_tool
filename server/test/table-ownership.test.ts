@@ -151,8 +151,15 @@ test("the reader finds writes however they are spelled, through an alias too, an
     assert.deepEqual(setClause(text), clause, text);
   // The columns of those clauses: a comma inside a string does not split.
   for (const [clause, columns] of [[" write_pause_reason = 'paused from the console', write_paused = 1 ", ["write_pause_reason", "write_paused"]],
-    [" a = 'x, y', b = 2 ", ["a", "b"]], [" a = 'it''s, here', b = 2 ", ["a", "b"]], [" a = 'open, b = 2 ", null]] as const)
+    [" a = 'x, y', b = 2 ", ["a", "b"]], [" a = 'it''s, here', b = 2 ", ["a", "b"]], [" a = 'open, b = 2 ", null],
+    // A part that starts with a comment, as alerts.ts writes its fold (review of #313); a string is never taken for a comment.
+    [" a = 1,\n -- A more serious symptom makes the alert major.\n severity = 2 ", ["a", "severity"]],
+    [" a = 1, /* why */ b = 2 ", ["a", "b"]], [" -- first\n a = 1 ", ["a"]], [" a = 1, -- no line end", null], [" a = 1, 'x' = 2 ", null]] as const)
     assert.deepEqual(setColumns(clause), columns, clause);
+  // The two statements in the tree that carry a comment inside their SET, read as the column rule reads them.
+  const alerts = tableWriteShapes(join(server, "src"), new Set(["alerts"])).get("alerts")!.get("services/alerts.ts")!;
+  for (const columns of [["occurrences", "first_seen", "last_seen", "last_event_id", "rule_id", "severity"]])
+    assert.equal(alerts.updates.filter(u => JSON.stringify(u) === JSON.stringify(columns)).length, 2, "the fold in writeAlerts and FOLD_EVENT both read, severity included");
   assert.deepEqual(shaped.get("cabinets")!.get("services/b.ts"), { updates: [["model", "manufacturer"], ["sync_cabinet_id"]], other: 1 }, "a comma inside a call does not split; an alias's columns are read; a DELETE is another write");
   for (const [clause, columns] of [[" a = 1, [b] = COALESCE(x, y) ", ["a", "b"]], [" k.a = 1 ", ["a"]], [" a = 1, b ", null], ["", null], [" = 1 ", null]] as const)
     assert.deepEqual(setColumns(clause), columns, clause);
