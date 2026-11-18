@@ -6,6 +6,58 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D121. A client's or site's scanner hardware IDs are written in one place, device-settings.ts (2026-11-18)
+
+Numbered D121 as the next free number on the trunk. `feat/remote-access-tunnel` also carries a D120 and a D121, so it renumbers when it
+lands (review of #315).
+
+**What the code did** (at `66e66c4`; three entries on the ownership debt list, F21.R2):
+- **`device-settings.ts`.** `setScanner` wrote a client's or site's scanner hardware IDs through a table name built at run time
+  (`UPDATE ${TABLE[level]} SET scanner_hardware_ids …`). So the file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients
+  and sites.
+- **`client-scanner.ts`.** Switching a client's fingerprint scanner on with IDs set `clients.scanner_hardware_ids` in its own statement,
+  behind a condition built at run time. That made a second writer of the column, so `client-scanner.ts` stayed debt after D120.
+
+**The decision:**
+- **One owner for the column.** `device-settings.ts` owns `scanner_hardware_ids` on clients and sites, and exports
+  `writeScannerIds(c, level, id, ids)`.
+  - It has one fixed statement per level, and writes only a live client or site.
+  - It stores the same JSON text as before.
+  - Before the database is touched it checks the level, the id, and the list against the contract's rule: 1 to 16 distinct hardware IDs
+    of `common.schema.json`'s pattern, or null.
+- **The callers.** `setScanner` calls it. The scanner switch calls it when it is given IDs, and without them leaves the client's IDs as
+  they were, as before. The switch's own statement is now fixed text that sets only `fingerprint_scanner` and `scanner_service`.
+- **The column owners.**
+
+  | Column | Owner |
+  |---|---|
+  | `scanner_hardware_ids` on clients and sites | `device-settings.ts` |
+  | `sync_ports` on clients | `device-settings.ts` (nothing else writes it) |
+  | `fingerprint_scanner` and `scanner_service` on clients | `client-scanner.ts` |
+
+- **`device-settings.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **Debt count:** `device-settings.ts` comes off clients and sites, and `client-scanner.ts` off clients, which leaves 14.
+
+**Proof:**
+- **`server/test/scanner-ids-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's IDs go to that level only, can be cleared to inherit, and a removed site, or a client that does not exist,
+    is not written.
+  - **Hostile input.** 13 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (the new file, `device-settings`, `client-scanner-sql` and `table-ownership`, 22 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back in `device-settings.ts` | The run-time declaration test |
+  | A site's IDs written to its client | The new writing test, `device-settings.test.ts` "scanner IDs: the cabinet's own, else the site's…", and the column-owner and covered-set tests |
+  | A removed site still written | The new writing test |
+  | The list not checked | The hostile-input test |
+  | Switching the scanner on and dropping its IDs | `client-scanner-sql` "switching on with signing…" |
+  | `client-scanner.ts` writing the IDs itself again | The unlisted-write and covered-set tests |
+
+  Restored and `cmp` identical, 22 of 22 pass.
+
+---
+
 ## D120. A watched-services list is written in one place, watched-services.ts (2026-11-18)
 
 **What the code did** (at `af88248`; three entries on the ownership debt list, F21.R2):

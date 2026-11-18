@@ -85,14 +85,34 @@ export async function syncForCabinet(db: Queryable, cabinetId: string): Promise<
 // ---- Changes ---------------------------------------------------------------------------------------
 
 type Level = "client" | "site";
-const TABLE: Record<Level, string> = { client: "clients", site: "sites" };
+
+const LEVEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A Plug and Play hardware ID, as the contracts define it (common.schema.json hardwareId). */
+const HARDWARE_ID = /^[A-Za-z0-9\\&_.#{}=,+ -]{1,200}$/;
+
+/**
+ * Writes a client's or a site's scanner hardware IDs (null: it inherits the level above), in the caller's transaction. This module owns
+ * that column on both (F21.R2, decision-log D121): the console's scanner settings write it here, and so does switching a client's
+ * fingerprint scanner on with IDs (client-scanner.ts). The level, the id and the list (the contract's rule: 1 to 16 distinct hardware IDs,
+ * or null) are checked before the database is touched. Returns whether a live client or site took it.
+ */
+export async function writeScannerIds(c: Queryable, level: Level, id: string, ids: readonly string[] | null): Promise<boolean> {
+  if (level !== "client" && level !== "site") throw new Error("scanner IDs belong to a client or a site here");
+  if (typeof id !== "string" || !LEVEL_ID.test(id)) throw new Error(`the ${level} must be a uuid`);
+  if (ids !== null && (!Array.isArray(ids) || ids.length < 1 || ids.length > 16 || new Set(ids).size !== ids.length
+    || !ids.every(x => typeof x === "string" && HARDWARE_ID.test(x)))) throw new Error("scanner IDs are null or 1 to 16 distinct hardware IDs");
+  const value = ids === null ? null : safeJson(ids);
+  // One fixed statement per level, so the table each writes is in the text (table-ownership.test.ts reads it).
+  const r = level === "client" ? await c.query("UPDATE clients SET scanner_hardware_ids = $2 WHERE id = $1 AND removed_at IS NULL", [id, value])
+    : await c.query("UPDATE sites SET scanner_hardware_ids = $2 WHERE id = $1 AND removed_at IS NULL", [id, value]);
+  return r.rowCount === 1;
+}
 
 /** A client's or a site's scanner hardware IDs (Tier 2 and Admin; null removes that level's setting). */
 export async function setScanner(pool: Pool, userId: string, level: Level, id: string, ids: string[] | null, stepUpToken?: string): Promise<void> {
   await transaction(pool, async c => {
     if (stepUpToken) await consumeStepUpToken(c, stepUpToken, userId, `${level}.scanner`, id);
-    const r = await c.query(`UPDATE ${TABLE[level]} SET scanner_hardware_ids = $2 WHERE id = $1 AND removed_at IS NULL`, [id, ids === null ? null : safeJson(ids)]);
-    if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
+    if (!(await writeScannerIds(c, level, id, ids))) throw new Refused("not_found", 404, `no such ${level}`);
     await audit(c, { actorKind: "user", actorId: userId, action: `${level}.scanner`, targetKind: level, targetId: id, outcome: "succeeded", details: { hardwareIds: ids } });
   });
 }
