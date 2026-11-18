@@ -148,7 +148,7 @@ test("the reader finds writes however they are spelled, through an alias too, an
     [" a = 1, -- set from the console\n b = 2 WHERE id = $1", " a = 1, -- set from the console\n b = 2 "],
     [" a = 1, /* where it applies */ b = 2 WHERE id = $1", " a = 1, /* where it applies */ b = 2 "],
     [" a = 'open", null], [" a = 1 -- no line end", null], [" a = 1 /* open", null],
-    // Part of the SET built at run time, as client-scanner.ts writes it: unreadable, never read in part (D120).
+    // Part of a SET built at run time, as client-scanner.ts wrote it before D121: unreadable, never read in part (D120).
     [" fingerprint_scanner = 1, scanner_service = $2${choice.hardwareIds ? \", scanner_hardware_ids = $3\" : \"\"} WHERE id = $1", null]] as const)
     assert.deepEqual(setClause(text), clause, text);
   // The columns of those clauses: a comma inside a string does not split.
