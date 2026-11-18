@@ -16,6 +16,7 @@ import { Refused } from "./errors.js";
 import { compareVersions } from "./releases.js";
 import { ISSUE } from "./rules.js";
 import { parseJson } from "./settings.js";
+import { writeWatchedServices } from "./watched-services.js";
 
 /** The choice as the contract shapes it (common.schema.json#/$defs/clientScannerChoice). */
 export interface ScannerChoice {
@@ -53,8 +54,9 @@ export async function applyScannerChoice(c: Queryable, userId: string, clientId:
     // The service comes off the list the client's cabinets actually use: its own, else a copy of the fleet's without it.
     const service = client.service;
     const next = service && watched.some(n => same(n, service)) ? watched.filter(n => !same(n, service)) : null;
-    await c.query("UPDATE clients SET fingerprint_scanner = 0, watched_services = COALESCE($2, watched_services) WHERE id = $1",
-      [clientId, next === null ? null : safeJson(next)]);
+    await c.query("UPDATE clients SET fingerprint_scanner = 0 WHERE id = $1", [clientId]);
+    // The list is watched-services.ts's to write (D120); it changes only when the service was on it.
+    if (next !== null) await writeWatchedServices(c, "client", clientId, next);
     // Open scanner alerts of the client's cabinets go: nothing is watched any more, so nothing would ever close them. alerts.ts closes them
     // and audits each closure by this user, in this transaction (D100).
     const closed = await closeClientIssueAlerts(c, userId, clientId, ISSUE.scanner, NOT_USED);
@@ -73,9 +75,9 @@ export async function applyScannerChoice(c: Queryable, userId: string, clientId:
   if (nextWatched.length > MAX_WATCHED) throw new Refused("too_many_items", 409, `the ${own ? "client's" : "fleet's"} watched services list already holds ${MAX_WATCHED} services`,
     { reason: own ? `The client already watches ${MAX_WATCHED} services. Remove one before adding the scanner's service.`
       : `This client follows the fleet's watched services list, which already holds ${MAX_WATCHED}. Remove one from the fleet list, or give the client its own list, before adding the scanner's service.` });
-  await c.query(`UPDATE clients SET fingerprint_scanner = 1, scanner_service = $2, watched_services = $3
-                 ${choice.hardwareIds ? ", scanner_hardware_ids = $4" : ""} WHERE id = $1`,
-    [clientId, serviceName, safeJson(nextWatched), ...(choice.hardwareIds ? [safeJson(choice.hardwareIds)] : [])]);
+  await c.query(`UPDATE clients SET fingerprint_scanner = 1, scanner_service = $2${choice.hardwareIds ? ", scanner_hardware_ids = $3" : ""} WHERE id = $1`,
+    [clientId, serviceName, ...(choice.hardwareIds ? [safeJson(choice.hardwareIds)] : [])]);
+  await writeWatchedServices(c, "client", clientId, nextWatched);
   const approval = await ensureClientEntry(c, userId, clientId, entry.entry, signing);
   await audit(c, { actorKind: "user", actorId: userId, action: "client.fingerprint_scanner", targetKind: "client", targetId: clientId, outcome: "succeeded",
     details: { enabled: true, service: serviceName, approval, hardwareIds: choice.hardwareIds ?? null } });

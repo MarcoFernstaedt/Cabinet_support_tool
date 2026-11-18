@@ -6,6 +6,56 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D120. A watched-services list is written in one place, watched-services.ts (2026-11-18)
+
+**What the code did** (at `af88248`; three entries on the ownership debt list, F21.R2):
+- **`watched-services.ts`.** `setWatched` wrote a client's, site's or cabinet's own list with one statement whose table it built at run
+  time (`UPDATE ${table} SET watched_services …`). The reader cannot see a table built that way, so the file was declared in
+  `RUNTIME_TABLE_WRITES` and listed as debt on all three tables.
+- **`client-scanner.ts`.** Switching a client's fingerprint scanner on or off set `clients.watched_services` too, in the same statement as
+  its own columns: the scanner's service is added to the list, or taken off it. So the column had two writers, and D118 could give it no
+  owner.
+
+**The decision:**
+- **One owner for the column.** `watched-services.ts` owns `watched_services` on clients, sites and cabinets, and exports
+  `writeWatchedServices(c, level, id, names)`.
+  - It has one fixed statement per level, so the table each writes is in the text.
+  - It writes only a live client, site or cabinet, and answers whether one took the list.
+  - Before the database is touched it checks the level, the id, and every name against the watched-services contract's rule, at most 16.
+  - It stores the same JSON text the data layer stored before.
+- **The callers.** `setWatched` and the scanner switch both call it. The switch's own statement now sets only `fingerprint_scanner`,
+  `scanner_service` and, when given, `scanner_hardware_ids`. Switching off still leaves the list alone unless the service was on it.
+- **`watched-services.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **The column reader** now counts a `SET` with part of it built at run time (`${…}`) as unreadable, not read in part. The scanner
+  switch's statement is that shape, with `scanner_hardware_ids` behind a condition. The reader had stopped at the quote inside the
+  `${…}` and would have read the statement as setting only the first two columns.
+- **What stays debt.** `client-scanner.ts` stays on the debt list for clients. `scanner_hardware_ids` is also written by
+  `device-settings.ts` through a run-time table, which is its own change.
+- **Debt count:** `watched-services.ts` comes off all three tables, which leaves 17.
+
+**Proof:**
+- **`server/test/watched-services-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, a list can be cleared to inherit, and a removed site or cabinet, or a client
+    that does not exist, is not written.
+  - **Hostile input.** 11 inputs are refused, each with its own reason, on a connection that throws if used.
+- **The reader test** gains the scanner switch's statement, read as unreadable.
+- **Red checks** (the new file, `client-scanner-sql`, `services`, `sqlserver-services` and `table-ownership`, 37 tests). Each of these
+  fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back in `watched-services.ts` | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `services.test.ts` "watch lists: the most specific level wins…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The names not checked | The hostile-input test |
+  | Switching the scanner on without watching its service | `client-scanner-sql` "switching on with signing…" |
+  | Switching it off and keeping its service watched | `client-scanner-sql` "switching off: … the service off the watched list" |
+  | A run-time `SET` read in part again | The reader test |
+
+  Restored and `cmp` identical, 37 of 37 pass.
+
+---
+
 ## D119. A cabinet's make and model are written in one place, config-ingest.ts (2026-11-18)
 
 **What the code did** (at `68e1f67`; two entries on the ownership debt list, F21.R2):

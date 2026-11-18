@@ -85,9 +85,9 @@ test("a column owner that sets another feature's column, or writes its table any
   const covered: string[] = [];
   for (const [table, o] of Object.entries(TABLE_OWNERS)) for (const file of new Set(Object.values(o.columns ?? {}))) if (coveredByColumns(table, file)) covered.push(`${table} ${file}`);
   assert.deepEqual(covered.sort(), [
-    "cabinets services/commands.ts", "cabinets services/config-ingest.ts", "cabinets services/rollouts.ts", "cabinets services/settings.ts", "cabinets services/sync-cabinets.ts",
-    "clients services/firewall-policy.ts", "clients services/time.ts", "clients services/writes.ts",
-    "sites services/firewall-policy.ts", "sites services/network-baseline.ts", "sites services/settings.ts", "sites services/time.ts",
+    "cabinets services/commands.ts", "cabinets services/config-ingest.ts", "cabinets services/rollouts.ts", "cabinets services/settings.ts", "cabinets services/sync-cabinets.ts", "cabinets services/watched-services.ts",
+    "clients services/firewall-policy.ts", "clients services/time.ts", "clients services/watched-services.ts", "clients services/writes.ts",
+    "sites services/firewall-policy.ts", "sites services/network-baseline.ts", "sites services/settings.ts", "sites services/time.ts", "sites services/watched-services.ts",
   ], "the files each table's columns cover; a change here is a change to what counts as debt");
 });
 
@@ -147,7 +147,9 @@ test("the reader finds writes however they are spelled, through an alias too, an
     [" a = 'it''s from here', b = 2 WHERE id = $1", " a = 'it''s from here', b = 2 "],
     [" a = 1, -- set from the console\n b = 2 WHERE id = $1", " a = 1, -- set from the console\n b = 2 "],
     [" a = 1, /* where it applies */ b = 2 WHERE id = $1", " a = 1, /* where it applies */ b = 2 "],
-    [" a = 'open", null], [" a = 1 -- no line end", null], [" a = 1 /* open", null]] as const)
+    [" a = 'open", null], [" a = 1 -- no line end", null], [" a = 1 /* open", null],
+    // Part of the SET built at run time, as client-scanner.ts writes it: unreadable, never read in part (D120).
+    [" fingerprint_scanner = 1, scanner_service = $2${choice.hardwareIds ? \", scanner_hardware_ids = $3\" : \"\"} WHERE id = $1", null]] as const)
     assert.deepEqual(setClause(text), clause, text);
   // The columns of those clauses: a comma inside a string does not split.
   for (const [clause, columns] of [[" write_pause_reason = 'paused from the console', write_paused = 1 ", ["write_pause_reason", "write_paused"]],

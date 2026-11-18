@@ -2,7 +2,7 @@
 // fleet, a client, a site or a cabinet. The most specific level with a list wins; null inherits, [] watches nothing.
 // Tier 2 and up set them with a confirmation click; every change is audited. The list reaches the agent with each
 // heartbeat answer, and the broker does the restarting.
-import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 
@@ -53,6 +53,27 @@ export function effectiveWatched(given: { cabinet: string[] | null; site: string
   return { ...levels, effective: [], source: "none" };
 }
 
+const LEVEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Writes one client's, site's or cabinet's own watched-services list (null: it inherits the level above), in the caller's transaction.
+ * This module owns the watched_services column of all three (F21.R2, decision-log D120): the console's list editor writes it here, and so
+ * does switching a client's fingerprint scanner on or off (client-scanner.ts). The level, the id and every name (the watched-services
+ * contract's rule, at most 16) are checked before the database is touched. Returns whether a live client, site or cabinet took it.
+ */
+export async function writeWatchedServices(c: Queryable, level: "client" | "site" | "cabinet", id: string, names: readonly string[] | null): Promise<boolean> {
+  if (level !== "client" && level !== "site" && level !== "cabinet") throw new Error("a watched list is a client's, a site's or a cabinet's");
+  if (typeof id !== "string" || !LEVEL_ID.test(id)) throw new Error(`the ${level} must be a uuid`);
+  if (names !== null && (!Array.isArray(names) || names.length > MAX_WATCHED || !names.every(n => typeof n === "string" && SERVICE_NAME.test(n))))
+    throw new Error(`a watched list is null or at most ${MAX_WATCHED} service names`);
+  const value = names === null ? null : safeJson(names);
+  // One fixed statement per level, so the table each writes is in the text (table-ownership.test.ts reads it).
+  const r = level === "client" ? await c.query("UPDATE clients SET watched_services = $2 WHERE id = $1 AND removed_at IS NULL", [id, value])
+    : level === "site" ? await c.query("UPDATE sites SET watched_services = $2 WHERE id = $1 AND removed_at IS NULL", [id, value])
+    : await c.query("UPDATE cabinets SET watched_services = $2 WHERE id = $1 AND status <> 'removed'", [id, value]);
+  return r.rowCount === 1;
+}
+
 /** Sets one level's list (null: inherit). The names were checked against the watched-services contract by the route. */
 export async function setWatched(pool: Pool, userId: string, level: WatchLevel, id: string, names: string[] | null): Promise<void> {
   await transaction(pool, async c => {
@@ -60,10 +81,7 @@ export async function setWatched(pool: Pool, userId: string, level: WatchLevel, 
       if (names === null) await removeSetting(c, FLEET_KEY);
       else await upsertSetting(c, FLEET_KEY, names, userId);
     } else {
-      const table = { client: "clients", site: "sites", cabinet: "cabinets" }[level];
-      const alive = level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL";
-      const r = await c.query(`UPDATE ${table} SET watched_services = $2 WHERE id = $1 AND ${alive}`, [id, names]);
-      if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
+      if (!(await writeWatchedServices(c, level, id, names))) throw new Refused("not_found", 404, `no such ${level}`);
     }
     await audit(c, { actorKind: "user", actorId: userId, action: "watch.set", ...(level === "fleet" ? {} : { targetKind: level, targetId: id }),
       outcome: "succeeded", details: { level, names } });
