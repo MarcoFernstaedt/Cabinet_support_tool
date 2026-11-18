@@ -25,10 +25,19 @@ The agent also sends data the server never asked for: heartbeats, detected error
 
 ## Module ownership of tables
 
-Every table has one owning module, named in `server/src/db/table-owners.ts` (F21.R2, decision-log D56). The other source files that write a table today are listed with it as debt, except a few accepted for a stated reason (`accepted`, with the reason in `ACCEPTED_WRITERS`; decision-log D108): the demo simulator, which seeds its own simulated cabinets' rows, and `usb-sql.ts`, which keeps the USB statements as data so they can be checked without a database. Accepted writers are not counted as debt. `table-ownership.test.ts` reads the source and fails on:
+Every table has one owning module, named in `server/src/db/table-owners.ts` (F21.R2, decision-log D56). The other source files that write a table today are listed with it as debt, except a few accepted for a stated reason (`accepted`, with the reason in `ACCEPTED_WRITERS`; decision-log D108): the demo simulator, which seeds its own simulated cabinets' rows, and `usb-sql.ts`, which keeps the USB statements as data so they can be checked without a database. Accepted writers are not counted as debt.
+
+A setting column on a client, site or cabinet can be owned by the feature module it belongs to instead (`columns`, decision-log D118):
+for example `sites.time_zone` belongs to `time.ts` and `sites.firewall_policy` to `firewall-policy.ts`. A file is not debt for a table
+when its every write of it is a plain `UPDATE` that sets only columns it owns there. Creating, removing or renaming a row, any column no
+feature owns, and any write the reader cannot split into columns stay with the table's owner.
+
+`table-ownership.test.ts` reads the source and fails on:
 - a write by an unlisted file, however the statement is spelled: through an alias, or with a row limit (`DELETE TOP (n) FROM`);
 - a listed writer that no longer writes the table, so the list only shrinks;
 - an accepted writer without a reason, a reason no table accepts, or a file listed as both debt and accepted;
+- a declared column the migrations do not create, a column owner that never sets its column, a column declared for the table's owner or
+  an accepted writer, or a debt entry its file's own columns already cover;
 - a write whose table name is built at run time, unless its file declares the tables it can write (`RUNTIME_TABLE_WRITES`);
 - a table without an owner.
 

@@ -6,6 +6,100 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D118. A setting column on a client, site or cabinet is owned by its feature module (2026-11-18)
+
+**What the code did** (at `271121a`; the last 32 entries on the ownership debt list, F21.R2):
+- **Owners of whole tables.** `clients` and `sites` are owned by `services/admin.ts`, and `cabinets` by `services/cabinets.ts`.
+- **What the other writers do.** Most of the 32 entries are feature modules setting their own column on one of those rows:
+  - `time.ts` sets `time_zone` and `clock_tolerance_seconds`;
+  - `firewall-policy.ts` sets `firewall_policy`;
+  - `network-baseline.ts` sets `network_baseline`;
+  - `rollouts.ts` sets `in_office`;
+  - `sync-cabinets.ts` sets the sync address and the sync cabinet.
+- **What the rule assumed.** The ownership rule only knew tables, so every one of these counted as debt to move behind `admin.ts` or
+  `cabinets.ts`.
+
+**The decision** (the owner's, asked 2026-11-18; spec 09 "Who owns the setting columns of clients, sites and cabinets"):
+- **Column owners.** A table's entry in `table-owners.ts` can name `columns`, mapping each column to the module that owns it.
+- **What a column owner may write.** A file is not debt for a table when every write it makes of it is a plain `UPDATE` whose `SET` names
+  only columns it owns there. An update through an alias counts, read through the alias.
+- **What stays with the table's owner.** `INSERT`, `DELETE`, `MERGE`, a `SET` the reader cannot split into columns, and a table named at run
+  time. So do creating, removing and renaming a row, and every column no feature owns.
+- **Why not the alternatives.** Moving every write into `admin.ts` and `cabinets.ts` would make those two hold every feature's rules.
+  Accepting the writers as exceptions would stop anything checking which module sets which column.
+- **What is declared now.** Only columns that one file sets and that cover all of that file's writes of the table:
+
+  | Table | Column | Owner |
+  |---|---|---|
+  | `clients` | `firewall_policy` | `firewall-policy.ts` |
+  | `clients` | `time_zone`, `clock_tolerance_seconds` | `time.ts` |
+  | `clients` | `write_paused`, `write_pause_reason` | `writes.ts` |
+  | `sites` | `firewall_policy` | `firewall-policy.ts` |
+  | `sites` | `time_zone`, `clock_tolerance_seconds` | `time.ts` |
+  | `sites` | `sync_ports` | `settings.ts` |
+  | `sites` | `network_baseline` | `network-baseline.ts` |
+  | `cabinets` | `scanner_hardware_ids` | `settings.ts` |
+  | `cabinets` | `in_office` | `rollouts.ts` |
+  | `cabinets` | `sync_address`, `sync_address_source`, `sync_cabinet_id` | `sync-cabinets.ts` |
+
+- **What stays debt, and why:**
+  - shared columns: `manufacturer` and `model` (`commands.ts` and `config-ingest.ts`), and `watched_services` (`client-scanner.ts` and
+    `watched-services.ts`);
+  - writes through a table named at run time: `approved-apps.ts`, `device-settings.ts`, `filefacts-allowlist.ts`, `watched-services.ts`;
+  - row creation: `enrollment.ts`, `fleet-import.ts`;
+  - row removal and renaming: `replacement.ts`, `admin.ts` for `cabinets`;
+  - `presence.ts`.
+
+  Each needs its own change.
+- **Debt count:** 10 entries come off, which leaves 22.
+
+**Proof** (`server/test/table-ownership.test.ts`, 8 tests, 3 of them new; reader in `server/test/table-writes.ts`):
+- **What the new tests check.**
+  - Every declared column exists in the migrations.
+  - Every column owner sets its column.
+  - No column is declared for the table's owner or an accepted writer.
+  - The set of files the columns cover is exactly the ten above. Changing it is changing what counts as debt.
+  - A debt entry its own columns cover must come off.
+- **The reader's self-test** gains column cases:
+  - a comma inside `COALESCE(…)` does not split a `SET`;
+  - an alias's columns are read;
+  - an `INSERT`, a `DELETE` and a `SET` built at run time are other writes;
+  - a clause it cannot split is unreadable;
+  - a subquery's own `FROM` or `WHERE` does not end the `SET` clause early. The clause is cut only outside parentheses, and a statement
+    that ends inside an open one is unreadable (`setClause`, added after review of #313). Before this, `SET a = (SELECT … FROM … WHERE
+    …), b = …` was read as setting `a` alone, so a file setting a column it does not own could count as covered;
+  - a quoted string (`'…'`, with `''` inside it) and a comment (`--` to the end of the line, `/* … */`) are just as opaque. A word in one
+    no longer ends the clause, a comma in one no longer splits it, and text that ends inside one is unreadable (`opaqueEnd`, also after
+    review of #313). Before this, `SET write_pause_reason = 'paused from the console', write_paused = 1` was read as setting the reason
+    alone;
+  - a part of a `SET` that starts with a comment is read past the comment to its column. `alerts.ts` writes one before `severity = …` in
+    two of its three folds: the first one (`writeAlerts`, line 289) and `FOLD_EVENT` at 344. `FOLD_EVENT` read as another write until this
+    change; `writeAlerts` was not read at all before the reach change below;
+  - an `UPDATE` or `DELETE` through an alias is followed to its `FROM` anywhere in its own statement, up to the semicolon or the end of the
+    string that holds it. The reader used to look only 600 characters past the verb. The first fold in `alerts.ts` (`writeAlerts`,
+    line 289) has its `FROM alerts a` at 610, so that write was not read at all: not as a column update, and not as another write
+    (review of #313). The table-writer scan the debt list is checked against had the same window and uses the same reach now. It finds no
+    writer it did not find before, since no ownership test changed.
+- **Red checks.** Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A covered column left undeclared (`clients.time_zone`) | The unlisted-write test and the covered-set test |
+  | A covered file left on the debt list | The shrink test |
+  | A column the table does not have | The column test |
+  | A column owner that never sets its column | The column test |
+  | A column owner that also inserts the table, or sets another feature's column (`time.ts` with an `INSERT INTO sites`, or setting `network_baseline`) | The unlisted-write test and the covered-set test |
+  | The reader splitting at a comma inside a call | The reader test |
+  | The reader not reading an alias's columns | The reader test, the unlisted-write test and the covered-set test |
+  | The `SET` clause cut at any depth again | The reader test, on the subquery case |
+  | Strings and comments read like the rest of the statement again | The reader test, on the string case |
+  | A part's leading comment not skipped | The reader test, on the comment case and the `alerts.ts` folds |
+  | The 600-character reach back | The reader test, on the three `alerts.ts` folds |
+
+  Restored and `cmp` identical, 8 of 8 pass.
+
+---
+
 ## D117. Settings rows are removed only by settings.ts, through removeSetting (2026-11-17)
 
 **What the code did** (at `db9616f`; seven entries on the ownership debt list, F21.R2):
