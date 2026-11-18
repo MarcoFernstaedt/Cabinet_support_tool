@@ -29,6 +29,7 @@ const NOT_TRANSITIONS: { file: string; has: string; why: string }[] = [
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE id_hash", why: "sign-out; its only caller (auth-routes.ts) audits it in the same transaction" },
   { file: "auth/sessions.ts", has: "DELETE FROM sessions WHERE user_id", why: "ends a user's sessions, or all but one of them; every caller (users.ts, cli.ts, auth-routes.ts) audits the change that ends them in the same transaction" },
   { file: "services/settings.ts", has: "DELETE FROM settings WHERE [key] = $1", why: "removeSetting (D117); every caller audits the change in the same transaction: device-settings, filefacts-allowlist, firewall-policy, time (twice) and watched-services in the function that calls it, approved-apps in the callers of writeApprovedLevel" },
+  { file: "services/cabinets.ts", has: "UPDATE cabinets SET status = 'removed' WHERE id = $1\", [id])", why: "retireCabinet (D129); its one caller, completeReplacement in replacement.ts, audits cabinet.replace and cabinet.revoke in the same transaction, and cabinet-replacement asserts both rows" },
   { file: "services/usb-sql.ts", has: "usbPolicyDeleteSql", why: "run only by usb-store.ts, which audits the policy change in the same transaction" },
   { file: "services/baseline-drift.ts", has: "DELETE d FROM cabinet_drift", why: "a derived table, recomputed from the baseline and the latest readings" },
   { file: "services/cabinet-health.ts", has: "DELETE FROM healthy_marks", why: "keeps the newest healthy marks within a cap; older marks are derived history" },

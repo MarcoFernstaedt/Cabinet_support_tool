@@ -14,8 +14,9 @@ import type { ListSigningKeys } from "./approved-list-signing.js";
 import { copyCabinetBaseline } from "./baselines.js";
 import { Refused } from "./errors.js";
 import { upsertSetting } from "./settings.js";
-import { LIVE_LINK } from "./sync-cabinets.js";
-import { revokeCabinetCertificates } from "./cabinets.js";
+// The cabinets rows themselves are written by their owners: cabinets.ts, and sync-cabinets.ts for the sync link (D129).
+import { LIVE_LINK, moveSatellites } from "./sync-cabinets.js";
+import { renameCabinet, retireCabinet, revokeCabinetCertificates } from "./cabinets.js";
 import { checkStoredUsbPolicy, usbPolicyAuditEntry, usbPolicySettingKey } from "./usb-policy.js";
 import { readUsbPolicyRow } from "./usb-store.js";
 import { queueReapply } from "./replacement-reapply.js";
@@ -57,7 +58,7 @@ export async function freeName(c: Queryable, old: OldCabinet, now = new Date()):
     const more = ` ${old.id.slice(0, 8)}`;
     name = old.name.slice(0, 128 - stamp.length - more.length) + stamp.slice(0, -1) + more + ")";
   }
-  await c.query("UPDATE cabinets SET name = $2 WHERE id = $1", [old.id, name]);
+  await renameCabinet(c, old.id, name);
   return name;
 }
 
@@ -67,8 +68,7 @@ export async function freeName(c: Queryable, old: OldCabinet, now = new Date()):
  */
 export async function completeReplacement(c: Queryable, userId: string, old: OldCabinet, newId: string, newName: string, signing?: ListSigningKeys) {
   // A sync cabinet's satellites follow it to the new one.
-  const moved = old.role === "sync"
-    ? (await c.query("UPDATE cabinets SET sync_cabinet_id = $2 WHERE sync_cabinet_id = $1 AND status <> 'removed'", [old.id, newId])).rowCount ?? 0 : 0;
+  const moved = old.role === "sync" ? await moveSatellites(c, old.id, newId) : 0;
   // The old cabinet's own approved programs, USB watch policy and baseline.
   const apps = await copyCabinetList(c, userId, old.id, newId, signing);
   const usbRaw = await readUsbPolicyRow(c, "cabinet", old.id);
@@ -80,7 +80,7 @@ export async function completeReplacement(c: Queryable, userId: string, old: Old
   const baseline = await copyCabinetBaseline(c, userId, old.id, newId);
 
   // The old cabinet is retired: no certificate, no open alerts, its history kept.
-  await c.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [old.id]);
+  await retireCabinet(c, old.id);
   await revokeCabinetCertificates(c, old.id);
   await notify(c, REVOCATION_CHANNEL, old.id);
   const resolution = `Replaced by ${newName}.`;

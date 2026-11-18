@@ -327,6 +327,27 @@ export async function changeCabinetRole(c: Queryable, id: string, role: string, 
   return r.rowCount === 1 ? { oldRole: r.rows[0]!.old_role, siteId: r.rows[0]!.site_id } : null;
 }
 
+/**
+ * Renames a cabinet, in the caller's transaction: a replaced cabinet gives its name up to its replacement (replacement.ts freeName; F21.R2,
+ * decision-log D129). The caller chose a name free at the site; one in use fails with the unique-index error. The id and the name are
+ * checked before the database is touched. Answers whether there was such a cabinet.
+ */
+export async function renameCabinet(c: Queryable, id: string, name: string): Promise<boolean> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to rename it");
+  if (typeof name !== "string" || [...name].length > 128 || !CABINET_NAME.test(name)) throw new Error("a cabinet name is 1 to 128 characters with no control characters or angle brackets");
+  return (await c.query("UPDATE cabinets SET name = $2 WHERE id = $1", [id, name])).rowCount === 1;
+}
+
+/**
+ * Marks a cabinet removed, keeping its record and history, in the caller's transaction: a replaced cabinet is retired this way
+ * (replacement.ts; F21.R2, D129). The caller revokes its certificates, tells the other processes and audits. The id is checked before the
+ * database is touched. Answers whether there was such a cabinet.
+ */
+export async function retireCabinet(c: Queryable, id: string): Promise<boolean> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to retire it");
+  return (await c.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [id])).rowCount === 1;
+}
+
 /** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
 const CONTACT_CHUNK = 500;
 /** A contact time as the presence batch writes it: Date.prototype.toISOString's own form, in UTC. */

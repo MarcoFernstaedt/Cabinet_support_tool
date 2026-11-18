@@ -6,6 +6,61 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D129. A replacement renames, re-links and retires through the owners (2026-11-18)
+
+**What the code did** (at `0633751`; the last entry on the ownership debt list, F21.R2):
+- **The statements.** `server/src/services/replacement.ts` wrote the cabinets table itself, three times:
+  - `freeName` (`:60`) renamed the old cabinet to "<name> (replaced <date>)" with `UPDATE cabinets SET name`;
+  - `completeReplacement` (`:71`) moved a replaced sync cabinet's satellites with `UPDATE cabinets SET sync_cabinet_id`;
+  - `completeReplacement` (`:83`) retired the old cabinet with `UPDATE cabinets SET status = 'removed'`.
+- **The debt it caused.** `cabinets.ts` owns the table and `sync-cabinets.ts` owns `sync_cabinet_id` (D118). Renaming and removing are the
+  table owner's, so `replacement.ts` was listed as debt on cabinets, the last entry on the list.
+
+**The decision:**
+- **The rename and the retirement through the table's owner.** `cabinets.ts` exports `renameCabinet(c, id, name)` and
+  `retireCabinet(c, id)`, the same statements, each answering whether there was such a cabinet. A name in use still fails with the
+  unique-index error, and `freeName` still picks a name free at the site first.
+- **The satellites through the column's owner.** `sync-cabinets.ts` exports `moveSatellites(c, fromId, toId)`, the same statement: a
+  removed satellite keeps its link as history. `sync-cabinets.ts` still sets only its own columns, so it stays covered by them.
+- **What stays in `replacement.ts`.** The order of the steps, revoking the certificates, telling the other processes, closing the alerts
+  and the audit entries.
+- **Checks.** The ids must be uuids and the name must follow the cabinet name rule (D128), checked before the database is touched.
+  Satellites cannot be moved to the cabinet they already reach. The old cabinet was read under lock, its name passed the contract when
+  it was approved, and `freeName` only shortens it and adds a stamp, so no replacement that reached the database before is refused.
+- **Debt count:** `replacement.ts` comes off cabinets, which leaves 0. Every table's writers are now its owner, a column owner that sets
+  only its own columns, or a writer accepted with its reason (D108). The ownership test still refuses any new cross-module write.
+
+**Proof:**
+- **`server/test/replacement-writes.test.ts`** (new, 4 tests, against the database):
+  - **Rename.** Only the named cabinet is renamed. Another cabinet's name at the site fails with the unique-index error. A missing cabinet
+    answers false.
+  - **Retire.** Only the named cabinet is marked removed, and it keeps its record. A missing cabinet answers false.
+  - **Satellites.** An active and a pending satellite move. A removed satellite, and another sync cabinet's satellite, stay where they are.
+  - **Hostile input.** 15 bad ids, names and pairs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js`, `sync-cabinets.js` or `replacement.js`, with `table-ownership`). Each of these
+  fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `replacement.ts` retires the cabinet itself again | The ownership test |
+  | The old cabinet not retired | The retire test, and `cabinet-replacement` (3 of 4) |
+  | The rename writes nothing | The rename test, and `cabinet-replacement` (3 of 4) |
+  | A removed satellite moved too | The satellites test |
+  | Satellites not moved at all (run against `cabinet-replacement` only) | `cabinet-replacement` "a sync cabinet's replacement takes its name…" |
+  | The name check removed | The hostile-input test |
+  | The same-cabinet check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 247 pass, 0 fail.
+
+  `cabinet-replacement` imports none of these modules (it goes through the routes), so the file selection left it out. I ran the three
+  write edits against it on their own afterwards, and it is 4 of 4 green once restored.
+- **The audit sweep.** The full gate then failed `audit-sweep`: `retireCabinet` sets `status = 'removed'` in a function that does not
+  audit, because its caller does. The sweep's `NOT_TRANSITIONS` list gains one entry for it, in the same way `removeSetting` was listed
+  in D117. No assertion changed. The reason is held from outside: with the `cabinet.revoke` audit dropped from `completeReplacement`,
+  `cabinet-replacement` fails (8 of 9 across it and `audit-sweep`). Restored and `cmp` identical, 9 of 9.
+
+---
+
 ## D128. An enrolment approval creates its cabinet through cabinets.ts (2026-11-18)
 
 **What the code did** (at `dcdfb42`; one entry on the ownership debt list, F21.R2):
