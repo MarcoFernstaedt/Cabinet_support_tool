@@ -86,8 +86,8 @@ test("a column owner that sets another feature's column, or writes its table any
   for (const [table, o] of Object.entries(TABLE_OWNERS)) for (const file of new Set(Object.values(o.columns ?? {}))) if (coveredByColumns(table, file)) covered.push(`${table} ${file}`);
   assert.deepEqual(covered.sort(), [
     "cabinets services/commands.ts", "cabinets services/config-ingest.ts", "cabinets services/rollouts.ts", "cabinets services/settings.ts", "cabinets services/sync-cabinets.ts", "cabinets services/watched-services.ts",
-    "clients services/firewall-policy.ts", "clients services/time.ts", "clients services/watched-services.ts", "clients services/writes.ts",
-    "sites services/firewall-policy.ts", "sites services/network-baseline.ts", "sites services/settings.ts", "sites services/time.ts", "sites services/watched-services.ts",
+    "clients services/client-scanner.ts", "clients services/device-settings.ts", "clients services/firewall-policy.ts", "clients services/time.ts", "clients services/watched-services.ts", "clients services/writes.ts",
+    "sites services/device-settings.ts", "sites services/firewall-policy.ts", "sites services/network-baseline.ts", "sites services/settings.ts", "sites services/time.ts", "sites services/watched-services.ts",
   ], "the files each table's columns cover; a change here is a change to what counts as debt");
 });
 

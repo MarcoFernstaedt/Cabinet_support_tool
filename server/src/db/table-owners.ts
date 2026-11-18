@@ -54,10 +54,6 @@ export const RUNTIME_TABLE_WRITES: Readonly<Record<string, readonly string[]>> =
     "clients",
     "sites"
   ],
-  "services/device-settings.ts": [
-    "clients",
-    "sites"
-  ],
   "services/filefacts-allowlist.ts": [
     "cabinets",
     "clients",
@@ -81,8 +77,8 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   cabinets: { owner: "services/cabinets.ts", also: ["agent-api/presence.ts", "services/admin.ts", "services/approved-apps.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/replacement.ts"], accepted: ["demo/demo.ts"],
     columns: { watched_services: "services/watched-services.ts", manufacturer: "services/config-ingest.ts", model: "services/config-ingest.ts", ipv4: "services/commands.ts", ipv4_at: "services/commands.ts", scanner_hardware_ids: "services/settings.ts", in_office: "services/rollouts.ts", sync_address: "services/sync-cabinets.ts", sync_address_source: "services/sync-cabinets.ts", sync_cabinet_id: "services/sync-cabinets.ts" } },
   case_notes: { owner: "services/case-notes.ts", also: [], accepted: ["demo/troubleshooting.ts"] },
-  clients: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/client-scanner.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts"], accepted: ["demo/demo.ts"],
-    columns: { watched_services: "services/watched-services.ts", firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", write_paused: "services/writes.ts", write_pause_reason: "services/writes.ts" } },
+  clients: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts"], accepted: ["demo/demo.ts"],
+    columns: { fingerprint_scanner: "services/client-scanner.ts", scanner_service: "services/client-scanner.ts", scanner_hardware_ids: "services/device-settings.ts", sync_ports: "services/device-settings.ts", watched_services: "services/watched-services.ts", firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", write_paused: "services/writes.ts", write_pause_reason: "services/writes.ts" } },
   commands: { owner: "services/commands.ts", also: [], accepted: ["demo/demo.ts"] },
   config_changes: { owner: "services/config-ingest.ts", also: [] },
   config_current: { owner: "services/config-ingest.ts", also: [] },
@@ -122,8 +118,8 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   sessions: { owner: "auth/sessions.ts", also: [] },
   settings: { owner: "services/settings.ts", also: [], accepted: ["demo/demo.ts", "services/usb-sql.ts"] },
   sign_ins: { owner: "auth/sessions.ts", also: [] },
-  sites: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/device-settings.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts"], accepted: ["demo/demo.ts"],
-    columns: { watched_services: "services/watched-services.ts", firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", sync_ports: "services/settings.ts", network_baseline: "services/network-baseline.ts" } },
+  sites: { owner: "services/admin.ts", also: ["services/approved-apps.ts", "services/enrollment.ts", "services/filefacts-allowlist.ts", "services/fleet-import.ts"], accepted: ["demo/demo.ts"],
+    columns: { scanner_hardware_ids: "services/device-settings.ts", watched_services: "services/watched-services.ts", firewall_policy: "services/firewall-policy.ts", time_zone: "services/time.ts", clock_tolerance_seconds: "services/time.ts", sync_ports: "services/settings.ts", network_baseline: "services/network-baseline.ts" } },
   step_up_tokens: { owner: "auth/stepup.ts", also: [] },
   symptom_rule_history: { owner: "services/rules.ts", also: [] },
   symptom_rules: { owner: "services/rules.ts", also: [], accepted: ["demo/demo.ts"] },

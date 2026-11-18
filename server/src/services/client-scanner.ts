@@ -17,6 +17,7 @@ import { compareVersions } from "./releases.js";
 import { ISSUE } from "./rules.js";
 import { parseJson } from "./settings.js";
 import { writeWatchedServices } from "./watched-services.js";
+import { writeScannerIds } from "./device-settings.js";
 
 /** The choice as the contract shapes it (common.schema.json#/$defs/clientScannerChoice). */
 export interface ScannerChoice {
@@ -75,8 +76,9 @@ export async function applyScannerChoice(c: Queryable, userId: string, clientId:
   if (nextWatched.length > MAX_WATCHED) throw new Refused("too_many_items", 409, `the ${own ? "client's" : "fleet's"} watched services list already holds ${MAX_WATCHED} services`,
     { reason: own ? `The client already watches ${MAX_WATCHED} services. Remove one before adding the scanner's service.`
       : `This client follows the fleet's watched services list, which already holds ${MAX_WATCHED}. Remove one from the fleet list, or give the client its own list, before adding the scanner's service.` });
-  await c.query(`UPDATE clients SET fingerprint_scanner = 1, scanner_service = $2${choice.hardwareIds ? ", scanner_hardware_ids = $3" : ""} WHERE id = $1`,
-    [clientId, serviceName, ...(choice.hardwareIds ? [safeJson(choice.hardwareIds)] : [])]);
+  await c.query("UPDATE clients SET fingerprint_scanner = 1, scanner_service = $2 WHERE id = $1", [clientId, serviceName]);
+  // The IDs are device-settings.ts's to write (D121); without them the client's stay as they were.
+  if (choice.hardwareIds) await writeScannerIds(c, "client", clientId, choice.hardwareIds);
   await writeWatchedServices(c, "client", clientId, nextWatched);
   const approval = await ensureClientEntry(c, userId, clientId, entry.entry, signing);
   await audit(c, { actorKind: "user", actorId: userId, action: "client.fingerprint_scanner", targetKind: "client", targetId: clientId, outcome: "succeeded",
