@@ -39,7 +39,7 @@ host listener behind an ingress:
   shell must run `whoami` plus a desktop listing plus a marker file write and its cleanup, Tailscale
   restored through the shell, SSH verified back, and the six-minute scheduled-task fallback removed
   on every exit path.
-- The agent must be told to dial the **public IP** (`168.231.67.178`, from `SHELL_PLATFORM_HOST`),
+- The agent must be told to dial the **public IP** (`<public-ip>`, from `SHELL_PLATFORM_HOST`),
   and the platform certificate issued for the run must carry that **IP SAN** — the deployed
   certificate already does this, so the PKI code path exists; do not weaken certificate
   verification anywhere, and do not add a flag that skips it.

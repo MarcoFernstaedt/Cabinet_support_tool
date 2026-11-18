@@ -17,8 +17,9 @@ const env = (extra: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
 });
 
 test("the public address is used when it is set", () => {
-  const config = loadConfig(env({ AGENT_PUBLIC_HOST: "168.231.67.178" }));
-  assert.equal(config.agentSetup.host, "168.231.67.178");
+  // TEST-NET-3 is reserved for documentation.
+  const config = loadConfig(env({ AGENT_PUBLIC_HOST: "203.0.113.10" }));
+  assert.equal(config.agentSetup.host, "203.0.113.10");
   assert.equal(config.agentSetup.port, 8443);
 });
 

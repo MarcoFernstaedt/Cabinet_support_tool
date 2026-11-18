@@ -37,7 +37,7 @@ do with the SSH transport, which was never reached.
 ## Context that is already working - do not regress it
 
 - The reachability preflight passes (`Platform reachability preflight passed from cabinet deviceb to
-  168.231.67.178:8443`).
+  <public-ip>:8443`).
 - The cleanup passes and is idempotent (`Acceptance cleanup passed.`), and it reports after the primary
   outcome rather than replacing it.
 

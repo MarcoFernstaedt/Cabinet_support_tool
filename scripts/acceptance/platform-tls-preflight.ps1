@@ -1,5 +1,9 @@
+param(
+  [Parameter(Mandatory = $true)]
+  [string]$name
+)
+
 $ErrorActionPreference = 'Continue'
-$name = 'srv1522777.tail72f980.ts.net'
 try {
   $c = New-Object Net.Sockets.TcpClient
   $c.Connect($name, 8443)

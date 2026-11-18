@@ -140,12 +140,12 @@ reach it at all. Two ways to fix that, in the order I would pick them:
 
 - **Tailscale on each cabinet (recommended).** Nothing becomes public. The cabinets join the tailnet with a tagged key,
   the access rules let a `tag:cabinet` device reach only 8443, and the installer is pointed at
-  `https://srv1522777.tail72f980.ts.net:8443` — the value that is already correct and needs no server change at all.
+  `https://<tailnet-host>.ts.net:8443` — the value that is already correct and needs no server change at all.
   Certificate authentication stays exactly as it is, layered under the tailnet. It costs one Tailscale install per cabinet
   and their outbound access has to allow it, which a locked-down network usually does because Tailscale dials out.
 - **The port made public.** Open 8443 at the provider's firewall and bind the API to all addresses. Mutual TLS still does
   the authenticating, but the port answers the whole internet, and a proper certificate means a DNS name pointing at
-  `168.231.67.178` — a record Marco has to add himself.
+  `<public-ip>` — a record Marco has to add himself.
 
 Funnel is not an option for this port: it terminates TLS, which is where the cabinet's certificate is checked.
 
@@ -164,5 +164,5 @@ Funnel is not an option for this port: it terminates TLS, which is where the cab
 - **Windows 7 or 8.1 on a 32-bit cabinet would need a second target framework.** .NET 10 starts at Windows 10 1607; if a
   cabinet is older than that, Section 8 grows a .NET Framework build and another acceptance pass.
 - **The agent API's certificate names an IP, not a name.** `AGENT_API_HOSTNAMES` covers the addresses the cabinets dial
-  and works from outside the tailnet, but a DNS name pointing at `168.231.67.178` would survive a renumber and read
+  and works from outside the tailnet, but a DNS name pointing at `<public-ip>` would survive a renumber and read
   better in the installer.

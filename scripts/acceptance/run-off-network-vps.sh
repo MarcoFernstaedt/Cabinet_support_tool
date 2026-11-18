@@ -4,6 +4,7 @@
 set -euo pipefail
 : "${SHELL_SSH_USER:?Set SHELL_SSH_USER to the cabinet account}"
 : "${SHELL_SSH_IDENTITY:?Set SHELL_SSH_IDENTITY to an authorized SSH identity file}"
+: "${SHELL_PLATFORM_HOST:?Set SHELL_PLATFORM_HOST to the public IPv4 address of the platform}"
 export PATH="$HOME/.dotnet:$PATH"
 repo=/home/marco/cabinet_support_tool
 outdir=/home/marco/cabinet-audit/lab64
@@ -24,7 +25,7 @@ if [ -z "${TEST_DATABASE_ADMIN_URL:-}" ]; then
 fi
 export SHELL_CABINET_SSH=${SHELL_CABINET_SSH:-deviceb}
 export SHELL_OFF_NETWORK=1
-export SHELL_PLATFORM_HOST=${SHELL_PLATFORM_HOST:-168.231.67.178}
+export SHELL_PLATFORM_HOST
 export SHELL_PLATFORM_PORT=8443
 cd "$repo"
 echo "=== off-network acceptance: $SHELL_PLATFORM_HOST:$SHELL_PLATFORM_PORT; evidence: $log ==="
