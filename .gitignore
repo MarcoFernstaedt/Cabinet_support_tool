@@ -67,6 +67,11 @@ data/
 # Demo deployment (deploy/): the real environment file holds generated secrets; only the example is committed.
 deploy/.env
 !deploy/.env.example
+
+# Local tool state and credentials can land here and must never be committed.
+/.agents/
+/.aws/
+/.codex/
 .claude/worktrees/
 
 # Personal, per-host deployment files; nothing personal goes in the repo.

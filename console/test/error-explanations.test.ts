@@ -1,9 +1,8 @@
 // Every platform failure turned into something a non-engineer can act on (src/lib/error-explanations.ts).
-// The code list below is the exact output of
-//   grep -rhoE 'new Refused\("[a-z_]+"' server/src | sort -u
-// so a code added to the server without an explanation here fails the first test instead of reaching the
-// console as "That didn't work". The rest holds the HTTP, network and installer cases to being specific,
-// and holds the fallback to never inventing a cause.
+// The list covers the server refusal codes the console can receive through the shared platform explanations.
+// It excludes the CLI's `account_locked` and `invalid_credentials` refusals because those exit-code errors
+// stay in the CLI. Console sign-in responses with the same codes have their own explanations in api.ts.
+// The remaining tests cover specific HTTP, network and installer messages and check that the fallback never invents a cause.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
@@ -11,7 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { PLATFORM_CODES, explainFailure, formatExplanation, normaliseFailure } from "../src/lib/error-explanations.ts";
 
-/** Every refusal code the server can send, straight from the grep in the task. */
+/** Server refusal codes covered by the shared platform explanations. */
 const DISCOVERED_CODES = [
   "frame_too_large", "relay_backpressure", "shell_frame_required", "shell_line_too_large", "shell_unavailable",
   "empty_frame", "ssh_transport_busy", "ssh_transport_unavailable",
