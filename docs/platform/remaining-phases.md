@@ -40,7 +40,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** see the open pull requests. 84 cross-module writes are left on the debt list (`server/src/db/table-owners.ts`).
+**In review:** see the open pull requests. The debt list holds 22 entries (`server/src/db/table-owners.ts`).
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 

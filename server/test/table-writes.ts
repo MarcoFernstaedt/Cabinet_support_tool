@@ -66,7 +66,7 @@ export function tableWriters(srcDir: string, tables: ReadonlySet<string>): Map<s
 export interface WriteShape {
   /** The columns each plain `UPDATE <table> SET …` sets, lower case, one list per statement. */
   updates: string[][];
-  /** Every other write of the table: INSERT, DELETE, MERGE, an UPDATE through an alias, or an UPDATE whose SET the reader cannot split. */
+  /** Every other write of the table: INSERT, DELETE, MERGE, or an UPDATE whose SET the reader cannot split (through an alias too). */
   other: number;
 }
 
