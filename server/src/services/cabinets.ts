@@ -257,6 +257,55 @@ const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}
 
 const CABINET_ROLES = ["sync", "satellite", "standalone"] as const;
 
+/** A cabinet as an approval places it: its place, name and role, what it reported, and what it takes over from a cabinet it replaces. */
+export interface NewCabinet {
+  id: string; siteId: string; name: string; role: string;
+  hostname: string; serialNumber: string | null; agentVersion: string; architecture: string | null;
+  syncCabinetId: string | null; replacesCabinetId: string | null;
+  /**
+   * The replaced cabinet's own settings, as read from its row, or null. The connection reads these JSON columns back parsed (a list or an
+   * object, whatever OldCabinet's type says) and writes a value back as its JSON text, so either form is taken.
+   */
+  scannerHardwareIds: string | null; watchedServices: string | null; filefactsPaths: string | null; inOffice: boolean;
+  /** An Admin-set sync address carried over from the replaced sync cabinet: both null, or the address and "admin". */
+  syncAddress: string | null; syncAddressSource: "admin" | null;
+}
+
+// The loosest cabinet name the approval's contract allows: 1 to 128 characters, none a control character or an angle bracket.
+const CABINET_NAME = /^[^\u0000-\u001f\u007f<>]+$/u;
+const ARCHITECTURES = ["windows-x64", "windows-x86"];
+const isUuidOrNull = (v: unknown) => v === null || (typeof v === "string" && CABINET_ID.test(v));
+const isTextOrNull = (v: unknown) => v === null || typeof v === "string";
+const isStoredSetting = (v: unknown) => v === null || typeof v === "string" || Array.isArray(v) || (typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype);
+
+/**
+ * Creates an active cabinet, the one place one is created (F21.R2, decision-log D128): enrollment calls it in the transaction that
+ * approves the cabinet. A name is unique within its site (removed cabinets keep theirs); the check is in the insert itself, with a lock on
+ * the rows it reads, so of two approvals at the same moment one inserts and the other is answered false. Every field is checked before the
+ * database is touched; the caller checked the contract, the place, the role and the replaced cabinet.
+ */
+export async function insertCabinet(c: Queryable, k: NewCabinet): Promise<boolean> {
+  if (typeof k !== "object" || k === null) throw new Error("a new cabinet is required");
+  if (typeof k.id !== "string" || !CABINET_ID.test(k.id) || typeof k.siteId !== "string" || !CABINET_ID.test(k.siteId)) throw new Error("a new cabinet's id and site are uuids");
+  if (typeof k.name !== "string" || [...k.name].length > 128 || !CABINET_NAME.test(k.name)) throw new Error("a cabinet name is 1 to 128 characters with no control characters or angle brackets");
+  if (!(CABINET_ROLES as readonly unknown[]).includes(k.role)) throw new Error("a cabinet's role is sync, satellite or standalone");
+  if (typeof k.hostname !== "string" || k.hostname.length < 1 || k.hostname.length > 255 || !isTextOrNull(k.serialNumber) || typeof k.agentVersion !== "string"
+      || k.agentVersion.length > 64 || !(k.architecture === null || ARCHITECTURES.includes(k.architecture))) throw new Error("a new cabinet's reported facts are its hostname, serial, agent version and architecture");
+  if (!isUuidOrNull(k.syncCabinetId) || !isUuidOrNull(k.replacesCabinetId)) throw new Error("a sync cabinet and a replaced cabinet are uuids or null");
+  if (!isStoredSetting(k.scannerHardwareIds) || !isStoredSetting(k.watchedServices) || !isStoredSetting(k.filefactsPaths) || typeof k.inOffice !== "boolean")
+    throw new Error("a replaced cabinet's settings are what its row held, or null");
+  if (!(k.syncAddress === null && k.syncAddressSource === null)
+      && !(typeof k.syncAddress === "string" && isCanonicalIpv4(k.syncAddress) && isPrivateIpv4(k.syncAddress) && k.syncAddressSource === "admin"))
+    throw new Error("a carried-over sync address is a private IPv4 address an Admin set, or none");
+  const r = await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
+                   replaces_cabinet_id, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source)
+                 SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                 WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
+    [k.id, k.siteId, k.name, k.role, k.hostname, k.serialNumber, k.agentVersion, k.architecture, k.syncCabinetId, k.replacesCabinetId,
+     k.scannerHardwareIds, k.watchedServices, k.filefactsPaths, k.inOffice ? 1 : 0, k.syncAddress, k.syncAddressSource]);
+  return r.rowCount === 1;
+}
+
 /**
  * Changes an active cabinet's role, and the sync columns that follow it, in the caller's transaction (F21.R2, decision-log D127): a
  * cabinet that stops being a satellite drops its link; one that stops being a sync cabinet drops its address; one that becomes a sync

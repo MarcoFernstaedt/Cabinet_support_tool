@@ -6,6 +6,59 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D128. An enrolment approval creates its cabinet through cabinets.ts (2026-11-18)
+
+**What the code did** (at `dcdfb42`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `approveEnrollment` in `server/src/services/enrollment.ts:252` created the cabinet row itself. One
+  `INSERT INTO cabinets (…) SELECT … WHERE NOT EXISTS (… WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)` wrote 16 fields: the
+  place, the name and role, the reported facts, the sync link, and the replaced cabinet's own settings.
+- **The debt it caused.** `cabinets.ts` owns the table and row creation is the table owner's (D118), so `enrollment.ts` was listed as debt
+  on cabinets.
+
+**The decision:**
+- **One place.** `cabinets.ts` exports `insertCabinet(c, k: NewCabinet)`, the one place a cabinet is created. It holds the same
+  statement, with the name check and its lock in the insert itself, and answers false for a name in use at the site, which the approval
+  turns into `name_taken` as before.
+- **What stays in `enrollment.ts`.** The approval still decides every value it passes: the place, the sync cabinet, the replaced cabinet
+  and which of its settings carry over.
+- **Checks.** Every field is checked before the database is touched:
+  - the ids are uuids;
+  - the name is 1 to 128 characters with no control character or angle bracket (the approval contract's rule);
+  - the role is one of the three, and the architecture one of the two or null;
+  - the hostname is 1 to 255 characters, and the agent version at most 64;
+  - the carried-over settings are what the replaced row held (text, or the list or object the connection parses it into) or null;
+  - a carried-over sync address is a private IPv4 address an Admin set, or there is none.
+
+  The request and approval contracts, and the replaced cabinet's own row, already hold to these, so no approval that reached the database
+  before is refused.
+- **Found on the way.** `OldCabinet` in `replacement.ts` types the replaced cabinet's settings as text. The connection reads those JSON
+  columns back parsed (`shape` in `server/src/db/db.ts`), so at run time they are lists and objects, and they are written back as their
+  JSON text (`bind`). A first version of the check took text only. It refused every replacement that carries settings, and
+  `cabinet-replacement` caught that. The check now takes either form. The type is left as it is, as its own change.
+- **Debt count:** `enrollment.ts` comes off cabinets, which leaves 1: `replacement.ts`.
+
+**Proof:**
+- **`server/test/cabinet-insert.test.ts`** (new, 3 tests, against the database):
+  - **Writing.** Every field of a replacing sync cabinet with carried-over settings is written as given. Settings given as the
+    connection reads them, parsed, are stored as their JSON. A satellite is placed with its sync cabinet.
+  - **Names.** A name in use at the site, in another case, is answered false and nothing is written. A removed cabinet keeps its name,
+    and another site may use it.
+  - **Hostile input.** 22 bad fields are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `enrollment.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `enrollment.ts` inserts a cabinet itself again | The ownership test |
+  | The name check in the insert dropped | The names test, and `batch-approval` "a refusal with no sentence of its own…" |
+  | In-office not carried over | The writing test, and `cabinet-replacement` "a sync cabinet's replacement takes its name…" |
+  | The name check removed | The hostile-input test |
+  | The architecture check removed | The hostile-input test |
+  | The address check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 369 pass, 0 fail.
+
+---
+
 ## D127. A cabinet's role is changed through cabinets.ts (2026-11-18)
 
 **What the code did** (at `8bb4ce3`; one entry on the ownership debt list, F21.R2):
