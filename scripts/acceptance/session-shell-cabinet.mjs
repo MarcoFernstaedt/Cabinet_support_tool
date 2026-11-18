@@ -346,7 +346,8 @@ try {
   await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND last_heartbeat_at IS NOT NULL', [cabinetId])).rows[0], 'first heartbeat');
   if (offNetwork) {
     console.log('stage: wait for authenticated baseline agent connection');
-    await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
+    await until(async () => (await platformControl('status')).connections.some(c =>
+      c.cabinetId === cabinetId && c.peerAddress && !tailnetAddress(c.peerAddress)), 'authenticated public baseline agent connection');
     const hostKey = (await ps("(Get-Content -LiteralPath 'C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub').Trim()", { stage: 'read cabinet SSH host key' })).split(/\s+/).slice(0, 2).join(' ');
     assert.match(hostKey, /^ssh-ed25519 [A-Za-z0-9+/]+=*$/);
     const cabinetPrincipal = (await ps('whoami.exe', { stage: 'read cabinet SSH principal' })).toLowerCase();
@@ -356,7 +357,15 @@ try {
     // confirm the node is back before the safety net is allowed to remove itself.
     const tailscaleNodeRestore = `$ts=${quote(tailscale)}; & $ts up *> $null; Start-Sleep -Seconds 3; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { Restart-Service Tailscale -Force; Start-Sleep -Seconds 12 }; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node did not come back' }; if ((Get-Service Tailscale).Status -ne 'Running') { (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }`;
     tailnetEvidencePath = remote + '\\tailnet-before-recovery.txt';
-    const recovery = `try { try { $state = (& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState; [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state) } finally { ${tailscaleNodeRestore} } } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false -ErrorAction SilentlyContinue } }`;
+    const recovery = `try { ${tailscaleNodeRestore} } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false -ErrorAction SilentlyContinue } }`;
+    const downPath = await uploadScript('tailscale-down.ps1', `
+      & ${quote(tailscale)} down;
+      if ($LASTEXITCODE -ne 0) { throw "tailscale down failed with exit code $LASTEXITCODE" }
+      $status = & ${quote(tailscale)} status --json;
+      if ($LASTEXITCODE -ne 0) { throw "tailscale status failed with exit code $LASTEXITCODE" }
+      $state = ($status | ConvertFrom-Json).BackendState;
+      [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state);
+      if ($state -ne 'Stopped') { throw "Expected Tailscale Stopped, observed $state" }`);
     const recoveryPath = await uploadScript('tailscale-restore.ps1', recovery);
     const evidenceScript = `
       $connections=@(Get-NetTCPConnection -OwningProcess ${agentProcess} | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,@{n='State';e={$_.State.ToString()}});
@@ -375,10 +384,61 @@ try {
     // file carries a timestamp and expires on its own, so a run that dies here cannot
     // leave the watchdog disabled.
     await ps(`Set-Content -Path C:\\tailscale-watchdog.hold -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ascii`, { stage: 'hold Tailscale watchdog' });
-    // Losing SSH here is expected. No SSH probes or diagnostics until scheduled recovery.
+    await transaction(observer, tx => grantPermission(tx, operator, operator, sshTransportPermission, 'cabinet', cabinetId, true));
+    const cookie = await createSession(observer, operator, 'complete', '127.0.0.1');
+    async function openTransport(stage) {
+      const stepUpToken = await issueStepUpToken(observer, operator, sshTransportPermission, cabinetId);
+      const requestFile = join(work, 'ssh-request.json');
+      writeFileSync(requestFile, JSON.stringify({ method: 'POST', url: `/api/cabinets/${cabinetId}/ssh-transport`,
+        headers: { origin: 'https://acceptance.invalid', cookie: `${COOKIE}=${cookie}`, 'content-type': 'application/json' },
+        payload: { stepUpToken } }), { mode: 0o600 });
+      let opened;
+      try { opened = await platformControl('ssh-open', stage); }
+      finally { rmSync(requestFile); }
+      assert.equal(opened.status, 200, JSON.stringify(opened));
+      const { transportId, endpoint } = opened.body;
+      assert.equal(endpoint.host, '127.0.0.1');
+      assert.ok(Number.isInteger(endpoint.port) && endpoint.port > 0 && endpoint.port <= 65535);
+      return { transportId, endpoint };
+    }
+    async function runTransportScript(endpoint, scriptPath, stage) {
+      const knownHosts = join(work, 'known_hosts');
+      writeFileSync(knownHosts, `[127.0.0.1]:${endpoint.port} ${hostKey}\n`);
+      await run('ssh', ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'IdentitiesOnly=yes',
+        '-o', 'PreferredAuthentications=publickey', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+        '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', `UserKnownHostsFile=${knownHosts}`, '-i', resolve(sshIdentity),
+        '-p', String(endpoint.port), '-l', sshUser, '127.0.0.1', 'powershell.exe', '-NoProfile', '-NonInteractive',
+        '-ExecutionPolicy', 'Bypass', '-File', `"${scriptPath}"`], { stage, timeout: 45_000 });
+    }
+    async function verifyTransport({ transportId, endpoint }) {
+      const auditRows = await until(async () => {
+        const rows = (await observer.query(`SELECT action, actor_id, target_id, details FROM audit_log
+          WHERE action IN ('ssh.transport.open', 'ssh.transport.close') ORDER BY seq`)).rows;
+        const matching = rows.filter(row => {
+          const details = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+          return details.transportId === transportId;
+        });
+        return matching.length >= 2 ? matching : null;
+      }, 'SSH open and close audit');
+      assert.deepEqual(auditRows.map(row => row.action), ['ssh.transport.open', 'ssh.transport.close']);
+      for (const row of auditRows) {
+        assert.equal(row.actor_id, operator);
+        assert.equal(row.target_id, cabinetId);
+        const details = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+        assert.deepEqual(details.endpoint, endpoint);
+      }
+      const { rows: [session] } = await observer.query(
+        'SELECT cabinet_id, operator_id, kind, closed_at FROM remote_sessions WHERE id = $1', [transportId]);
+      assert.ok(session?.closed_at, 'SSH transport must retain a closed session record');
+      assert.equal(session.cabinet_id, cabinetId);
+      assert.equal(session.operator_id, operator);
+      assert.equal(session.kind, 'ssh');
+      return { session, auditEvents: auditRows };
+    }
+
+    const downTransport = await openTransport('open SSH transport for Tailscale down');
     sshAvailable = false;
-    try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { stage: 'take Tailscale down', timeout: 15000 }); }
-    catch (error) { console.error('tailscale down SSH result:', error.message); }
+    await runTransportScript(downTransport.endpoint, downPath, 'take Tailscale down');
     tailnetDownAt = new Date().toISOString();
     // Evict every pre-drop TLS connection; a later successful authenticated request
     // must use a new socket. The API observes the socket peer, never forwarded headers.
@@ -388,55 +448,20 @@ try {
     assert.ok(Date.now() < fallbackRunsAt, "Scheduled recovery preceded the public reconnect");
     peerAddress = connection.peerAddress;
     assert.ok(peerAddress && !tailnetAddress(peerAddress), `Agent API observed tailnet peer: ${peerAddress}`);
-    await transaction(observer, tx => grantPermission(tx, operator, operator, sshTransportPermission, 'cabinet', cabinetId, true));
-    const cookie = await createSession(observer, operator, 'complete', '127.0.0.1');
-    const stepUpToken = await issueStepUpToken(observer, operator, sshTransportPermission, cabinetId);
-    const requestFile = join(work, 'ssh-request.json');
-    writeFileSync(requestFile, JSON.stringify({ method: 'POST', url: `/api/cabinets/${cabinetId}/ssh-transport`,
-      headers: { origin: 'https://acceptance.invalid', cookie: `${COOKIE}=${cookie}`, 'content-type': 'application/json' },
-      payload: { stepUpToken } }), { mode: 0o600 });
-    let opened;
-    try { opened = await platformControl('ssh-open', 'open SSH transport'); }
-    finally { rmSync(requestFile); }
-    assert.equal(opened.status, 200, JSON.stringify(opened));
-    const { transportId, endpoint } = opened.body;
-    assert.equal(endpoint.host, '127.0.0.1');
-    assert.ok(Number.isInteger(endpoint.port) && endpoint.port > 0 && endpoint.port <= 65535);
-    const knownHosts = join(work, 'known_hosts');
-    writeFileSync(knownHosts, `[127.0.0.1]:${endpoint.port} ${hostKey}\n`);
-    await run('ssh', ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'IdentitiesOnly=yes',
-      '-o', 'PreferredAuthentications=publickey', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
-      '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', `UserKnownHostsFile=${knownHosts}`, '-i', resolve(sshIdentity),
-      '-p', String(endpoint.port), '-l', sshUser, '127.0.0.1', 'powershell.exe', '-NoProfile', '-NonInteractive',
-      '-ExecutionPolicy', 'Bypass', '-File', `"${evidencePath}"`], { stage: 'run command through SSH transport', timeout: 45_000 });
+    await verifyTransport(downTransport);
+    const transport = await openTransport('open SSH transport');
+    const { transportId, endpoint } = transport;
+    await runTransportScript(endpoint, evidencePath, 'run command through SSH transport');
     assert.ok(Date.now() < fallbackRunsAt, 'Scheduled recovery preceded the SSH command');
     console.log('stage: verify SSH audit events and closed session');
-    const auditRows = await until(async () => {
-      const rows = (await observer.query(`SELECT action, actor_id, target_id, details FROM audit_log
-        WHERE action IN ('ssh.transport.open', 'ssh.transport.close') ORDER BY seq`)).rows;
-      return rows.length >= 2 ? rows : null;
-    }, 'SSH open and close audit');
-    assert.deepEqual(auditRows.map(row => row.action), ['ssh.transport.open', 'ssh.transport.close']);
-    for (const row of auditRows) {
-      assert.equal(row.actor_id, operator);
-      assert.equal(row.target_id, cabinetId);
-      const details = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
-      assert.equal(details.transportId, transportId);
-      assert.deepEqual(details.endpoint, endpoint);
-    }
-    const { rows: [session] } = await observer.query(
-      'SELECT cabinet_id, operator_id, kind, closed_at FROM remote_sessions WHERE id = $1', [transportId]);
-    assert.ok(session?.closed_at, 'SSH transport must retain a closed session record');
-    assert.equal(session.cabinet_id, cabinetId);
-    assert.equal(session.operator_id, operator);
-    assert.equal(session.kind, 'ssh');
+    const { session, auditEvents } = await verifyTransport(transport);
     // Docker may accept on the published host port even after the transport
     // closes. Probe the actual listener in its own network namespace.
     assert.equal(await run('docker', ['exec', platformContainer, 'node', '-e',
       `const socket = require('node:net').createConnection(${JSON.stringify(endpoint)});
       socket.once('error', error => console.log(error.code));
       socket.once('connect', () => { socket.destroy(); console.log('connected'); });`], { stage: 'verify SSH transport listener closed', timeout: 10000 }), 'ECONNREFUSED');
-    sshProof = { transportId, endpoint, cabinetPrincipal, session, auditEvents: auditRows };
+    sshProof = { transportId, endpoint, cabinetPrincipal, session, auditEvents };
   }
   assert.equal((await verifyAuditChain(observer)).ok, true);
   enrollmentVerified = true;
