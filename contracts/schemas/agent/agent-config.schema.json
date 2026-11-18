@@ -131,10 +131,15 @@
       "type": "boolean",
       "default": false
     },
-    "developmentShellEnabled": {
+    "developmentSshTransportEnabled": {
       "type": "boolean",
       "default": false,
-      "description": "Development branch only. Separate from sessionsEnabled; never written by release installers."
+      "description": "Allows the development agent build to connect only to the existing SSH server on 127.0.0.1:22."
+    },
+    "developmentShellEnabled": {
+      "type": "boolean",
+      "deprecated": true,
+      "description": "Legacy compatibility field. The agent ignores this setting."
     }
   }
 }

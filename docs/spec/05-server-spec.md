@@ -139,7 +139,7 @@ Protecting the rules:
 
 ## Approved software library
 
-The only way files reach a cabinet. There is no general file transfer.
+The approved delivery path for released platform operations. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) follows the cabinet’s SSH policy.
 
 - An Admin uploads a driver package (a zip containing the INF, its signed catalog and its binaries) or an MSI installer, with its name, version, vendor and the hardware it is for, such as the fingerprint scanner's hardware IDs.
 - On upload, the server computes the SHA-256 hash and checks the signature itself: the catalog signature for drivers, the Authenticode signature for MSI files, and that the signer is on the trusted publisher list. Anything unsigned, tampered with, or from an unlisted signer is refused.
@@ -233,3 +233,28 @@ Events and command results kept 90 days by default (the bulky detail of events w
 - Configuration from environment variables and a secret store
 - Dependencies pinned, audited on every build
 - Daily encrypted database backups, with restores tested before the client beta
+
+## Development SSH transport
+
+The [security model](02-security-model.md#development-ssh-transport) defines the development
+build and configuration gates. A cabinet-scoped operator obtains step-up for action
+`ssh.transport` and the cabinet ID, then sends `{ "stepUpToken": "…" }` to
+`POST /api/cabinets/:id/ssh-transport` with the usual console session and origin headers. The
+response includes `transportId` and `endpoint` with the assigned loopback host and port. Run
+`ssh -p <assigned-port> <cabinet-user>@127.0.0.1` on the platform host, verifying the cabinet’s
+host key. The endpoint accepts one client. The operator can close it with
+`DELETE /api/cabinets/:id/ssh-transport/:transportId`. Disconnect, lease expiry, the 30-minute
+session limit, and graceful server shutdown also close the transport.
+
+The off-network acceptance extends `scripts/acceptance/session-shell-cabinet.mjs`. Use its
+existing off-network enrollment setup with `SHELL_OFF_NETWORK=1`, `SHELL_PLATFORM_HOST`,
+`SHELL_PLATFORM_PORT=8443`, and the test SQL database. Set `SHELL_SSH_USER` to the same cabinet
+account used by `SHELL_CABINET_SSH` and `SHELL_SSH_IDENTITY` to a usable key authorized for that
+account. The Linux acceptance container uses host networking so the host’s SSH client can dial
+the platform’s assigned loopback port. The harness reads the cabinet’s ED25519 host key before
+Tailscale goes down, waits for a fresh authenticated public connection using the existing
+enrollment checks, then runs one command through SSH. After recovery it copies the evidence file
+via the original cabinet connection and verifies the authenticated account, the stopped tailnet,
+the agent’s two outbound destinations, and the absence of an agent listener. The database keeps
+the audit evidence. The harness also checks that the local endpoint refuses new connections after
+closure.

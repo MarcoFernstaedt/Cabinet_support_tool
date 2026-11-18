@@ -7,6 +7,7 @@ import { parseRoles, type ServerRole } from "./roles.js";
 export interface Config {
   /** What this process runs (SERVER_ROLES; F21.R3, decision-log D60): the agent API, the console API, the background jobs. Default: all three. */
   roles: ReadonlySet<ServerRole>;
+  developmentSshTransport?: boolean;
   /** sqlserver://user:password@host:1433/database?encrypt=true&trustServerCertificate=false (Microsoft SQL Server). */
   databaseUrl: string;
   /** longPollSeconds: how long a poll is held; unset, it follows the platform's pacing setting (default 25). */
@@ -123,6 +124,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // roles default to all three and the console runs only when it is configured, as before.
   if (env.SERVER_ROLES?.trim() && config.roles.has("console") && !config.console)
     throw new Error("SERVER_ROLES includes console, but CONSOLE_ORIGIN is not set: set the console's settings, or leave console out of SERVER_ROLES.");
+  if (env.DEVELOPMENT_SSH_TRANSPORT === "1") {
+    if (env.NODE_ENV !== "development" || config.agentApi.workers !== 1 || !config.roles.has("agent") || !config.roles.has("console") || !config.console)
+      throw new Error("Development SSH transport requires NODE_ENV=development and one process serving both APIs.");
+    config.developmentSshTransport = true;
+  }
   return config;
 }
 

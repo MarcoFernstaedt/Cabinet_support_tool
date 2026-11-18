@@ -15,6 +15,9 @@
   <PropertyGroup Condition="'$(AllowUnsignedDevelopmentUpgrades)' == 'true'">
     <DefineConstants>$(DefineConstants);ALLOW_UNSIGNED_DEVELOPMENT_UPGRADES</DefineConstants>
   </PropertyGroup>
+  <PropertyGroup Condition="'$(DevelopmentSshTransport)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEVELOPMENT_SSH_TRANSPORT</DefineConstants>
+  </PropertyGroup>
   <ItemGroup>
     <!-- JsonSchema.Net: .NET has no JSON Schema validator, and every input must be
          validated against the shared draft 2020-12 schemas before anything else
@@ -103,6 +106,8 @@
   <Target Name="CheckCabinetReleaseTrust" BeforeTargets="CoreCompile" Condition="'$(CabinetReleaseChannel)' == 'production'">
     <Error Condition="'$(AllowUnsignedDevelopmentUpgrades)' == 'true'"
            Code="CAB0001" Text="A cabinet release build cannot allow unsigned development upgrades (AllowUnsignedDevelopmentUpgrades=true)." />
+    <Error Condition="'$(DevelopmentSshTransport)' == 'true'"
+           Code="CAB0003" Text="A cabinet release build cannot include the development SSH transport." />
     <CheckUpgradeTrust TrustDir="$(UpgradeTrustDir)">
       <Output TaskParameter="Problem" PropertyName="_UpgradeTrustProblem" />
     </CheckUpgradeTrust>

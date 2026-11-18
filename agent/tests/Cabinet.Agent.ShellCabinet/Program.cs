@@ -1,4 +1,4 @@
-// Real Windows acceptance host: production AgentConnection, validation, CNG identity, session implementation and ConPTY.
+// Real Windows enrollment host using the production agent connection, validation, and CNG identity.
 // No operation stubs, HTTP handler doubles, executable arguments or server-supplied startup command.
 using System.Runtime.Versioning;
 using System.Security.Principal;
@@ -26,7 +26,6 @@ var watch = Task.Run(async () => {
 });
 var connection = new AgentConnection(new AgentConnectionOptions {
     ServerUri = server, PlatformCa = ca, Keys = keys, Store = new IdentityStore(state), Config = config,
-    ShellTerminal = () => new SessionTerminal(),
     ProcessorFor = c => new CommandProcessor(new CommandValidator(c, new ReplayStore(Path.Combine(state, "replay.log"), TimeProvider.System),
         new RateLimiter(null, TimeProvider.System), TimeProvider.System), new OperationRegistry(), TimeProvider.System),
     Fingerprints = () => new EnrollFingerprints { Hostname = Environment.MachineName, SerialNumber = null, MacAddresses = [], ProvisionedClient = null, ProvisionedSite = null,

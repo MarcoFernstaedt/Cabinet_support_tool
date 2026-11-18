@@ -6,7 +6,7 @@
 - Supported on Windows 10 and 11. Not deployed to Windows 7.
 - Installs to Program Files; data, queue and logs live under ProgramData. Both folders are writable only by SYSTEM and Administrators.
 - The binaries are Authenticode-signed. At startup the agent checks the signature on its own files and reports any mismatch as a security event.
-- Makes outbound HTTPS connections to one hostname only. Cabinets need no inbound firewall ports opened for the agent.
+- Makes outbound HTTPS connections to the configured platform hostname. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) also dials the existing cabinet SSH server on loopback. The agent binds no listener and needs no inbound firewall rule.
 
 ## Privilege separation
 

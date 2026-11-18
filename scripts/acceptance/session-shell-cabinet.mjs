@@ -1,13 +1,14 @@
-// Real cabinet acceptance. Requires exported TEST_DATABASE_ADMIN_URL and SSH to deviceb.
+// Real cabinet enrollment and development SSH transport acceptance.
+// Off-network mode also requires a cabinet SSH user and an authorized key.
 // Uses an isolated database, a new CNG identity, and a temporary Windows host running the production agent connection.
 // Existing cabinet services, configuration and enrollment are not changed. No public endpoint is simulated.
 import assert from 'node:assert/strict';
-import { BlockList, isIP } from 'node:net';
+import { BlockList, createConnection, isIP } from 'node:net';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import { X509Certificate, randomUUID } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir, networkInterfaces, homedir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { createTestDatabase } from '../../server/dist/test/database.js';
@@ -15,17 +16,20 @@ import { developmentPlatformPki } from '../../server/dist/src/pki/issuing.js';
 import { buildAgentApi } from '../../server/dist/src/agent-api/server.js';
 import { CommandNotifier } from '../../server/dist/src/agent-api/notifier.js';
 import { NotificationFeed } from '../../server/dist/src/db/notifications.js';
-import { SessionRelay } from '../../server/dist/src/agent-api/session-relay.js';
-import { SessionLifecycle } from '../../server/dist/src/services/session-lifecycle.js';
-import { SessionShell } from '../../server/dist/src/services/session-shell.js';
 import { createBootstrapToken, approveEnrollment } from '../../server/dist/src/services/enrollment.js';
-import { grantPermission } from '../../server/dist/src/services/user-permissions.js';
-import { issueStepUpToken } from '../../server/dist/src/auth/stepup.js';
-import { openSession } from '../../server/dist/src/services/session-opening.js';
 import { opsMeter, splitKey } from '../../server/dist/src/services/ops-meter.js';
-import { createPool, verifyAuditChain } from '../../server/dist/src/db/db.js';
+import { createPool, transaction, verifyAuditChain } from '../../server/dist/src/db/db.js';
+import { createSession, COOKIE } from '../../server/dist/src/auth/sessions.js';
+import { issueStepUpToken } from '../../server/dist/src/auth/stepup.js';
+import { grantPermission, sshTransportPermission } from '../../server/dist/src/services/user-permissions.js';
 const sshConfig = ['-F', join(homedir(), '.ssh/config'), '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=10'];
 const offNetwork = process.env.SHELL_OFF_NETWORK === '1';
+const sshUser = process.env.SHELL_SSH_USER;
+const sshIdentity = process.env.SHELL_SSH_IDENTITY;
+if (offNetwork) {
+  assert.ok(sshUser?.trim(), 'Set SHELL_SSH_USER to the cabinet account');
+  assert.ok(sshIdentity, 'Set SHELL_SSH_IDENTITY to an authorized SSH identity file');
+}
 const platformPort = Number(process.env.SHELL_PLATFORM_PORT ?? 18443);
 // The alternate listener port applies only to the existing host-served mode.
 const platformListenPort = Number(process.env.SHELL_PLATFORM_LISTEN_PORT ?? platformPort);
@@ -41,10 +45,9 @@ const work = mkdtempSync(join(tmpdir(), 'shell-cabinet-'));
 const runId = 'shell-' + randomUUID();
 let observer, db, api, notifier, feed, remote, agentProcess;
 let fallbackRegistered = false, fallbackDeadline = 0, fallbackRunsAt = 0, containerStopped = false;
-let tailnetDownAt, tailnetRestoredAt, peerAddress;
-const shellCommandEvidence = [];
-const shellChecks = [];
-let readShellOutput;
+let cabinetId, tailnetDownAt, tailnetEvidencePath, peerAddress;
+let enrollmentVerified = false, sshProof;
+const evidenceFile = 'ssh-transport-evidence.json';
 const taskName = 'cabinet-acceptance-tailscale-restore';
 const tailscale = "C:\\Program Files\\Tailscale\\tailscale.exe";
 const platformContainer = runId + '-platform';
@@ -72,39 +75,6 @@ async function run(binary, args, options = {}) {
 }
 const quote = text => "'" + text.replaceAll("'", "''") + "'";
 async function ps(source, options = {}) { return await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from("$ErrorActionPreference='Stop';" + source, 'utf16le').toString('base64')], options); }
-async function verifyShellChecks() {
-  const pending = shellChecks.filter(({ evidence }) => evidence.verdict === 'pending');
-  if (!pending.length) return;
-  let files, readError;
-  try {
-    if (!sshAvailable) throw new Error('SSH unavailable');
-    const paths = pending.map(({ evidence }) => quote(evidence.path)).join(',');
-    files = JSON.parse(await ps(`$paths=@(${paths}); for ($i=0; $i -lt 20; $i++) { if (Test-Path -LiteralPath $paths[-1] -PathType Leaf) { break }; Start-Sleep -Milliseconds 250 }; $result=@{}; foreach ($path in $paths) { if (Test-Path -LiteralPath $path -PathType Leaf) { $result[$path]=[IO.File]::ReadAllText($path) } }; [Console]::OutputEncoding=[Text.Encoding]::UTF8; ConvertTo-Json -InputObject $result -Compress`, { timeout: 20000 }));
-  } catch (error) {
-    for (const { evidence } of pending) evidence.verdict = 'evidence read failed';
-    readError = new Error(`Could not read cabinet check files over SSH: ${error.message}`);
-  }
-  try {
-    const output = Buffer.concat(await readShellOutput()).toString().replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
-    for (const { evidence, markers } of pending) {
-      const outcome = markers.echo ? output.split(/\r?\n/).some(line => line.trim() === markers.done)
-        : output.includes(markers.done);
-      evidence.console = markers.failed && output.includes(markers.failed) ? 'FAIL received'
-        : outcome ? 'result received'
-        : markers.start && output.includes(markers.start) ? 'START only' : 'no marker';
-    }
-  } catch (error) {
-    console.error('Could not read shell console hints:', error.message);
-  }
-  if (readError) throw readError;
-  for (const { evidence, expected } of pending) {
-    evidence.fileEvidence = files[evidence.path] ?? null;
-    evidence.verdict = evidence.fileEvidence === null ? 'missing file'
-      : evidence.fileEvidence.trim() === expected ? 'pass' : 'unexpected file contents';
-  }
-  const failures = pending.filter(({ evidence }) => evidence.verdict !== 'pass');
-  assert.equal(failures.length, 0, failures.map(({ evidence }) => `${evidence.label}: ${evidence.verdict}`).join('; '));
-}
 const shedReasons = new Map();
 let sshAvailable = true, interrupted;
 let admissionDiagnostics = () => null;
@@ -175,28 +145,31 @@ async function until(read, label, { expectExit = false, deadlineError = () => ne
 }
 async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`]); }
 // This bootstrap runs inside the built server image. The control listener is
-// loopback-only and never published; socket peers come directly from the agent API.
+// a Unix socket inside the container. Host networking makes the assigned TCP
+// loopback endpoint available to the host SSH client without proxying it.
 async function containerPlatform() {
   const { readFileSync } = await import('node:fs');
   const { createServer } = await import('node:http');
+  const { randomBytes } = await import('node:crypto');
   const base = '/build/server/dist/src/';
   const { createPool } = await import(base + 'db/db.js');
   const { developmentIssuingKey } = await import(base + 'pki/issuing.js');
   const { buildAgentApi } = await import(base + 'agent-api/server.js');
   const { NotificationFeed } = await import(base + 'db/notifications.js');
   const { CommandNotifier } = await import(base + 'agent-api/notifier.js');
-  const { SessionRelay } = await import(base + 'agent-api/session-relay.js');
-  const { SessionLifecycle } = await import(base + 'services/session-lifecycle.js');
+  const { buildConsoleApi } = await import(base + 'console-api/server.js');
+  const { SecretBox } = await import(base + 'auth/secrets.js');
+  const { SshTransport } = await import(base + 'services/ssh-transport.js');
   const config = JSON.parse(readFileSync('/acceptance/platform.json', 'utf8'));
   const pkiDir = '/acceptance/' + (await import('node:fs')).readdirSync('/acceptance').find(n => n.startsWith('acceptance-pki-'));
   const issuingKey = await developmentIssuingKey(pkiDir);
   const pool = await createPool(config.databaseUrl);
   const feed = new NotificationFeed(pool, 50); await feed.start();
   const notifier = new CommandNotifier(feed); await notifier.start();
-  let lifecycle;
-  const relay = new SessionRelay((c, s, a) => lifecycle.authorize(c, s, a));
-  lifecycle = new SessionLifecycle(pool, (c, s) => relay.close(c, s));
-  const api = await buildAgentApi({ pool, issuingKey, notifier, sessionRelay: relay, tls: config.tls, longPollMs: 1000, logger: true });
+  const sshTransport = new SshTransport(pool);
+  const consoleApi = await buildConsoleApi({ pool, issuingKey, sshTransport,
+    origin: 'https://acceptance.invalid', secrets: new SecretBox(randomBytes(32).toString('base64')) });
+  const api = await buildAgentApi({ pool, issuingKey, notifier, sshTransport, tls: config.tls, longPollMs: 1000, logger: true });
   const sockets = new Set(), connections = new Map();
   let excluded = new Set();
   api.server.on('secureConnection', socket => {
@@ -210,23 +183,35 @@ async function containerPlatform() {
       connections.set(socket, { cabinetId: request.cabinet.id, peerAddress: socket.remoteAddress });
   });
   await api.listen({ host: '0.0.0.0', port: 8443 });
-  createServer((request, response) => {
+  createServer(async (request, response) => {
+    response.setHeader('content-type', 'application/json');
+    if (request.url === '/ssh-open') {
+      try {
+        const options = JSON.parse(readFileSync('/acceptance/ssh-request.json', 'utf8'));
+        const malformed = await consoleApi.inject({ ...options, payload: { ...options.payload, host: '127.0.0.2', port: 23 } });
+        if (malformed.statusCode !== 400) throw new Error('Console accepted a caller-supplied SSH destination');
+        const opened = await consoleApi.inject(options);
+        response.end(JSON.stringify({ status: opened.statusCode, body: opened.json() }));
+      } catch (error) {
+        response.end(JSON.stringify({ error: error.message }));
+      }
+      return;
+    }
     if (request.url === '/reset') {
       excluded = new Set(sockets);
       for (const socket of excluded) socket.destroy();
       connections.clear();
     }
-    response.setHeader('content-type', 'application/json');
     response.end(JSON.stringify({ ready: true, connections: [...connections].filter(([socket]) => !socket.destroyed).map(([, c]) => c) }));
-  }).listen(18444, '127.0.0.1');
+  }).listen('/tmp/acceptance-control.sock');
 }
 async function platformControl(action) {
   return JSON.parse(await run('docker', ['exec', platformContainer, 'node', '-e',
-    `fetch('http://127.0.0.1:18444/${action}').then(r => r.text()).then(console.log).catch(() => process.exit(1))`], { timeout: 10000 }));
+    `require('node:http').get({ socketPath: '/tmp/acceptance-control.sock', path: '/${action}' }, response => response.pipe(process.stdout)).on('error', () => process.exit(1))`], { timeout: 10000 }));
 }
 try {
   // This build is from the current working tree, including review changes.
-  await run('dotnet', ['publish', 'agent/tests/Cabinet.Agent.ShellCabinet', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '--disable-build-servers', '-p:BuildInParallel=false', '-o', join(work, 'bin')], { stdio: 'inherit' });
+  await run('dotnet', ['publish', 'agent/tests/Cabinet.Agent.ShellCabinet', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '--disable-build-servers', '-p:BuildInParallel=false', `-p:DevelopmentSshTransport=${offNetwork}`, '-o', join(work, 'bin')], { stdio: 'inherit' });
   await run('python3', ['-c', 'import shutil,sys; shutil.make_archive(sys.argv[1], "zip", sys.argv[2])', join(work, 'agent'), join(work, 'bin')]);
   remote = await ps(`$d=Join-Path $env:TEMP ${quote(runId)}; New-Item -ItemType Directory -Path $d | Out-Null; $d`);
   await upload(join(work, 'agent.zip'), remote + '\\agent.zip');
@@ -245,13 +230,10 @@ try {
     await run('docker', ['build', '-f', 'deploy/Dockerfile', '--target', 'server-build', '-t', platformImage, '.']);
     const sqlContainer = process.env.SHELL_DATABASE_CONTAINER ?? 'cab-test-mssql';
     const [sql] = JSON.parse(await run('docker', ['inspect', sqlContainer]));
-    const [network, endpoint] = Object.entries(sql.NetworkSettings.Networks)[0];
     const databaseUrl = new URL(db.appUrl);
-    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(databaseUrl.hostname), 'Container SQL mapping requires a local test database');
+    assert.ok(['localhost', '127.0.0.1', '[::1]'].includes(databaseUrl.hostname), 'Host networking requires a local test database');
     const binding = sql.NetworkSettings.Ports['1433/tcp'] ?? [];
     assert.ok(binding.some(b => b.HostPort === (databaseUrl.port || '1433')), 'SQL container must publish the acceptance database port');
-    databaseUrl.hostname = endpoint.IPAddress;
-    databaseUrl.port = '1433';
     writeFileSync(join(work, 'platform.json'), JSON.stringify({ databaseUrl: databaseUrl.toString(), platformHost, tls }));
     writeFileSync(join(work, 'platform.mjs'), '(' + containerPlatform.toString() + ')().catch(error => { console.error(error); process.exit(1); });');
     const running = await run('docker', ['inspect', '--format', '{{.State.Running}}', 'cabinet-server-1']);
@@ -261,8 +243,7 @@ try {
     }
     // Set before creation so cleanup also handles an interrupted/failed docker run.
     platformContainerCreated = true;
-    await run('docker', ['run', '-d', '--name', platformContainer, '--network', network,
-      '-p', '8443:8443', '--mount', `type=bind,src=${work},dst=/acceptance,readonly`,
+    await run('docker', ['run', '-d', '--name', platformContainer, '--network', 'host', '--mount', `type=bind,src=${work},dst=/acceptance,readonly`,
       '--entrypoint', 'node', platformImage, '/acceptance/platform.mjs']);
     await until(async () => {
       try { return (await platformControl('status')).ready; } catch { return false; }
@@ -270,10 +251,7 @@ try {
   } else {
     feed = new NotificationFeed(db.app, 50); await feed.start();
     notifier = new CommandNotifier(feed); await notifier.start();
-    let lifecycle;
-    const relay = new SessionRelay((c, s, a) => lifecycle.authorize(c, s, a));
-    lifecycle = new SessionLifecycle(db.app, (c, s) => relay.close(c, s));
-    api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier, sessionRelay: relay,
+    api = await buildAgentApi({ pool: db.app, issuingKey: key, notifier,
       tls, longPollMs: 1000, logger: true,
       onAdmissionDiagnostics: read => { admissionDiagnostics = read; },
       onAdmissionShed: reason => shedReasons.set(reason, (shedReasons.get(reason) ?? 0) + 1) });
@@ -282,12 +260,11 @@ try {
   const server = `https://${platformHost}:${platformPort}`;
   const operator = randomUUID();
   await observer.query("INSERT INTO users (id, username, name, role) VALUES ($1, 'shell-acceptance', 'Shell acceptance operator', 'tier2')", [operator]);
-  await observer.transaction(tx => grantPermission(tx, operator, operator, 'session.open', 'fleet', null));
   const bootstrap = await createBootstrapToken(observer, operator);
   writeFileSync(join(work, 'bootstrap-token'), bootstrap.token);
   await upload(join(work, 'bootstrap-token'), remote + '\\bootstrap-token');
   const config = { cabinetId: null, readOnlyMode: false, cabinetRole: null, scanner: { hardwareIds: [] }, syncCabinet: { address: null },
-    platformServer: { host: platformHost, port: platformPort }, allowedTcpPorts: [], localHarness: false, sessionsEnabled: true };
+    platformServer: { host: platformHost, port: platformPort }, allowedTcpPorts: [], localHarness: false, developmentSshTransportEnabled: offNetwork };
   async function stopAgent(removeKey = false) {
     if (!agentProcess) return;
     await ps(`${removeKey ? `New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null;` : ''} New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`);
@@ -299,27 +276,20 @@ try {
   await startAgent(server);
   const request = await until(async () => (await observer.query("SELECT TOP (1) id FROM enrollment_requests WHERE status = 'pending' ORDER BY created_at DESC")).rows[0], 'cabinet enrollment');
   const enrolled = await approveEnrollment(observer, key, request.id, { clientName: runId, siteName: 'Tailnet lab', cabinetName: runId, role: 'standalone' }, operator);
-  const cabinetId = enrolled.cabinetId;
+  cabinetId = enrolled.cabinetId;
   await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND last_heartbeat_at IS NOT NULL', [cabinetId])).rows[0], 'first heartbeat');
-  assert.equal((await observer.query('SELECT development_shell FROM cabinets WHERE id = $1', [cabinetId])).rows[0].development_shell, false);
-  const token = await issueStepUpToken(observer, operator, 'session.open', cabinetId);
-  await assert.rejects(openSession(observer, operator, cabinetId, { kind: 'shell', reason: 'Absent key must refuse', stepUpToken: token }), /not reported/);
-  assert.equal((await observer.query("SELECT action FROM audit_log WHERE action = 'session.refused' AND target_id = $1", [cabinetId])).rows.length, 1);
-  console.log('RED: key absent, capability absent, open refused and audited; no shell command queued');
-  assert.equal((await observer.query('SELECT id FROM commands WHERE cabinet_id = $1', [cabinetId])).rows.length, 0);
-  await stopAgent();
-  config.developmentShellEnabled = true;
-  writeFileSync(join(work, 'agent-config.json'), JSON.stringify(config)); await upload(join(work, 'agent-config.json'), remote + '\\agent-config.json');
-  await startAgent(server);
-  await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND development_shell = 1', [cabinetId])).rows[0], 'opt-in capability');
   if (offNetwork) {
     await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
+    const hostKey = (await ps("(Get-Content -LiteralPath 'C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub').Trim()")).split(/\s+/).slice(0, 2).join(' ');
+    assert.match(hostKey, /^ssh-ed25519 [A-Za-z0-9+/]+=*$/);
+    const cabinetPrincipal = (await ps('whoami.exe')).toLowerCase();
     await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
     // `tailscale down` stops the node, not the service, so starting the service is a no-op
     // when only the node is down: restart it (the recovery measured on the lab cabinet) and
     // confirm the node is back before the safety net is allowed to remove itself.
     const tailscaleNodeRestore = `$ts=${quote(tailscale)}; & $ts up *> $null; Start-Sleep -Seconds 3; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { Restart-Service Tailscale -Force; Start-Sleep -Seconds 12 }; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node did not come back' }; if ((Get-Service Tailscale).Status -ne 'Running') { (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }`;
-    const recovery = `try { ${tailscaleNodeRestore} } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false } }`;
+    tailnetEvidencePath = remote + '\\tailnet-before-recovery.txt';
+    const recovery = `try { try { $state = (& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState; [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state) } finally { ${tailscaleNodeRestore} } } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false } }`;
     // Set the flag before registration: even a lost SSH response must enter cleanup.
     fallbackRegistered = true;
     fallbackRunsAt = Date.now() + 6 * 60_000;
@@ -329,107 +299,82 @@ try {
     // file carries a timestamp and expires on its own, so a run that dies here cannot
     // leave the watchdog disabled.
     await ps(`Set-Content -Path C:\\tailscale-watchdog.hold -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ascii`);
-    // Losing SSH here is expected. No SSH probes or diagnostics until shell restoration.
+    // Losing SSH here is expected. No SSH probes or diagnostics until scheduled recovery.
     sshAvailable = false;
     try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { timeout: 15000 }); }
-    catch (error) { console.error('tailscale down SSH result (shell must verify stopped state):', error.message); }
+    catch (error) { console.error('tailscale down SSH result:', error.message); }
     tailnetDownAt = new Date().toISOString();
     // Evict every pre-drop TLS connection; a later successful authenticated request
     // must use a new socket. The API observes the socket peer, never forwarded headers.
     await platformControl('reset');
     const connection = await until(async () => (await platformControl('status')).connections.find(c => c.cabinetId === cabinetId), 'fresh public agent reconnect after tailscale down');
+    assert.ok(Date.now() < fallbackRunsAt, "Scheduled recovery preceded the public reconnect");
     peerAddress = connection.peerAddress;
     assert.ok(peerAddress && !tailnetAddress(peerAddress), `Agent API observed tailnet peer: ${peerAddress}`);
-  }
-  const greenToken = await issueStepUpToken(observer, operator, 'session.open', cabinetId);
-  const { sessionId } = await openSession(observer, operator, cabinetId, { kind: 'shell', reason: offNetwork ? 'Recorded real-cabinet acceptance over public internet' : 'Recorded real-cabinet acceptance over tailnet', stepUpToken: greenToken });
-  await until(async () => (await observer.query("SELECT id FROM commands WHERE cabinet_id = $1 AND operation = 'session.open' AND status = 'succeeded'", [cabinetId])).rows[0], 'agent session opening');
-  const shell = new SessionShell(observer);
-  await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.resize', columns: 100, rows: 30 }, operator);
-  readShellOutput = async () => {
-    const rows = (await observer.query('SELECT frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-    return rows.map(r => typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame)
-      .filter(f => f.kind === 'shell.out').map(f => Buffer.from(f.data, 'base64'));
-  };
-  function newShellCheck(label, expected, markers) {
-    const id = randomUUID().replaceAll('-', '');
-    const path = remote + '\\check-' + id + '.txt';
-    const evidence = { label, id, path, fileEvidence: null, console: 'unavailable', verdict: 'pending' };
-    shellCommandEvidence.push(evidence);
-    const check = { evidence, expected, markers: markers(id) };
-    shellChecks.push(check);
-    return check;
-  }
-  async function typeShellLine(line) {
-    await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(line).toString('base64') }, operator);
-  }
-  async function shellPowerShell(source, label, expected = 'PASS') {
-    const { evidence: { path }, markers: { start, done, failed } } = newShellCheck(label, expected, id =>
-      ({ start: 'START_' + id, done: 'DONE_' + id, failed: 'FAIL_' + id }));
-    const flush = '[Console]::Out.Flush(); [Console]::Error.Flush()';
-    const encoded = Buffer.from(`$ErrorActionPreference='Stop'; $checkPath=${quote(path)}; $checkResult='PASS'; $checkMarker='${done}'; try { try { [Console]::Out.WriteLine('${start}'); ${flush} } catch {}; ${source} } catch { $checkResult='FAIL: ' + $_; $checkMarker='${failed}' }; [IO.File]::WriteAllText($checkPath + '.tmp', $checkResult); [IO.File]::Move($checkPath + '.tmp', $checkPath); try { [Console]::Out.WriteLine($checkMarker); ${flush} } catch {}; Start-Sleep -Milliseconds 250; if ($checkMarker -eq '${failed}') { exit 1 }`, 'utf16le').toString('base64');
-    // Leave time for cmd.exe to regain the prompt after the previous child exits.
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    await typeShellLine(`powershell.exe -NoProfile -NonInteractive -EncodedCommand ${encoded}\r`);
-  }
-  if (offNetwork) {
-    await shellPowerShell(`$stdout=Write-Output ('CHILD_' + 'STDOUT'); $stderr=('CHILD_' + 'STDERR'); Write-Output $stdout; [Console]::Error.WriteLine($stderr); $checkResult=@('PASS', $stdout, $stderr) -join [char]10`,
-      'first child process output', 'PASS\nCHILD_STDOUT\nCHILD_STDERR');
-    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale did not go down' }`, 'shell verifies Tailscale stopped');
-    // Keep the arithmetic in the session's own cmd.exe. Print the captured value
-    // as a hint after redirecting the command's result to its evidence file.
-    for (let n = 0; n < 3; n++) {
-      const a = 100 + Math.floor(Math.random() * 800);
-      const b = 100 + Math.floor(Math.random() * 800);
-      const expected = String(a + b);
-      const { evidence: { path } } = newShellCheck(`plain consecutive command ${n + 1} of 3`, expected, () => ({ done: expected, echo: true }));
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      await typeShellLine(`set /a ${a}+${b} >"${path}" && type "${path}"\r`);
+    await transaction(observer, tx => grantPermission(tx, operator, operator, sshTransportPermission, 'cabinet', cabinetId, true));
+    const cookie = await createSession(observer, operator, 'complete', '127.0.0.1');
+    const stepUpToken = await issueStepUpToken(observer, operator, sshTransportPermission, cabinetId);
+    const requestFile = join(work, 'ssh-request.json');
+    writeFileSync(requestFile, JSON.stringify({ method: 'POST', url: `/api/cabinets/${cabinetId}/ssh-transport`,
+      headers: { origin: 'https://acceptance.invalid', cookie: `${COOKIE}=${cookie}`, 'content-type': 'application/json' },
+      payload: { stepUpToken } }), { mode: 0o600 });
+    let opened;
+    try { opened = await platformControl('ssh-open'); }
+    finally { rmSync(requestFile); }
+    assert.equal(opened.status, 200, JSON.stringify(opened));
+    const { transportId, endpoint } = opened.body;
+    assert.equal(endpoint.host, '127.0.0.1');
+    assert.ok(Number.isInteger(endpoint.port) && endpoint.port > 0 && endpoint.port <= 65535);
+    const knownHosts = join(work, 'known_hosts');
+    writeFileSync(knownHosts, `[127.0.0.1]:${endpoint.port} ${hostKey}\n`);
+    const source = `$ErrorActionPreference='Stop';
+      $connections=@(Get-NetTCPConnection -OwningProcess ${agentProcess} | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,@{n='State';e={$_.State.ToString()}});
+      $state=(& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState;
+      $principal=(whoami.exe).Trim();
+      $evidence=@{result=${quote(runId)}; principal=$principal; agentPid=${agentProcess}; tailnetState=$state; connections=$connections};
+      [IO.File]::WriteAllText(${quote(remote + '\\' + evidenceFile)}, ($evidence | ConvertTo-Json -Compress -Depth 4));`;
+    await run('ssh', ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'IdentitiesOnly=yes',
+      '-o', 'PreferredAuthentications=publickey', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
+      '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', `UserKnownHostsFile=${knownHosts}`, '-i', resolve(sshIdentity),
+      '-p', String(endpoint.port), '-l', sshUser, '127.0.0.1', 'powershell.exe', '-NoProfile', '-NonInteractive',
+      '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')], { timeout: 45_000 });
+    assert.ok(Date.now() < fallbackRunsAt, 'Scheduled recovery preceded the SSH command');
+    const auditRows = await until(async () => {
+      const rows = (await observer.query(`SELECT action, actor_id, target_id, details FROM audit_log
+        WHERE action IN ('ssh.transport.open', 'ssh.transport.close') ORDER BY seq`)).rows;
+      return rows.length >= 2 ? rows : null;
+    }, 'SSH open and close audit');
+    assert.deepEqual(auditRows.map(row => row.action), ['ssh.transport.open', 'ssh.transport.close']);
+    for (const row of auditRows) {
+      assert.equal(row.actor_id, operator);
+      assert.equal(row.target_id, cabinetId);
+      const details = typeof row.details === 'string' ? JSON.parse(row.details) : row.details;
+      assert.equal(details.transportId, transportId);
+      assert.deepEqual(details.endpoint, endpoint);
     }
-    await shellPowerShell(`$identity=whoami; $identity; $machine=($identity -like 'NT AUTHORITY\\*') -or ($identity -like ($env:COMPUTERNAME + '\\*')); if ($LASTEXITCODE -ne 0 -or -not $machine) { throw 'whoami did not name the cabinet machine context' }`, 'off-network whoami');
-    await shellPowerShell(`$entries=@(Get-ChildItem $env:USERPROFILE/Desktop); $entries | Format-Table | Out-String | Write-Output; if ($entries.Count -eq 0) { throw 'Desktop listing empty' }`, 'off-network desktop listing');
-    const desktopMarker = runId + '.txt';
-    await shellPowerShell(`$path=Join-Path $env:USERPROFILE ${quote('Desktop/' + desktopMarker)}; $created=$false; try { $file=[System.IO.File]::Open($path, 'CreateNew', 'Write'); $created=$true; try { $file.WriteByte(65) } finally { $file.Dispose() }; if (-not (Test-Path -LiteralPath $path)) { throw 'Marker missing' } } finally { if ($created) { Remove-Item -LiteralPath $path } }; if (Test-Path -LiteralPath $path) { throw 'Marker cleanup failed' }`, 'off-network marker write and cleanup');
-    assert.ok(Date.now() < fallbackRunsAt - 15000, 'Off-network proof exceeded fallback window');
-    await shellPowerShell(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Stopped') { throw 'Tailscale restored before shell proof' }; ${tailscaleNodeRestore}`, 'Tailscale restoration through operator shell');
-    await until(async () => { try { return (await ps("'SSH_RESTORED'", { timeout: 12000 })) === 'SSH_RESTORED'; } catch { return false; } }, 'SSH returns after shell restoration');
-    sshAvailable = true;
-    tailnetRestoredAt = new Date().toISOString();
-    assert.ok(Date.now() < fallbackRunsAt, 'Scheduled fallback may have restored Tailscale before shell completion');
-    // The public shell is the only path during the outage. Read its files once SSH returns.
-    await verifyShellChecks();
-    await ps(`Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }; Remove-Item C:\\tailscale-watchdog.hold -ErrorAction SilentlyContinue`);
-    fallbackRegistered = false;
+    await assert.rejects(new Promise((resolveConnection, reject) => {
+      const socket = createConnection(endpoint);
+      socket.once('error', reject);
+      socket.once('connect', () => { socket.destroy(); resolveConnection(); });
+    }), { code: 'ECONNREFUSED' });
+    sshProof = { transportId, endpoint, cabinetPrincipal };
   }
-  const marker = 'CABINET_SHELL_' + randomUUID().replaceAll('-', '');
-  const { evidence: { path } } = newShellCheck('final shell echo', marker, () => ({ done: marker, echo: true }));
-  const command = `>"${path}" echo ${marker} && type "${path}"\rwhoami\rhostname\rexit 7\r`;
-  await shell.exchange(cabinetId, sessionId, 'console', { kind: 'shell.in', data: Buffer.from(command).toString('base64') }, operator);
-  await until(async () => (await observer.query('SELECT closed_at FROM remote_sessions WHERE id = $1', [sessionId])).rows[0]?.closed_at, 'shell exit');
-  const frames = (await observer.query('SELECT direction, frame FROM session_shell_frames WHERE session_id = $1 ORDER BY seq', [sessionId])).rows.map(r => ({ ...r, frame: typeof r.frame === 'string' ? JSON.parse(r.frame) : r.frame }));
-  const output = frames.filter(f => f.frame.kind === 'shell.out').map(f => Buffer.from(f.frame.data, 'base64').toString()).join('');
-  await verifyShellChecks();
-  assert.ok(frames.some(f => f.frame.kind === 'shell.exit' && f.frame.code === 7));
-  const commands = (await observer.query('SELECT input_data, complete FROM session_shell_commands WHERE session_id = $1 ORDER BY seq', [sessionId])).rows;
-  assert.equal(commands.length, offNetwork ? 13 : 4); assert.ok(commands.every(c => c.complete));
-  assert.equal(commands.slice(offNetwork ? -4 : 0).map(c => Buffer.from(c.input_data, 'base64').toString()).join(''), command);
   assert.equal((await verifyAuditChain(observer)).ok, true);
-  console.log(`GREEN: cabinet file evidence, exit 7, ${offNetwork ? 'thirteen' : 'four'} durable commands, both directions and audit chain verified`);
-  console.log(output);
-  console.log(JSON.stringify({ database: db.name, cabinetId, sessionId, transport: offNetwork ? 'public' : 'tailnet', offNetworkTested: offNetwork, ...(offNetwork ? { platformHost, platformPort, peerAddress, tailnetDownAt, tailnetRestoredAt } : {}) }));
-  await stopAgent(true);
+  enrollmentVerified = true;
+  if (!offNetwork) console.log(JSON.stringify({ database: db.name, cabinetId, enrollmentVerified: true }));
+  if (sshAvailable) await stopAgent(true);
 } finally {
   let recoveryError;
   if (fallbackRegistered) {
     // Keep the API alive while recovery is pending. Do not remove the safety net
     // before it has restored connectivity on a failed off-network run.
     if (!sshAvailable) {
-      console.error('Waiting for scheduled fallback before SSH cleanup after failed off-network proof');
+      console.error('Waiting for scheduled fallback before SSH cleanup after off-network acceptance');
       while (Date.now() < fallbackRunsAt) await new Promise(r => setTimeout(r, Math.min(1000, fallbackRunsAt - Date.now())));
     }
     while (true) {
       try {
-        await ps(`if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)); if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }`, { timeout: 12000 });
+        await ps(`if ((Get-Service Tailscale).Status -ne 'Running') { Start-Service Tailscale }; (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)); if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false }; if (Get-ScheduledTask -TaskName ${quote(taskName)} -ErrorAction SilentlyContinue) { throw 'Fallback task still registered' }; Remove-Item C:\\tailscale-watchdog.hold -ErrorAction SilentlyContinue`, { timeout: 12000 });
         sshAvailable = true; fallbackRegistered = false; break;
       } catch (error) {
         if (Date.now() >= fallbackDeadline) { recoveryError = new Error(`Fallback cleanup could not reach cabinet: ${error.message}`); break; }
@@ -437,10 +382,31 @@ try {
       }
     }
   }
-  if (shellChecks.some(({ evidence }) => evidence.verdict === 'pending')) {
-    try { await verifyShellChecks(); } catch (error) { console.error(error.message); }
+  if (offNetwork && enrollmentVerified && sshAvailable && !recoveryError) {
+    try {
+      const state = await ps(`[IO.File]::ReadAllText(${quote(tailnetEvidencePath)})`, { timeout: 12000 });
+      assert.equal(state, 'Stopped', 'Cabinet file must record Tailscale stopped before recovery');
+      assert.ok(sshProof, 'SSH transport must complete before recovery');
+      const localEvidence = join(work, evidenceFile);
+      await run('scp', [...sshConfig, `${cabinetHost}:${remote.replaceAll('\\', '/')}/${evidenceFile}`, localEvidence], { timeout: 12_000 });
+      const evidence = JSON.parse(readFileSync(localEvidence, 'utf8'));
+      assert.equal(evidence.result, runId);
+      assert.equal(evidence.agentPid, agentProcess);
+      assert.equal(evidence.principal.toLowerCase(), sshProof.cabinetPrincipal);
+      assert.equal(evidence.tailnetState, 'Stopped');
+      assert.ok(evidence.connections.every(c => c.State !== 'Listen'), 'The acceptance agent must have no listener');
+      assert.ok(evidence.connections.some(c => c.State === 'Established' && c.RemoteAddress === '127.0.0.1' && c.RemotePort === 22),
+        'The agent must dial the cabinet loopback SSH server');
+      assert.ok(evidence.connections.some(c => c.State === 'Established' && [platformHost, '::ffff:' + platformHost].includes(c.RemoteAddress) && c.RemotePort === platformPort),
+        'The agent must dial the public mTLS platform port');
+
+      console.log(JSON.stringify({ database: db.name, cabinetId, enrollmentVerified: true, platformHost,
+        platformPort, peerAddress, tailnetDownAt, tailnetStateBeforeRecovery: state,
+        sshTransport: { transportId: sshProof.transportId, endpoint: sshProof.endpoint, evidence } }));
+    } catch (error) {
+      recoveryError = error;
+    }
   }
-  if (shellCommandEvidence.length) console.log(JSON.stringify({ sessionShellCommands: shellCommandEvidence }));
   if (agentProcess && remote && sshAvailable) {
     try { await ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`); } catch { /* primary failure remains non-zero */ }
   }
@@ -454,7 +420,7 @@ try {
     try { await run('docker', ['start', 'cabinet-server-1']); } catch (error) { recoveryError ??= error; }
   }
   await notifier?.stop(); feed?.stop();
-  // Keep the actual database session/audit record for review; do not erase the evidence.
+  // Keep the database enrollment and audit records for review; do not erase the evidence.
   await observer?.end();
   await db?.app.end();
   rmSync(work, { recursive: true, force: true });

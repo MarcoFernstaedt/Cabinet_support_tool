@@ -166,6 +166,7 @@ function validator<T>(name: string, id: string): Validator<T> {
 const envelope = (file: string) => ref(`envelopes/${file}.schema.json`);
 
 export const envelopes = {
+  sshTransportData: validator<{ data: string }>("ssh-transport-data", ref("envelopes/ssh-transport-data.schema.json")),
   sessionControl: validator<SessionControl>("session-control", envelope("session-control")),
   sessionFrame: validator<SessionFrame>("session-frame", envelope("session-frame")),
   command: validator<Command>("command", envelope("command")),

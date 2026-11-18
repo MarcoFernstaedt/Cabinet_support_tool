@@ -48,8 +48,8 @@ No genuine benefit here, and a real cost. Next.js earns its keep with search eng
 
 ## Ground rules for whoever writes the code
 
-- The agent never executes anything not in its operation catalog. No shell, no eval, no generic run command, ever.
-- No general file transfer. Files reach a cabinet only as signed packages from the approved library.
+- The agent executes only its operation catalog. Released platform file delivery uses signed packages from the approved library.
+- The [dev-only SSH transport](02-security-model.md#development-ssh-transport) relays the Windows OpenSSH session governed by the cabinet’s SSH policy.
 - External programs the agent calls are launched with argument arrays, never a composed command string.
 - Every security decision is enforced on the server or the agent, never only in the console.
 - Anything not specified here is a question, not a guess. Add it to 09-open-decisions.md.

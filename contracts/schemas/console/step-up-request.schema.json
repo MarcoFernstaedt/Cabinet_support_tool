@@ -101,6 +101,7 @@
         "site.apply_standards",
         "fleet.import",
         "session.open",
+        "ssh.transport",
         "permission.grant",
         "permission.revoke"
       ]

@@ -84,13 +84,12 @@ test("console opening needs complete sign-in and a step-up body, without consult
   } finally { await app.close(); }
 });
 
-test("session discovery hides capability and records without a grant, and never consults rank", async () => {
+test("session discovery hides records without a grant, and never consults rank", async () => {
   let stage = "totp", granted = false;
   const queries: string[] = [];
   const pool = { query: async (sql: string) => {
     queries.push(sql);
     if (sql.includes("FROM user_permissions")) return { rows: granted ? [{ id: "grant" }] : [] };
-    if (sql.includes("development_shell = 1")) return { rows: [{ id: sessionId }] };
     if (sql.includes("FROM remote_sessions")) return { rows: [{ id: sessionId, operator_id: "operator" }] };
     assert.fail(`unexpected query: ${sql}`);
   } } as unknown as Pool;
@@ -107,11 +106,11 @@ test("session discovery hides capability and records without a grant, and never 
     stage = "complete";
     const hidden = await read();
     assert.equal(hidden.statusCode, 200);
-    assert.deepEqual(hidden.json(), { developmentShell: false, sessions: [] });
-    assert.equal(queries.length, 1, "no capability or session records read without a grant");
+    assert.deepEqual(hidden.json(), { sessions: [] });
+    assert.equal(queries.length, 1, "no session records read without a grant");
     granted = true;
     const visible = await read();
     assert.equal(visible.statusCode, 200);
-    assert.deepEqual(visible.json(), { developmentShell: true, sessions: [{ id: sessionId, operator_id: "operator" }] });
+    assert.deepEqual(visible.json(), { sessions: [{ id: sessionId, operator_id: "operator" }] });
   } finally { await app.close(); }
 });

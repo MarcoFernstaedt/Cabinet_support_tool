@@ -14,6 +14,5 @@
     "port": null
   },
   "allowedTcpPorts": [],
-  "localHarness": false,
-  "developmentShellEnabled": false
+  "localHarness": false
 }

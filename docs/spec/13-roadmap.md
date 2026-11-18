@@ -22,7 +22,7 @@ Order, as chosen by the owner:
 
 These rules come from the platform's existing rules. They are not new restrictions.
 
-- **Fixed operations only.** Every capability is a fixed, typed operation in the agent's catalog, with a JSON Schema for its parameters and its output. There is no shell and no generic command runner.
+- **Fixed operations only.** Released agent capabilities use the fixed, typed operation catalog with schemas for parameters and output. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) is scoped to the development branch.
   - A "script" need becomes an operation. "Restart an approved application" becomes `app.restart`, with an allowlist kept per client.
   - Signed scripts stay out unless the owner decides otherwise. That would change the security model; see 09.
 - **Files reach a cabinet only as signed packages from the software library** (milestone 5). Approved configuration files go the same way: a signed package, checked on the cabinet.

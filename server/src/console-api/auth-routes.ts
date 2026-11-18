@@ -236,6 +236,7 @@ export async function authRoutes(app: FastifyInstance, o: ConsoleApiOptions & { 
   app.post("/api/auth/step-up", async (request, reply) => {
     const u = await o.guards.role(request, "tier1");
     const body = consoleBodies.stepUp.parse(request.body);
+    if (body.action === "ssh.transport" && !o.sshTransport) throw new Refused("not_found", 404, "no such action");
     const row = (await o.pool.query<{ totp_enabled: boolean; totp_secret_enc: Buffer | null; totp_last_step: string | null; locked: boolean }>(
       "SELECT totp_enabled, totp_secret_enc, totp_last_step, CAST(CASE WHEN locked_until IS NOT NULL AND locked_until > SYSUTCDATETIME() THEN 1 ELSE 0 END AS bit) AS locked FROM users WHERE id = $1", [u.userId])).rows[0]!;
     if (!row.totp_enabled || !row.totp_secret_enc) throw new Refused("totp_required", 403, "set up your authenticator first");

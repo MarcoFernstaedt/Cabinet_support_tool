@@ -5,7 +5,7 @@ This repository builds the Mashura cabinet diagnostics platform. The specificati
 Rules that never bend:
 
 - The agent runs only operations in its fixed catalog. Never add a shell, eval, script runner or any generic run-a-command path.
-- There is no general file transfer. Files reach a cabinet only as approved software library packages, verified by hash, signature and trusted publisher on the cabinet itself.
+- Released platform file delivery uses approved software library packages, verified by hash, signature and trusted publisher on the cabinet itself. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) follows the cabinet’s OpenSSH policy.
 - The agent's network process never runs with administrator rights. Privileged actions go only through the broker, which never opens a network connection.
 - External programs are launched by full path with argument arrays, never through a shell or a composed command string.
 - Every input is validated against its JSON Schema in the contracts folder before any other code touches it.

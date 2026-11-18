@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# Reviewer entry point on the VPS. The harness owns the Docker-published platform
-# and restores cabinet-server-1 after removing its acceptance container.
+# Reviewer entry point on the VPS. The harness starts its platform container on the host network
+# and restores cabinet-server-1 after removing it.
 set -euo pipefail
+: "${SHELL_SSH_USER:?Set SHELL_SSH_USER to the cabinet account}"
+: "${SHELL_SSH_IDENTITY:?Set SHELL_SSH_IDENTITY to an authorized SSH identity file}"
 export PATH="$HOME/.dotnet:$PATH"
 repo=/home/marco/cabinet_support_tool
 outdir=/home/marco/cabinet-audit/lab64

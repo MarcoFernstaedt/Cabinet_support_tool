@@ -1,7 +1,6 @@
 // The cabinet view (docs/spec/06-console-spec.md "Cabinet view"): the name stays visible at
 // the top with its client, site and role beneath; a sidebar switches to the site's other
 // cabinets; each section runs read diagnostics on demand.
-import { DevelopmentShell } from "./DevelopmentShell";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../../lib/api";
 import { atLeast, useSession } from "../../lib/session";
@@ -113,7 +112,6 @@ export function CabinetPage({ id, section }: { id: string; section: string }) {
           </p>
         </header>
         {cabinet.replacedBy && <div className="notice" role="note">This cabinet was replaced by <Link to={`/cabinets/${cabinet.replacedBy.id}`}>{cabinet.replacedBy.name}</Link>. Its record and history are kept here; it no longer connects.</div>}
-        <DevelopmentShell key={cabinet.id} cabinetId={cabinet.id} />
         <WritePauseBanner clientId={cabinet.client.id} clientOnly />
         {!cabinet.online && !cabinet.replacedBy && <div className="notice warn" role="status">{cabinet.lastHeartbeatAt ? <>This cabinet has not been heard from since {ago(cabinet.lastHeartbeatAt)}.</> : "This cabinet has not connected yet."} Diagnostics will wait for it to come back, and expire if it does not.</div>}
         {cabinet.reapply && cabinet.replaces && current === "overview" && <ReapplyPanel reapply={cabinet.reapply} oldName={cabinet.replaces.name} />}

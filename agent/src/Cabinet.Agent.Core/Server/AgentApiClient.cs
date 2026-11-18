@@ -353,6 +353,15 @@ public sealed class AgentApiClient : IDisposable
         return doc.RootElement.Clone();
     }
 
+#if DEVELOPMENT_SSH_TRANSPORT
+    internal async Task<JsonElement> SshTransportRequestAsync(HttpMethod method, string path, string? data, string schema, CancellationToken token)
+    {
+        byte[]? body = data is null ? null : JsonSerializer.SerializeToUtf8Bytes(new { data });
+        using JsonDocument response = await SendBytesAsync(method, path, body, null, schema, TimeSpan.FromSeconds(15), token).ConfigureAwait(false);
+        return response.RootElement.Clone();
+    }
+#endif
+
     private async Task<T> SendAsync<T>(HttpMethod method, string path, object? body, string schema, CancellationToken token)
     {
         using JsonDocument doc = await SendBytesAsync(method, path, body is null ? null : JsonSerializer.SerializeToUtf8Bytes(body, body.GetType(), ContractJson.Options),

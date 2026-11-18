@@ -6,7 +6,29 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D102. SSH supersedes the development-only operator shell (2026-11-18)
+
+The operator chose SSH for cabinet access. Cabinets on the tailnet use ordinary SSH directly.
+For cabinets off the tailnet, the dev-only capability on `feat/remote-access-tunnel`
+carries one authenticated cabinet SSH session over the agent's outbound mTLS connection.
+The platform allocates a loopback TCP endpoint for an ordinary SSH client and revokes it on close.
+The agent connects directly to the existing Windows OpenSSH service at `127.0.0.1:22`. OpenSSH
+owns authentication, host keys, and execution under the authenticated cabinet account. The agent
+adds no cabinet listener and accepts no destination parameter.
+The typed operation has its own allowlist entry and records the requesting user, cabinet, and
+endpoint in audit rows on open and close.
+
+D102 supersedes D101. The repeated PowerShell child experiment lost output in 20 of 20 runs
+because of pseudoconsole output attribution. That result informed the decision to retire the
+console shell. The off-network harness reuses the enrollment proof and checks a real SSH command,
+cabinet file evidence, the agent's socket table, endpoint revocation, and both audit rows. Live
+verification remains pending.
+
+---
+
 ## D101. A development-only operator shell over the session transport (2026-11-15)
+
+**Superseded by D102.**
 
 **Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
 is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development

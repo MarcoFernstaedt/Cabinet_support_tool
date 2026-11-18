@@ -100,7 +100,6 @@ public sealed class NetworkService : ServiceBase
             var system = new SystemOperations(config);
             var connection = new AgentConnection(new AgentConnectionOptions
             {
-                ShellTerminal = () => new Cabinet.Agent.Windows.SessionTerminal(),
                 ServerUri = new UriBuilder("https", host, port).Uri, PlatformCa = ca, Keys = new CngAgentKeyStore(), Store = identityStore, Config = config,
                 ProcessorFor = ProcessorFor, Events = events, ConfigUploads = configQueue, Settings = settings, Packages = packages, FirewallProfiles = () => monitors.FirewallProfiles,
                 TimeZoneId = TimeRules.CurrentReportableZone, Health = HealthWithDrives(new HealthSampler(), monitors), HealthSent = health => { if (health.Drives is { } d) monitors.DrivesSent(d); },

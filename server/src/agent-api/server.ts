@@ -1,3 +1,5 @@
+import { registerSshTransportAgentRoutes } from "./ssh-transport-routes.js";
+import type { SshTransport } from "../services/ssh-transport.js";
 import { registerSessionFrameRoute } from "./session-frame-route.js";
 // The agent API (docs/spec/03-protocol.md): its own listener, mutual TLS
 // terminated by Node itself so the client certificate is checked directly.
@@ -88,6 +90,7 @@ export const DEFAULT_ADMISSION: Admission = {
 export interface AgentApiOptions {
   /** Absent until the audited session service is installed: transport fails closed. */
   sessionRelay?: SessionRelay;
+  sshTransport?: SshTransport | undefined;
   pool: Pool;
   issuingKey: IssuingKey;
   notifier: CommandNotifier;
@@ -679,6 +682,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
       }
     });
 
+    if (o.sshTransport) registerSshTransportAgentRoutes(scoped, o.sshTransport);
     registerSessionFrameRoute(scoped, o.sessionRelay, retryAfter, o.pool);
 
     scoped.post("/agent/v1/results", async request => {

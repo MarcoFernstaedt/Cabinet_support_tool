@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/envelopes/ssh-transport-claim.schema.json",
+  "title": "SshTransportClaim",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["transportId"],
+  "properties": {
+    "transportId": {
+      "anyOf": [
+        { "$ref": "../common.schema.json#/$defs/uuid" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

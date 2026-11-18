@@ -3,6 +3,8 @@ import { audit, type Queryable, type Tx } from "../db/db.js";
 import { isOperationName } from "../contracts.js";
 import { Refused } from "./errors.js";
 
+export const sshTransportPermission = "ssh.transport";
+
 export function validatePermissionScope(kind: string, id: string | null): void {
   if (!(kind === "fleet" ? id === null : ["site", "cabinet"].includes(kind) && typeof id === "string" &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)))
@@ -21,9 +23,9 @@ export async function requireCabinetPermission(db: Queryable, userId: string, ca
 }
 
 /** Caller authenticates an Admin and consumes step-up in this same transaction. */
-export async function grantPermission(tx: Tx, actorId: string, userId: string, permission: string, scopeKind: string, scopeId: string | null): Promise<string> {
+export async function grantPermission(tx: Tx, actorId: string, userId: string, permission: string, scopeKind: string, scopeId: string | null, developmentSsh = false): Promise<string> {
   validatePermissionScope(scopeKind, scopeId);
-  if (!isOperationName(permission)) throw new Refused("invalid_permission", 400, "permission must name a catalog operation");
+  if (!isOperationName(permission) && !(developmentSsh && permission === sshTransportPermission)) throw new Refused("invalid_permission", 400, "permission must name a catalog operation");
   if (scopeKind !== "fleet") {
     const table = scopeKind === "site" ? "sites" : "cabinets";
     if (!(await tx.query(`SELECT id FROM ${table} WHERE id = $1`, [scopeId])).rows.length)

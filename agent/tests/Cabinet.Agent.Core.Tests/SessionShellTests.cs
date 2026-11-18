@@ -33,12 +33,12 @@ public sealed class SessionShellTests : IDisposable
     }
 
     [Fact]
-    public async Task Absent_shell_key_refuses_even_when_session_policy_is_on_and_never_creates_process()
+    public async Task Absent_shell_policy_refuses_even_when_session_policy_is_on_and_never_creates_process()
     {
         var config = Fixtures.Config() with { SessionsEnabled = true };
         int started = 0;
         var local = new LocalSessions(PathName, () => config.SessionsEnabled, () => true, TimeProvider.System,
-            () => config.DevelopmentShellEnabled, () => { started++; return new Terminal(); });
+            null, () => { started++; return new Terminal(); });
         await Assert.ThrowsAsync<OperationFailedException>(() => local.OpenAsync(new(Guid.NewGuid(), "shell"), CancellationToken.None));
         Assert.Equal(0, started);
         Assert.Null(local.Active);

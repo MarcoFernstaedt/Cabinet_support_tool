@@ -10,7 +10,29 @@ The agent can change things on client machines, so the whole system is a potenti
 - Each operation has a strict parameter schema. Anything that fails validation is rejected before execution.
 - The catalog is compiled into the agent. The server cannot add operations; only a signed agent upgrade can.
 - Write operations use narrow, typed interfaces: one adapter, one rule, one profile, one package, one cabinet at a time.
-- There is no shell, no script runner, no general file transfer and no way to run an arbitrary file.
+- Released platform operations are limited to the fixed catalog and the approved package channel.
+
+### Development SSH transport
+
+On `feat/remote-access-tunnel`, the dev-only `ssh.transport` operation carries bytes to the cabinet's
+existing Windows OpenSSH server at `127.0.0.1:22`. OpenSSH performs SSH authentication and
+enforces the cabinet account's SSH policy, which can allow commands, file access, and other SSH
+features. The agent's destination is fixed and the transport adds no cabinet listener or inbound
+firewall rule. The agent initiates HTTPS requests over its existing mTLS client. The platform
+binds a single-client TCP endpoint on its own loopback and tears the connection down on close.
+
+Opening requires a signed-in tier1 operator or higher, the scoped `ssh.transport` grant, and a
+single-use step-up token for that action and cabinet. Opening and closing each record the
+requesting user, cabinet, and endpoint in the audit chain. SSH credentials and session contents
+stay in the SSH protocol. Anybody with access to the platform's loopback can attempt SSH
+authentication while the endpoint is available, so use this capability on a trusted development host.
+
+Both sides default to off. The agent relay is compiled only with `-p:DevelopmentSshTransport=true`
+and activates with `developmentSshTransportEnabled: true` on a writable agent. The platform
+registers the routes only when `NODE_ENV=development` and `DEVELOPMENT_SSH_TRANSPORT=1`, with the
+agent and console APIs in the same process and one agent worker. Standard release builds omit
+the agent relay and production server configuration cannot enable the routes. The development
+console shell is retired. See the [server API and acceptance procedure](05-server-spec.md#development-ssh-transport).
 
 ## Control 2: privilege separation on the cabinet
 
@@ -24,7 +46,7 @@ The agent can change things on client machines, so the whole system is a potenti
 - All agent traffic uses mutual TLS. The agent verifies the server against a pinned certificate authority, and the server verifies the agent's own certificate.
 - The agent API listens on a separate port and hostname from the console API, so a flaw in one does not expose the other.
 - The console is reachable only from Mashura's internal network or VPN. Only the agent API faces the internet.
-- Cabinets open no inbound ports; the agent only connects outward to one hostname.
+- The agent opens no inbound ports and connects outward to the configured platform hostname. The dev-only SSH transport also connects to the cabinet’s existing loopback SSH endpoint.
 - TLS 1.2 minimum, TLS 1.3 preferred.
 
 ## Control 4: agent identity and enrollment
@@ -87,7 +109,7 @@ The agent can change things on client machines, so the whole system is a potenti
 
 ## Control 9: approved software library
 
-- Files reach a cabinet only as approved packages: signed driver packages or signed MSI installers. No EXE installers, scripts or general file transfer.
+- Through released platform file delivery, files reach a cabinet only as approved packages: signed driver packages or signed MSI installers. No EXE installers, scripts or general file transfer.
 - Two-person rule: one Admin uploads, a different Admin approves.
 - The server checks hash, signature and signer on upload. The agent checks all three again before installing, against a trusted publisher list that only a signed agent upgrade can change.
 - Even a fully compromised server cannot get an unsigned file, or a file signed by an unlisted publisher, installed on a cabinet.

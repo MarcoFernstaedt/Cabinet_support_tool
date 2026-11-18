@@ -24,14 +24,14 @@ Change, Tier 2 and Admin only, each with a fresh authenticator code, one cabinet
 - Install one signed driver package or signed MSI installer from an approved library
 - Remove one third-party driver
 
-## What the platform cannot do
+## What the released platform cannot do
 
 - Run commands, scripts, EXE files or anything outside its fixed list
 - Copy arbitrary files onto a cabinet
 - Read the CUBEX application, its database, or the Windows Security log
 - Take remote control or view the screen
 - Change many cabinets in one action
-- Accept connections into the cabinet; the agent only connects outward to one hostname
+- Accept connections into the agent. The [development SSH transport](02-security-model.md#development-ssh-transport) dials the existing cabinet SSH service over loopback.
 
 ## How one change reaches a cabinet
 
@@ -54,7 +54,7 @@ Stolen support account:
 
 Compromised server:
 
-- Cannot run arbitrary code on cabinets; the agent only knows its fixed list.
+- Released agents execute only the fixed catalog. The [dev-only SSH transport](02-security-model.md#development-ssh-transport) is governed by the cabinet’s OpenSSH policy.
 - Cannot install anything unsigned or from an untrusted signer; the agent checks itself.
 - Cannot push agent updates; those need a signature from a key the server never holds.
 - Can still read diagnostics and issue approved changes within each cabinet's own limits. This is the main remaining risk and is why the server sits behind the strongest hosting controls.

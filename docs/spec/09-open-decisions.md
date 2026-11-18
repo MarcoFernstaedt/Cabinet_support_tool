@@ -2,6 +2,8 @@
 
 Each item has a recommended default, written into the other specs, so coding can start now. Change any of them before the milestone that needs it.
 
+The development tunnel uses the existing Windows OpenSSH service at `127.0.0.1:22`. The [development SSH transport](02-security-model.md#development-ssh-transport) records the resolved design.
+
 ## Signing key location (needed by milestone 7, decide early)
 
 Cloud KMS with hardware backing, or an offline key. Default: cloud KMS. Also decides where the agent certificate issuing key lives, needed by milestone 2.

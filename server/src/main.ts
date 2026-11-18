@@ -36,6 +36,7 @@ import { sweepHealth } from "./services/cabinet-health.js";
 import { leased, takeLease } from "./services/job-lease.js";
 import { scheduleFleetRecovery } from "./services/fleet-jobs.js";
 import { startDueReapplies } from "./services/replacement-reapply.js";
+import { SshTransport } from "./services/ssh-transport.js";
 import { SessionRelay } from "./agent-api/session-relay.js";
 import { SessionLifecycle } from "./services/session-lifecycle.js";
 
@@ -69,6 +70,7 @@ let logError: (message: string) => void = message => console.error(message);
 let app: Awaited<ReturnType<typeof buildAgentApi>> | null = null;
 let notifier: CommandNotifier | null = null;
 let presence: Presence | null = null;
+const sshTransport = config.developmentSshTransport ? new SshTransport(consolePool!) : undefined;
 let sessionRelay: SessionRelay | undefined;
 if (servesAgents) {
   notifier = new CommandNotifier(feed!);
@@ -86,7 +88,7 @@ if (servesAgents) {
   const relay = sessionRelay;
   const stopSessionClosures = relay.watchClosures(feed!);
   lifecycle = new SessionLifecycle(agentPool!, (c, s) => relay.close(c, s));
-  app = await buildAgentApi({ sessionRelay, pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
+  app = await buildAgentApi({ sessionRelay, sshTransport, pool: agentPool!, issuingKey: key, notifier, packages, releases, presence, tls: await agentApiTls(config, key), http2: config.agentApi.http2,
     ...(config.agentApi.longPollSeconds !== undefined ? { longPollMs: config.agentApi.longPollSeconds * 1000 } : {}),
     ...(ticketKey ? { ticketKey } : {}),
     admission: { newConnectionsPerSecond, newConnectionsBurst: newConnectionsPerSecond * 3, requestsPerSecond, requestsBurst: requestsPerSecond * 2, maxConnectionsPerSource,
@@ -124,7 +126,7 @@ if (runsConsole && config.console) {
   stream = new ResultStream(feed!, consolePool!);
   await stream.start();
   const sessionLifecycle = new SessionLifecycle(consolePool!, (c, s) => sessionRelay?.close(c, s));
-  consoleApp = await buildConsoleApi({ sessionLifecycle, pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
+  consoleApp = await buildConsoleApi({ sessionLifecycle, sshTransport, pool: consolePool!, secrets: new SecretBox(config.console.secretKey), issuingKey: key, origin: config.console.origin,
     stream, packages, releases, listKeys: ListSigningKeys.fromFolder(config.approvedListKeysDir), staticDir: config.console.staticDir, trustProxy: config.console.trustProxy, agentSetup: config.agentSetup });
   await consoleApp.listen({ host: config.console.host, port: config.console.port });
 }
@@ -196,6 +198,7 @@ for (const signal of ["SIGINT", "SIGTERM"] as const)
     }
     await flushRuleHits().catch(() => undefined);
     await opsReporter?.stop().catch(() => undefined);
+    await sshTransport?.shutdown().catch(error => logError(`SSH transport close audit failed: ${JSON.stringify(errorInfo(error))}`));
     await app?.close(); await presence?.stop(); await consoleApp?.close(); await stream?.stop(); await notifier?.stop(); feed?.stop();
     await Promise.all([agentPool?.end(), consolePool?.end(), jobsPool?.end()]);
     process.exit(0);
