@@ -6,6 +6,44 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D122. An approved-programs list is written with one fixed statement per level (2026-11-18)
+
+**What the code did** (at `900a1b9`; three entries on the ownership debt list, F21.R2):
+- **One run-time statement.** `writeLevel` in `server/src/services/approved-apps.ts:502` wrote a client's, site's or cabinet's list with a
+  statement that built both its table and its column at run time: `UPDATE ${TABLE[level]} SET ${APPS_COLUMN} …`.
+- **What that cost.** The reader can see neither, so the file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients, sites
+  and cabinets. Nothing else writes `approved_apps`.
+
+**The decision:**
+- **Fixed statements.** `approved-apps.ts` owns `approved_apps` on clients, sites and cabinets, and writes it with one fixed statement per
+  level. The text it stores and the live-row conditions are as before.
+- **Checks.** Before the database is touched, the function checks that the level is client, site or cabinet and that the id is a uuid.
+- **Why export it.** Every caller in the module reads the level first (`readRaw`, which checks the id and refuses a removed scope), so these
+  checks and the live-row condition are the second line. No public path can turn them red. The function is exported as
+  `writeApprovedLevel` so the module's own test can hold them.
+- **`approved-apps.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **Debt count:** `approved-apps.ts` comes off all three tables, which leaves 11.
+
+**Proof:**
+- **`server/test/approved-apps-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, and null clears it. A removed site or cabinet is not found and keeps what it
+    had.
+  - **Hostile input.** 6 bad levels and ids are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `approved-apps.js`, with `table-ownership`, 113 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `approved-list-signing-sql` "signing the approved list…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The id check removed | The hostile-input test |
+
+  The last two failed no test before the new file: no public path reaches them.
+
+  Restored and `cmp` identical, 113 of 113 pass.
+
+---
+
 ## D121. A client's or site's scanner hardware IDs are written in one place, device-settings.ts (2026-11-18)
 
 Numbered D121 as the next free number on the trunk. `feat/remote-access-tunnel` also carries a D120 and a D121, so it renumbers when it
