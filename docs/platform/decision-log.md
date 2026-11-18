@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D124. The bulk import creates its clients and sites through admin.ts (2026-11-18)
+
+**What the code did** (at `20f7b86`; two entries on the ownership debt list, F21.R2):
+- **The statements.** `importClientsAndSites` in `server/src/services/fleet-import.ts:83` and `:89` inserted its new client and site rows
+  itself, with the same `INSERT INTO clients` and `INSERT INTO sites` that `createClient` and `createSite` in `admin.ts` use.
+- **The debt it caused.** Row creation belongs to the table owner (D118), and `admin.ts` owns clients and sites, so `fleet-import.ts` was
+  listed as debt on both.
+
+**The decision:**
+- **One place.** `admin.ts` exports `insertClient(c, id, name)` and `insertSite(c, id, clientId, name)`, the one place each row is created.
+  The Admin screens and the bulk import both use them. The caller still decides who may, consumes the code and audits, as before, and a
+  name in use still fails with the database's unique-index error, which each caller turns into its own `name_taken`.
+- **Checks.** The ids must be uuids and the name 1 to 128 characters with no control character or angle bracket, checked before the
+  database is touched. That is the loosest name any caller's contract allows (`site-create`'s), so no request the contracts accept is
+  refused; the contracts stay the first line.
+- **Not in this change.** `enrollment.ts` still creates the clients and sites an enrolment approval names, and is the next entry.
+- **Debt count:** `fleet-import.ts` comes off clients and sites, which leaves 6.
+
+**Proof:**
+- **`server/test/client-site-insert.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** A client and a site are created with the id, client and name given; the same name in another case fails with the
+    unique-index error.
+  - **Hostile input.** 14 bad ids and names are refused, each with its own reason, on a connection that throws if used; a name of 128
+    characters outside the basic plane is not refused by the check.
+- **Red checks** (every file that imports `admin.js` or `fleet-import.js`, with `fleet-import` and `table-ownership`, 41 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | The import inserts a client itself again | The ownership test |
+  | The client row given another id | The new writing test, `fleet-import` "a list is previewed, then imported…", and `sqlserver-services` "clients, sites, issue types…" |
+  | The name check removed | The hostile-input test |
+  | The client id check on a site removed | The hostile-input test |
+
+  Restored and `cmp` identical, 41 of 41 pass.
+
+---
+
 ## D123. A file-facts list is written with one fixed statement per level (2026-11-18)
 
 **What the code did** (at `243d119`; three entries on the ownership debt list, F21.R2):
