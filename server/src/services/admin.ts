@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { audit, isUniqueViolation, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
+import { changeCabinetRole } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { linkUnassigned, reportedAddress } from "./sync-cabinets.js";
 import { writeStatus } from "./writes.js";
@@ -129,16 +130,12 @@ export async function setCabinetRole(pool: Pool, adminId: string, id: string, ro
   const reported = role === "sync" ? await reportedAddress(pool, id) : null;
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "cabinet.role", id);
-    const r = await c.query<{ old_role: string; site_id: string }>(
-      `UPDATE cabinets SET role = $2,
-              sync_cabinet_id = CASE WHEN $2 = 'satellite' THEN sync_cabinet_id ELSE NULL END,
-              sync_address = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address WHEN $2 = 'sync' THEN $3 ELSE NULL END,
-              sync_address_source = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address_source WHEN $2 = 'sync' AND $3 IS NOT NULL THEN 'reported' ELSE NULL END
-       OUTPUT deleted.role AS old_role, inserted.site_id WHERE id = $1 AND status = 'active'`, [id, role, reported]);
-    if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active cabinet");
-    const linked = await linkUnassigned(c, r.rows[0]!.site_id);
+    // The write is cabinets.ts's, the table's owner (D127).
+    const r = await changeCabinetRole(c, id, role, reported);
+    if (!r) throw new Refused("not_found", 404, "no such active cabinet");
+    const linked = await linkUnassigned(c, r.siteId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "cabinet.role", targetKind: "cabinet", targetId: id, outcome: "succeeded",
-      details: { before: r.rows[0]!.old_role, role, satellitesLinked: linked } });
+      details: { before: r.oldRole, role, satellitesLinked: linked } });
   });
 }
 

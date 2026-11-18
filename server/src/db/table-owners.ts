@@ -64,7 +64,7 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   cabinet_certificates: { owner: "services/cabinets.ts", also: [] },
   cabinet_drift: { owner: "services/baseline-drift.ts", also: [] },
   cabinet_health: { owner: "services/cabinet-health.ts", also: [] },
-  cabinets: { owner: "services/cabinets.ts", also: ["services/admin.ts", "services/enrollment.ts", "services/replacement.ts"], accepted: ["demo/demo.ts"],
+  cabinets: { owner: "services/cabinets.ts", also: ["services/enrollment.ts", "services/replacement.ts"], accepted: ["demo/demo.ts"],
     columns: { filefacts_paths: "services/filefacts-allowlist.ts", approved_apps: "services/approved-apps.ts", watched_services: "services/watched-services.ts", manufacturer: "services/config-ingest.ts", model: "services/config-ingest.ts", ipv4: "services/commands.ts", ipv4_at: "services/commands.ts", scanner_hardware_ids: "services/settings.ts", in_office: "services/rollouts.ts", sync_address: "services/sync-cabinets.ts", sync_address_source: "services/sync-cabinets.ts", sync_cabinet_id: "services/sync-cabinets.ts" } },
   case_notes: { owner: "services/case-notes.ts", also: [], accepted: ["demo/troubleshooting.ts"] },
   clients: { owner: "services/admin.ts", also: [], accepted: ["demo/demo.ts"],
