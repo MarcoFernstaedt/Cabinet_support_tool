@@ -5,12 +5,12 @@ import { audit, HOT_PATH_TIMEOUT_MS, notify, transaction, type Pool, type Querya
 import { AGENT_RENEW_DAYS, issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
-import { linkUnassigned } from "./sync-cabinets.js";
+import { isCanonicalIpv4, linkUnassigned } from "./sync-cabinets.js";
 import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
 import { rawEntry, resolveLevels, type ApprovedAppEntry, type SignedList } from "./approved-apps.js";
-import { parseJson } from "./settings.js";
+import { isPrivateIpv4, parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
 import { ISSUE } from "./rules.js";
@@ -254,6 +254,29 @@ export async function listCabinets(db: Queryable): Promise<CabinetSummary[]> {
 }
 
 const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+const CABINET_ROLES = ["sync", "satellite", "standalone"] as const;
+
+/**
+ * Changes an active cabinet's role, and the sync columns that follow it, in the caller's transaction (F21.R2, decision-log D127): a
+ * cabinet that stops being a satellite drops its link; one that stops being a sync cabinet drops its address; one that becomes a sync
+ * cabinet starts from `reported`, the address it last reported, and one that already was keeps its own. The caller (admin.ts) checks the
+ * code, links the site's waiting satellites and audits. The id, the role and the address are checked before the database is touched.
+ * Answers the role it had and its site, or null when there is no such active cabinet.
+ */
+export async function changeCabinetRole(c: Queryable, id: string, role: string, reported: string | null): Promise<{ oldRole: string; siteId: string } | null> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to change its role");
+  if (!(CABINET_ROLES as readonly unknown[]).includes(role)) throw new Error("a cabinet's role is sync, satellite or standalone");
+  if (reported !== null && (typeof reported !== "string" || !isCanonicalIpv4(reported) || !isPrivateIpv4(reported)))
+    throw new Error("a reported sync address is null or a private IPv4 address");
+  const r = await c.query<{ old_role: string; site_id: string }>(
+    `UPDATE cabinets SET role = $2,
+            sync_cabinet_id = CASE WHEN $2 = 'satellite' THEN sync_cabinet_id ELSE NULL END,
+            sync_address = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address WHEN $2 = 'sync' THEN $3 ELSE NULL END,
+            sync_address_source = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address_source WHEN $2 = 'sync' AND $3 IS NOT NULL THEN 'reported' ELSE NULL END
+     OUTPUT deleted.role AS old_role, inserted.site_id WHERE id = $1 AND status = 'active'`, [id, role, reported]);
+  return r.rowCount === 1 ? { oldRole: r.rows[0]!.old_role, siteId: r.rows[0]!.site_id } : null;
+}
 
 /** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
 const CONTACT_CHUNK = 500;

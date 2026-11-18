@@ -6,6 +6,49 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D127. A cabinet's role is changed through cabinets.ts (2026-11-18)
+
+**What the code did** (at `8bb4ce3`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `setCabinetRole` in `server/src/services/admin.ts:133` wrote the cabinets table itself. One `UPDATE cabinets SET role
+  = $2, sync_cabinet_id = CASE …, sync_address = CASE …, sync_address_source = CASE …` changed the role and the sync columns that follow it.
+- **The debt it caused.** `cabinets.ts` owns the table. The statement sets `role`, which no column owner holds, as well as
+  `sync-cabinets.ts`'s columns, so `admin.ts` was listed as debt on cabinets.
+
+**The decision:**
+- **One owner.** `cabinets.ts` exports `changeCabinetRole(c, id, role, reported)`. It holds the same statement and the same conditions
+  (an active cabinet only), and answers the role the cabinet had and its site, or null when there is no such active cabinet.
+- **What stays in `admin.ts`.** `setCabinetRole` still reads the reported address and consumes the step-up code. It still refuses
+  `not_found`, links the site's waiting satellites and audits, as before.
+- **Checks.** The id must be a uuid, the role must be one of the three, and the reported address must be null or a canonical private
+  IPv4 address, checked before the database is touched. `reportedAddress` only ever answers null or such an address (`lanAddress`), and the
+  route's contract holds the role to the three, so no request that reached the database before is refused now.
+- **Debt count:** `admin.ts` comes off cabinets, which leaves 2: `enrollment.ts`'s cabinet insert and `replacement.ts`.
+
+**Proof:**
+- **`server/test/cabinet-role-write.test.ts`** (new, 3 tests, against the database):
+  - **The sync columns follow the role.**
+    - A cabinet that becomes a sync cabinet starts from the reported address, and has none when nothing was reported.
+    - A sync cabinet that stays one keeps the address an Admin gave it.
+    - A satellite that stays one keeps its link, and drops it when it stops being a satellite.
+    - A sync cabinet that stops being one drops its address.
+    - The role the cabinet had and its site come back.
+  - **Active only.** A pending or removed cabinet is not changed, and neither is a cabinet that does not exist.
+  - **Hostile input.** 11 bad ids, roles and addresses are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `admin.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `admin.ts` writes the table itself again | The ownership test |
+  | A cabinet that is not active changed | The active-only test |
+  | A sync cabinet that stays one loses its own address | The sync-columns test, and no test before this one |
+  | A satellite that stays one loses its link | The sync-columns test, and no test before this one |
+  | The role check removed | The hostile-input test |
+  | The address check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 251 pass, 0 fail.
+
+---
+
 ## D126. The presence batch records its contacts through cabinets.ts (2026-11-18)
 
 **What the code did** (at `7cd7b7e`; one entry on the ownership debt list, F21.R2):
