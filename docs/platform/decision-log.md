@@ -73,7 +73,8 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
     review of #313). Before this, `SET write_pause_reason = 'paused from the console', write_paused = 1` was read as setting the reason
     alone;
   - a part of a `SET` that starts with a comment is read past the comment to its column. `alerts.ts` writes one before `severity = …` in
-    two of its three folds (the retry at line 307 and `FOLD_EVENT` at 344), which read as other writes until this change;
+    two of its three folds: the first one (`writeAlerts`, line 289) and `FOLD_EVENT` at 344. `FOLD_EVENT` read as another write until this
+    change; `writeAlerts` was not read at all before the reach change below;
   - an `UPDATE` or `DELETE` through an alias is followed to its `FROM` anywhere in its own statement, up to the semicolon or the end of the
     string that holds it. The reader used to look only 600 characters past the verb. The first fold in `alerts.ts` (`writeAlerts`,
     line 289) has its `FROM alerts a` at 610, so that write was not read at all: not as a column update, and not as another write

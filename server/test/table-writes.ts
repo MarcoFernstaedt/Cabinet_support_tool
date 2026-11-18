@@ -72,7 +72,7 @@ export function tableWriters(srcDir: string, tables: ReadonlySet<string>): Map<s
     for (const m of text.matchAll(new RegExp(`${WRITE.source}\\[?([a-z_][a-z0-9_]*)\\]?`, "gi"))) {
       const verb = m[1]!.toUpperCase(), name = m[2]!.toLowerCase();
       if (tables.has(name)) { add(name, file); continue; }
-      // Through an alias: the alias's table is named after FROM (or JOIN) in the same statement, within a short reach.
+      // Through an alias: its table is named after FROM (or JOIN) anywhere in the statement it belongs to (statementRest).
       if (verb === "UPDATE" || verb === "DELETE") {
         const after = statementRest(text, m.index! + m[0].length);
         const via = new RegExp(`\\b(?:FROM|JOIN)\\s+\\[?([a-z_][a-z0-9_]*)\\]?(?:\\s+AS)?\\s+${name}\\b`, "i").exec(after);
@@ -130,13 +130,6 @@ export function setColumns(clause: string): string[] | null {
 }
 
 /**
- * The text of a SET clause: from just after SET up to the WHERE, OUTPUT or FROM that ends it, or the end of the statement's text (a
- * semicolon, double quote or backtick), each counted only outside parentheses, quoted strings and comments, so a subquery's own FROM or
- * WHERE, or the word "from" in a string or a comment, does not end the clause early and hide the assignments after it (review of #313).
- * Null when the statement's text ends while a parenthesis, a string or a comment is still open: the reader cannot tell where the clause
- * stops, so the write is not read as a column update.
- */
-/**
  * Where a piece of SQL the reader must not look inside ends, when one starts at `i`: a quoted string ('…', with '' for a quote inside it),
  * a line comment (-- to the end of the line) or a block comment. `i` itself when none starts there; null when the text ends inside one
  * (review of #313: a word or a comma inside them is not the statement's own).
@@ -151,6 +144,13 @@ export function opaqueEnd(text: string, i: number): number | null {
   return i;
 }
 
+/**
+ * The text of a SET clause: from just after SET up to the WHERE, OUTPUT or FROM that ends it, or the end of the statement's text (a
+ * semicolon, double quote or backtick), each counted only outside parentheses, quoted strings and comments, so a subquery's own FROM or
+ * WHERE, or the word "from" in a string or a comment, does not end the clause early and hide the assignments after it (review of #313).
+ * Null when the statement's text ends while a parenthesis, a string or a comment is still open: the reader cannot tell where the clause
+ * stops, so the write is not read as a column update.
+ */
 export function setClause(text: string): string | null {
   let depth = 0;
   for (let i = 0; i < text.length; i++) {
