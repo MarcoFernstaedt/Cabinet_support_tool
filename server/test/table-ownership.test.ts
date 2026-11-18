@@ -156,10 +156,22 @@ test("the reader finds writes however they are spelled, through an alias too, an
     [" a = 1,\n -- A more serious symptom makes the alert major.\n severity = 2 ", ["a", "severity"]],
     [" a = 1, /* why */ b = 2 ", ["a", "b"]], [" -- first\n a = 1 ", ["a"]], [" a = 1, -- no line end", null], [" a = 1, 'x' = 2 ", null]] as const)
     assert.deepEqual(setColumns(clause), columns, clause);
-  // The two statements in the tree that carry a comment inside their SET, read as the column rule reads them.
+  // The tree's three folds of a repeat into an alert, read as the column rule reads them: writeAlerts' (alerts.ts:289), its retry in the
+  // CATCH block (307) and FOLD_EVENT (344). Two carry a comment inside their SET, and writeAlerts' names its table through an alias whose
+  // FROM is 610 characters past the verb, which the reader used not to reach (review of #313).
   const alerts = tableWriteShapes(join(server, "src"), new Set(["alerts"])).get("alerts")!.get("services/alerts.ts")!;
   for (const columns of [["occurrences", "first_seen", "last_seen", "last_event_id", "rule_id", "severity"]])
-    assert.equal(alerts.updates.filter(u => JSON.stringify(u) === JSON.stringify(columns)).length, 2, "the fold in writeAlerts and FOLD_EVENT both read, severity included");
+    assert.equal(alerts.updates.filter(u => JSON.stringify(u) === JSON.stringify(columns)).length, 3, "all three folds read, severity included");
+  // An alias whose FROM is far past the verb, and one that is not in this statement at all.
+  writeFileSync(join(root, "src", "services", "c.ts"), [
+    `db.query(\`UPDATE a SET note = $2, ${"x".repeat(0)}${Array.from({ length: 40 }, (_, i) => `c${i} = COALESCE(g.c${i}, a.c${i})`).join(", ")} FROM alerts a JOIN @g g ON a.id = g.id;\`);`,
+    "db.query(`UPDATE a SET note = $2 WHERE id = $1`); db.query(`SELECT 1 FROM alerts a`);",
+  ].join("\n"));
+  const far = tableWriteShapes(join(root, "src"), new Set(["alerts"])).get("alerts")!.get("services/c.ts")!;
+  assert.equal(far.updates.length, 1, "the alias is followed to its FROM however far past the verb it is");
+  assert.equal(far.updates[0]!.length, 41);
+  assert.equal(far.other, 0, "an alias with no FROM in its own statement is not taken from the next statement");
+  assert.deepEqual([...tableWriters(join(root, "src"), new Set(["alerts"])).get("alerts")!].includes("services/c.ts"), true);
   assert.deepEqual(shaped.get("cabinets")!.get("services/b.ts"), { updates: [["model", "manufacturer"], ["sync_cabinet_id"]], other: 1 }, "a comma inside a call does not split; an alias's columns are read; a DELETE is another write");
   for (const [clause, columns] of [[" a = 1, [b] = COALESCE(x, y) ", ["a", "b"]], [" k.a = 1 ", ["a"]], [" a = 1, b ", null], ["", null], [" = 1 ", null]] as const)
     assert.deepEqual(setColumns(clause), columns, clause);

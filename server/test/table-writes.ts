@@ -6,6 +6,27 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
+/**
+ * The rest of the statement that starts at `from`: up to the semicolon that ends it, or the end of the string literal that holds it (a
+ * backtick or a double quote), each counted only outside parentheses, quoted SQL strings and comments. An UPDATE or DELETE through an
+ * alias names its table after FROM, which can sit well past the verb: the reader used to look only 600 characters on, and the fold in
+ * alerts.ts (writeAlerts) has its FROM at 610, so that write was not read at all (review of #313). Capped at 20,000 characters.
+ */
+export function statementRest(text: string, from: number): string {
+  const end = Math.min(text.length, from + 20_000);
+  let depth = 0;
+  for (let i = from; i < end; i++) {
+    const skip = opaqueEnd(text, i);
+    if (skip === null) return text.slice(from, end);
+    if (skip > i) { i = skip - 1; continue; }
+    const ch = text[i]!;
+    if (ch === "(") depth++;
+    else if (ch === ")") depth--;
+    else if (ch === "`" || ch === "\"" || (ch === ";" && depth <= 0)) return text.slice(from, i);
+  }
+  return text.slice(from, end);
+}
+
 /** The tables the migrations create. */
 export function migrationTables(migrationsDir: string): Set<string> {
   const out = new Set<string>();
@@ -53,7 +74,7 @@ export function tableWriters(srcDir: string, tables: ReadonlySet<string>): Map<s
       if (tables.has(name)) { add(name, file); continue; }
       // Through an alias: the alias's table is named after FROM (or JOIN) in the same statement, within a short reach.
       if (verb === "UPDATE" || verb === "DELETE") {
-        const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 600);
+        const after = statementRest(text, m.index! + m[0].length);
         const via = new RegExp(`\\b(?:FROM|JOIN)\\s+\\[?([a-z_][a-z0-9_]*)\\]?(?:\\s+AS)?\\s+${name}\\b`, "i").exec(after);
         if (via) add(via[1]!.toLowerCase(), file);
       }
@@ -157,11 +178,11 @@ export function tableWriteShapes(srcDir: string, tables: ReadonlySet<string>): M
     const text = readFileSync(p, "utf8");
     for (const m of text.matchAll(new RegExp(`${WRITE.source}\\[?([a-z_][a-z0-9_]*)\\]?`, "gi"))) {
       const verb = m[1]!.toUpperCase(), name = m[2]!.toLowerCase();
-      const after = text.slice(m.index! + m[0].length, m.index! + m[0].length + 2000);
+      const after = statementRest(text, m.index! + m[0].length);
       if (!tables.has(name)) {
         // Through an alias: an UPDATE's columns are read as for the table itself; a DELETE is another kind of write.
         if (verb === "UPDATE" || verb === "DELETE") {
-          const via = new RegExp(`\\b(?:FROM|JOIN)\\s+\\[?([a-z_][a-z0-9_]*)\\]?(?:\\s+AS)?\\s+${name}\\b`, "i").exec(after.slice(0, 600));
+          const via = new RegExp(`\\b(?:FROM|JOIN)\\s+\\[?([a-z_][a-z0-9_]*)\\]?(?:\\s+AS)?\\s+${name}\\b`, "i").exec(after);
           if (via && tables.has(via[1]!.toLowerCase())) {
             const table = via[1]!.toLowerCase();
             const set = verb === "UPDATE" ? /^\s*SET\b/i.exec(after) : null;
