@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D126. The presence batch records its contacts through cabinets.ts (2026-11-18)
+
+**What the code did** (at `7cd7b7e`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `Presence.flush` in `server/src/agent-api/presence.ts:46` wrote `cabinets.last_heartbeat_at` itself, one batched
+  `UPDATE k … FROM cabinets k JOIN OPENJSON($1)` per 500 contacts, for active cabinets only and never backwards.
+- **The debt it caused.** `cabinets.ts` owns the table and writes the same column on every heartbeat, so the column cannot be given to
+  `presence.ts` (D118), and `presence.ts` was listed as debt on cabinets.
+
+**The decision:**
+- **One owner.** `cabinets.ts` exports `recordContacts(c, contacts)`. It holds the same statement, the same 500-row chunks and the same
+  conditions, and answers the rows written. `presence.ts` keeps the batching in memory, the timer, one flush at a time, and putting a
+  failed batch back. It calls `recordContacts` for the write.
+- **Checks.** Every id must be a uuid and every time must be in `toISOString`'s own UTC form, checked before the database is touched.
+- **What differs.** None of these changes the outcome:
+  - a bad entry refuses the whole batch before the database, where before the database's conversion error refused it;
+  - the batch is put back for the next flush either way;
+  - `presence.ts` only ever passes ids of cabinets that authenticated, so neither path is reached.
+- **Debt count:** `presence.ts` comes off cabinets, which leaves 3, all on cabinets: `admin.ts`, `enrollment.ts` and `replacement.ts`.
+
+**Proof:**
+- **`server/test/contacts-write.test.ts`** (new, 3 tests, against the database):
+  - **Writing.** Only an active cabinet is written; a pending, a removed and another cabinet are not; an older contact does not move it
+    back.
+  - **Chunks.** 1,001 contacts, with the real cabinets in the first, second and third statements, are all written.
+  - **Hostile input.** 11 bad lists, ids and times are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `presence.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `presence.ts` writes the table itself again | The ownership test |
+  | A cabinet that is not active written | The new writing test, and `protocol` "a poll counts as contact…" |
+  | A contact moved backwards | The new writing test, and `protocol` "a poll counts as contact…" |
+  | Only the first statement of 500 written | The chunks test |
+  | The id check removed | The hostile-input test |
+  | The time check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 232 pass, 0 fail.
+
+---
+
 ## D125. An enrolment approval creates its client and site through admin.ts, and sets the site's zone through time.ts (2026-11-18)
 
 **What the code did** (at `3e31b39`; two entries on the ownership debt list, F21.R2):
