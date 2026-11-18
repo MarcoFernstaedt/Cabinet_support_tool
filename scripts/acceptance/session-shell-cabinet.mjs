@@ -66,7 +66,8 @@ function tailnetAddress(address) {
   assert.ok(isIP(address), `Agent API returned an invalid peer address: ${address}`);
   return tailnet.check(address, isIP(address) === 6 ? 'ipv6' : 'ipv4');
 }
-async function run(binary, args, options = {}) {
+async function run(binary, args, { stage, ...options } = {}) {
+  if (stage) console.log(`stage: ${stage}`);
   // SSH must yield: this process also serves TLS, database callbacks and lag sampling.
   try {
     const result = await execFileAsync(binary, args, { encoding: 'utf8', timeout: 600000, maxBuffer: 16 * 1024 * 1024, ...options });
@@ -99,11 +100,11 @@ async function agentDiagnostics() {
   if (!remote || !sshAvailable) return;
   try {
     console.error(await ps(['agent.log', 'run.out', 'run.err'].map(name =>
-      `$f=Join-Path ${quote(remote)} ${quote(name)}; Write-Output ${quote('--- ' + name + ' ---')}; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { Write-Output '(missing)' }`).join(';')));
+      `$f=Join-Path ${quote(remote)} ${quote(name)}; Write-Output ${quote('--- ' + name + ' ---')}; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { Write-Output '(missing)' }`).join(';'), { stage: 'read cabinet agent diagnostics' }));
   } catch (error) { console.error('Could not read acceptance agent output:', error.message); }
 }
 async function agentState() {
-  return JSON.parse(await ps(`$p=Get-Process -Id ${agentProcess} -ErrorAction SilentlyContinue; $record=$null; $f=Join-Path ${quote(remote)} 'process-state.json'; if (-not $p) { for ($i=0; $i -lt 20 -and -not (Test-Path -LiteralPath $f); $i++) { Start-Sleep -Milliseconds 50 } }; if (Test-Path -LiteralPath $f) { $record=Get-Content -Raw -LiteralPath $f | ConvertFrom-Json }; @{ pid=${agentProcess}; state=$(if ($p) { 'running' } else { 'exited' }); exitCode=$(if ($record) { $record.exitCode } else { $null }); recordedState=$record } | ConvertTo-Json -Compress -Depth 4`));
+  return JSON.parse(await ps(`$p=Get-Process -Id ${agentProcess} -ErrorAction SilentlyContinue; $record=$null; $f=Join-Path ${quote(remote)} 'process-state.json'; if (-not $p) { for ($i=0; $i -lt 20 -and -not (Test-Path -LiteralPath $f); $i++) { Start-Sleep -Milliseconds 50 } }; if (Test-Path -LiteralPath $f) { $record=Get-Content -Raw -LiteralPath $f | ConvertFrom-Json }; @{ pid=${agentProcess}; state=$(if ($p) { 'running' } else { 'exited' }); exitCode=$(if ($record) { $record.exitCode } else { $null }); recordedState=$record } | ConvertTo-Json -Compress -Depth 4`, { stage: 'check cabinet agent process' }));
 }
 async function requireAgent(label) {
   const state = await agentState();
@@ -118,15 +119,15 @@ async function startAgent(server) {
   writeFileSync(config, JSON.stringify({ exe: remote + '\\bin\\Cabinet.Agent.ShellCabinet.exe', args: `"${server}" "${remote}"` }));
   await upload(new URL('./shell-agent-launch.ps1', import.meta.url).pathname, launcher);
   await upload(config, remote + '\\shell-agent-launch.json');
-  await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `"${launcher}"`]);
+  await run('ssh', [...sshConfig, cabinetHost, 'powershell.exe', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', `"${launcher}"`], { stage: 'launch acceptance agent' });
   // This delay and probe occur after the creating SSH session has ended.
   await new Promise(r => setTimeout(r, 1000));
-  const pid = await ps(`$f=Join-Path ${quote(remote)} 'agent.pid'; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f }`);
+  const pid = await ps(`$f=Join-Path ${quote(remote)} 'agent.pid'; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f }`, { stage: 'read cabinet agent PID' });
   agentProcess = Number(pid);
   if (!Number.isSafeInteger(agentProcess) || agentProcess <= 0) {
     agentProcess = undefined;
     await agentDiagnostics();
-    const state = await ps(`$f=Join-Path ${quote(remote)} 'process-state.json'; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { 'supervisor has not reported an agent PID; exit code unavailable' }`);
+    const state = await ps(`$f=Join-Path ${quote(remote)} 'process-state.json'; if (Test-Path -LiteralPath $f) { Get-Content -LiteralPath $f } else { 'supervisor has not reported an agent PID; exit code unavailable' }`, { stage: 'read cabinet agent launch failure' });
     throw new Error(`Acceptance agent launch failed; process state: ${state}`);
   }
   await requireAgent('detached startup (one second after launch)');
@@ -145,11 +146,19 @@ async function until(read, label, { expectExit = false, deadlineError = () => ne
   await agentDiagnostics();
   throw deadlineError();
 }
-async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`]); }
+async function upload(local, target) { return await run('scp', [...sshConfig, local, `${cabinetHost}:${target.replaceAll('\\', '/')}`], { stage: `upload ${target.split('\\').at(-1)}` }); }
+async function uploadScript(name, body) {
+  const local = join(work, name);
+  const target = remote + '\\' + name;
+  // Windows PowerShell uses the BOM to recognize UTF-8 script files.
+  writeFileSync(local, "\uFEFF$ErrorActionPreference='Stop'\r\n" + body);
+  await upload(local, target);
+  return target;
+}
 async function requirePlatformReachable() {
   const target = `${platformHost}:${platformPort}`;
   try {
-    await ps(`$client=[Net.Sockets.TcpClient]::new(); try { $connect=$client.ConnectAsync(${quote(platformHost)}, ${platformPort}); if (-not $connect.Wait(5000)) { throw 'TCP connect timed out' }; $connect.GetAwaiter().GetResult() } finally { $client.Dispose() }`, { timeout: 20000 });
+    await ps(`$client=[Net.Sockets.TcpClient]::new(); try { $connect=$client.ConnectAsync(${quote(platformHost)}, ${platformPort}); if (-not $connect.Wait(5000)) { throw 'TCP connect timed out' }; $connect.GetAwaiter().GetResult() } finally { $client.Dispose() }`, { stage: 'platform reachability preflight', timeout: 20000 });
   } catch (error) {
     const failure = new Error(`Platform reachability preflight failed from cabinet ${cabinetHost} to ${target}: ${error.message}`, { cause: error });
     console.error(failure.message);
@@ -244,9 +253,9 @@ async function containerPlatform() {
     response.end(JSON.stringify({ ready: true, connections: [...connections].filter(([socket]) => !socket.destroyed).map(([, c]) => c) }));
   }).listen('/tmp/acceptance-control.sock');
 }
-async function platformControl(action) {
+async function platformControl(action, stage) {
   return JSON.parse(await run('docker', ['exec', platformContainer, 'node', '-e',
-    `require('node:http').get({ socketPath: '/tmp/acceptance-control.sock', path: '/${action}' }, response => response.pipe(process.stdout)).on('error', () => process.exit(1))`], { timeout: 10000 }));
+    `require('node:http').get({ socketPath: '/tmp/acceptance-control.sock', path: '/${action}' }, response => response.pipe(process.stdout)).on('error', () => process.exit(1))`], { stage, timeout: 10000 }));
 }
 let primaryFailed = false;
 function reportPrimaryFailure(error) {
@@ -258,9 +267,9 @@ try {
   // This build is from the current working tree, including review changes.
   await run('dotnet', ['publish', 'agent/tests/Cabinet.Agent.ShellCabinet', '-c', 'Release', '-r', 'win-x64', '--self-contained', 'true', '--disable-build-servers', '-p:BuildInParallel=false', `-p:DevelopmentSshTransport=${offNetwork}`, '-o', join(work, 'bin')], { stdio: 'inherit' });
   await run('python3', ['-c', 'import shutil,sys; shutil.make_archive(sys.argv[1], "zip", sys.argv[2])', join(work, 'agent'), join(work, 'bin')]);
-  remote = await ps(`$d=Join-Path $env:TEMP ${quote(runId)}; New-Item -ItemType Directory -Path $d | Out-Null; $d`);
+  remote = await ps(`$d=Join-Path $env:TEMP ${quote(runId)}; New-Item -ItemType Directory -Path $d | Out-Null; $d`, { stage: 'create cabinet acceptance directory' });
   await upload(join(work, 'agent.zip'), remote + '\\agent.zip');
-  await ps(`Expand-Archive -LiteralPath ${quote(remote + '\\agent.zip')} -DestinationPath ${quote(remote + '\\bin')}`);
+  await ps(`Expand-Archive -LiteralPath ${quote(remote + '\\agent.zip')} -DestinationPath ${quote(remote + '\\bin')}`, { stage: 'extract acceptance agent' });
   db = await createTestDatabase();
   // Harness reads and service calls have their own connection and cannot queue
   // behind the API's held polls. Production pool sizes and admission gates stay intact.
@@ -324,10 +333,10 @@ try {
     platformServer: { host: platformHost, port: platformPort }, allowedTcpPorts: [], localHarness: false, developmentSshTransportEnabled: offNetwork };
   async function stopAgent(removeKey = false) {
     if (!agentProcess) return;
-    await ps(`${removeKey ? `New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null;` : ''} New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`);
-    await until(async () => await ps(`if (-not (Get-Process -Id ${agentProcess} -ErrorAction SilentlyContinue)) { 'stopped' }`), 'acceptance agent shutdown', { expectExit: true });
+    await ps(`${removeKey ? `New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null;` : ''} New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`, { stage: 'request cabinet agent shutdown' });
+    await until(async () => await ps(`if (-not (Get-Process -Id ${agentProcess} -ErrorAction SilentlyContinue)) { 'stopped' }`, { stage: 'wait for cabinet agent shutdown' }), 'acceptance agent shutdown', { expectExit: true });
     agentProcess = undefined;
-    await ps(`Remove-Item -LiteralPath ${quote(remote + '\\stop')}`);
+    await ps(`Remove-Item -LiteralPath ${quote(remote + '\\stop')}`, { stage: 'clear cabinet agent stop marker' });
   }
   writeFileSync(join(work, 'agent-config.json'), JSON.stringify(config)); await upload(join(work, 'agent-config.json'), remote + '\\agent-config.json');
   await startAgent(server);
@@ -336,34 +345,45 @@ try {
   cabinetId = enrolled.cabinetId;
   await until(async () => (await observer.query('SELECT id FROM cabinets WHERE id = $1 AND last_heartbeat_at IS NOT NULL', [cabinetId])).rows[0], 'first heartbeat');
   if (offNetwork) {
+    console.log('stage: wait for authenticated baseline agent connection');
     await until(async () => (await platformControl('status')).connections.some(c => c.cabinetId === cabinetId), 'authenticated baseline agent connection');
-    const hostKey = (await ps("(Get-Content -LiteralPath 'C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub').Trim()")).split(/\s+/).slice(0, 2).join(' ');
+    const hostKey = (await ps("(Get-Content -LiteralPath 'C:\\ProgramData\\ssh\\ssh_host_ed25519_key.pub').Trim()", { stage: 'read cabinet SSH host key' })).split(/\s+/).slice(0, 2).join(' ');
     assert.match(hostKey, /^ssh-ed25519 [A-Za-z0-9+/]+=*$/);
-    const cabinetPrincipal = (await ps('whoami.exe')).toLowerCase();
-    await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`);
+    const cabinetPrincipal = (await ps('whoami.exe', { stage: 'read cabinet SSH principal' })).toLowerCase();
+    await ps(`$state=& ${quote(tailscale)} status --json | ConvertFrom-Json; if ($state.BackendState -ne 'Running') { throw 'Baseline requires Tailscale Running' }`, { stage: 'check Tailscale baseline' });
     // `tailscale down` stops the node, not the service, so starting the service is a no-op
     // when only the node is down: restart it (the recovery measured on the lab cabinet) and
     // confirm the node is back before the safety net is allowed to remove itself.
     const tailscaleNodeRestore = `$ts=${quote(tailscale)}; & $ts up *> $null; Start-Sleep -Seconds 3; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { Restart-Service Tailscale -Force; Start-Sleep -Seconds 12 }; if (((& $ts status --json | ConvertFrom-Json).BackendState) -ne 'Running') { throw 'Tailscale node did not come back' }; if ((Get-Service Tailscale).Status -ne 'Running') { (Get-Service Tailscale).WaitForStatus('Running', [TimeSpan]::FromSeconds(30)) }`;
     tailnetEvidencePath = remote + '\\tailnet-before-recovery.txt';
     const recovery = `try { try { $state = (& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState; [IO.File]::WriteAllText(${quote(tailnetEvidencePath)}, $state) } finally { ${tailscaleNodeRestore} } } finally { if (((& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState) -eq 'Running') { Unregister-ScheduledTask -TaskName ${quote(taskName)} -Confirm:$false -ErrorAction SilentlyContinue } }`;
+    const recoveryPath = await uploadScript('tailscale-restore.ps1', recovery);
+    const evidenceScript = `
+      $connections=@(Get-NetTCPConnection -OwningProcess ${agentProcess} | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,@{n='State';e={$_.State.ToString()}});
+      $state=(& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState;
+      $principal=(whoami.exe).Trim();
+      $evidence=@{result=${quote(runId)}; principal=$principal; agentPid=${agentProcess}; tailnetState=$state; connections=$connections};
+      [IO.File]::WriteAllText(${quote(remote + '\\' + evidenceFile)}, ($evidence | ConvertTo-Json -Compress -Depth 4));`;
+    const evidencePath = await uploadScript('ssh-transport-evidence.ps1', evidenceScript);
     // Set the flag before registration: even a lost SSH response must enter cleanup.
     fallbackRegistered = true;
     fallbackRunsAt = Date.now() + 6 * 60_000;
     fallbackDeadline = fallbackRunsAt + 60_000;
-    await ps(`$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ${quote('-NoProfile -NonInteractive -EncodedCommand ' + Buffer.from("$ErrorActionPreference='Stop';" + recovery, 'utf16le').toString('base64'))}; $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(6); Register-ScheduledTask -TaskName ${quote(taskName)} -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null`);
+    const recoveryArgs = `-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "${recoveryPath}"`;
+    await ps(`$action=New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ${quote(recoveryArgs)}; $trigger=New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(6); Register-ScheduledTask -TaskName ${quote(taskName)} -Action $action -Trigger $trigger -User 'SYSTEM' -RunLevel Highest -Force | Out-Null`, { stage: 'register Tailscale fallback' });
     // Hold off the cabinet's own tailscale-watchdog for the tailnet-off window. The hold
     // file carries a timestamp and expires on its own, so a run that dies here cannot
     // leave the watchdog disabled.
-    await ps(`Set-Content -Path C:\\tailscale-watchdog.hold -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ascii`);
+    await ps(`Set-Content -Path C:\\tailscale-watchdog.hold -Value ([int][double]::Parse((Get-Date -UFormat %s))) -Encoding ascii`, { stage: 'hold Tailscale watchdog' });
     // Losing SSH here is expected. No SSH probes or diagnostics until scheduled recovery.
     sshAvailable = false;
-    try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { timeout: 15000 }); }
+    try { await ps(`& ${quote(tailscale)} down; if ($LASTEXITCODE -ne 0) { throw 'tailscale down failed' }`, { stage: 'take Tailscale down', timeout: 15000 }); }
     catch (error) { console.error('tailscale down SSH result:', error.message); }
     tailnetDownAt = new Date().toISOString();
     // Evict every pre-drop TLS connection; a later successful authenticated request
     // must use a new socket. The API observes the socket peer, never forwarded headers.
-    await platformControl('reset');
+    await platformControl('reset', 'reset pre-drop platform connections');
+    console.log('stage: wait for public agent reconnect');
     const connection = await until(async () => (await platformControl('status')).connections.find(c => c.cabinetId === cabinetId), 'fresh public agent reconnect after tailscale down');
     assert.ok(Date.now() < fallbackRunsAt, "Scheduled recovery preceded the public reconnect");
     peerAddress = connection.peerAddress;
@@ -376,7 +396,7 @@ try {
       headers: { origin: 'https://acceptance.invalid', cookie: `${COOKIE}=${cookie}`, 'content-type': 'application/json' },
       payload: { stepUpToken } }), { mode: 0o600 });
     let opened;
-    try { opened = await platformControl('ssh-open'); }
+    try { opened = await platformControl('ssh-open', 'open SSH transport'); }
     finally { rmSync(requestFile); }
     assert.equal(opened.status, 200, JSON.stringify(opened));
     const { transportId, endpoint } = opened.body;
@@ -384,18 +404,13 @@ try {
     assert.ok(Number.isInteger(endpoint.port) && endpoint.port > 0 && endpoint.port <= 65535);
     const knownHosts = join(work, 'known_hosts');
     writeFileSync(knownHosts, `[127.0.0.1]:${endpoint.port} ${hostKey}\n`);
-    const source = `$ErrorActionPreference='Stop';
-      $connections=@(Get-NetTCPConnection -OwningProcess ${agentProcess} | Select-Object LocalAddress,LocalPort,RemoteAddress,RemotePort,@{n='State';e={$_.State.ToString()}});
-      $state=(& ${quote(tailscale)} status --json | ConvertFrom-Json).BackendState;
-      $principal=(whoami.exe).Trim();
-      $evidence=@{result=${quote(runId)}; principal=$principal; agentPid=${agentProcess}; tailnetState=$state; connections=$connections};
-      [IO.File]::WriteAllText(${quote(remote + '\\' + evidenceFile)}, ($evidence | ConvertTo-Json -Compress -Depth 4));`;
     await run('ssh', ['-F', '/dev/null', '-o', 'BatchMode=yes', '-o', 'ConnectTimeout=20', '-o', 'IdentitiesOnly=yes',
       '-o', 'PreferredAuthentications=publickey', '-o', 'StrictHostKeyChecking=yes', '-o', 'GlobalKnownHostsFile=/dev/null',
       '-o', 'HostKeyAlgorithms=ssh-ed25519', '-o', `UserKnownHostsFile=${knownHosts}`, '-i', resolve(sshIdentity),
       '-p', String(endpoint.port), '-l', sshUser, '127.0.0.1', 'powershell.exe', '-NoProfile', '-NonInteractive',
-      '-EncodedCommand', Buffer.from(source, 'utf16le').toString('base64')], { timeout: 45_000 });
+      '-ExecutionPolicy', 'Bypass', '-File', `"${evidencePath}"`], { stage: 'run command through SSH transport', timeout: 45_000 });
     assert.ok(Date.now() < fallbackRunsAt, 'Scheduled recovery preceded the SSH command');
+    console.log('stage: verify SSH audit events and closed session');
     const auditRows = await until(async () => {
       const rows = (await observer.query(`SELECT action, actor_id, target_id, details FROM audit_log
         WHERE action IN ('ssh.transport.open', 'ssh.transport.close') ORDER BY seq`)).rows;
@@ -420,8 +435,8 @@ try {
     assert.equal(await run('docker', ['exec', platformContainer, 'node', '-e',
       `const socket = require('node:net').createConnection(${JSON.stringify(endpoint)});
       socket.once('error', error => console.log(error.code));
-      socket.once('connect', () => { socket.destroy(); console.log('connected'); });`], { timeout: 10000 }), 'ECONNREFUSED');
-    sshProof = { transportId, endpoint, cabinetPrincipal };
+      socket.once('connect', () => { socket.destroy(); console.log('connected'); });`], { stage: 'verify SSH transport listener closed', timeout: 10000 }), 'ECONNREFUSED');
+    sshProof = { transportId, endpoint, cabinetPrincipal, session, auditEvents: auditRows };
   }
   assert.equal((await verifyAuditChain(observer)).ok, true);
   enrollmentVerified = true;
@@ -458,7 +473,7 @@ try {
           $fallbackTask = @(Read-FallbackTask).Count
           $holdExists = Test-Path -LiteralPath $hold
           if ($fallbackTask -ne 0 -or $holdExists) { throw "Fallback cleanup incomplete (fallbackTask=$fallbackTask, hold=$holdExists)" }
-        `, { timeout: 12000 });
+        `, { stage: 'verify fallback cleanup', timeout: 12000 });
         sshAvailable = true; fallbackRegistered = false; break;
       } catch (error) {
         if (Date.now() >= fallbackDeadline) { cleanupErrors.push(new Error('Fallback cleanup failed', { cause: error })); break; }
@@ -468,11 +483,11 @@ try {
   }
   if (offNetwork && enrollmentVerified && sshAvailable && !primaryFailed) {
     try {
-      const state = await ps(`[IO.File]::ReadAllText(${quote(tailnetEvidencePath)})`, { timeout: 12000 });
+      const state = await ps(`[IO.File]::ReadAllText(${quote(tailnetEvidencePath)})`, { stage: 'read pre-recovery Tailscale state', timeout: 12000 });
       assert.equal(state, 'Stopped', 'Cabinet file must record Tailscale stopped before recovery');
       assert.ok(sshProof, 'SSH transport must complete before recovery');
       const localEvidence = join(work, evidenceFile);
-      await run('scp', [...sshConfig, `${cabinetHost}:${remote.replaceAll('\\', '/')}/${evidenceFile}`, localEvidence], { timeout: 12_000 });
+      await run('scp', [...sshConfig, `${cabinetHost}:${remote.replaceAll('\\', '/')}/${evidenceFile}`, localEvidence], { stage: 'download SSH transport evidence', timeout: 12_000 });
       const evidence = JSON.parse(readFileSync(localEvidence, 'utf8'));
       assert.equal(evidence.result, runId);
       assert.equal(evidence.agentPid, agentProcess);
@@ -486,13 +501,14 @@ try {
 
       console.log(JSON.stringify({ database: db.name, cabinetId, enrollmentVerified: true, platformHost,
         platformPort, peerAddress, tailnetDownAt, tailnetStateBeforeRecovery: state,
-        sshTransport: { transportId: sshProof.transportId, endpoint: sshProof.endpoint, evidence } }));
+        sshTransport: { transportId: sshProof.transportId, endpoint: sshProof.endpoint,
+          session: sshProof.session, auditEvents: sshProof.auditEvents, evidence } }));
     } catch (error) {
       reportPrimaryFailure(error);
     }
   }
   if (agentProcess && remote && sshAvailable) {
-    await cleanup(() => ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`));
+    await cleanup(() => ps(`New-Item -ItemType File -Path ${quote(remote + '\\delete-key')} -Force | Out-Null; New-Item -ItemType File -Path ${quote(remote + '\\stop')} -Force | Out-Null`, { stage: 'request cabinet agent cleanup' }));
   }
   await cleanup(() => api?.close());
   if (platformContainerCreated) {
