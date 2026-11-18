@@ -6,6 +6,44 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D123. A file-facts list is written with one fixed statement per level (2026-11-18)
+
+**What the code did** (at `243d119`; three entries on the ownership debt list, F21.R2):
+- **The statement.** `setAllowlist` in `server/src/services/filefacts-allowlist.ts:216` wrote a client's, site's or cabinet's own
+  file-facts paths with one statement that built both its table and its column at run time:
+  `UPDATE ${TABLE[level]} SET ${ALLOWLIST_COLUMN} …`.
+- **The debt it caused.** The file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients, sites and cabinets, though nothing
+  else writes `filefacts_paths`. It was the same shape D122 removed from `approved-apps.ts`.
+
+**The decision:**
+- **Fixed statements.** `filefacts-allowlist.ts` owns `filefacts_paths` on clients, sites and cabinets. It writes the column through
+  `writeAllowlistLevel(c, level, key, value)`, with one fixed statement per level, the same stored text, and the same live-row conditions.
+- **Checks.** The level and the id are checked before the database is touched. The function answers whether a live client, site or
+  cabinet took the list, and `setAllowlist` turns false into `not_found`, as before.
+- **Why it is exported.** `setAllowlist` reads the level first (`readLevel` checks the id and refuses a removed scope), so these checks are
+  the second line. The function is exported so the module's own test can hold them, as in D122.
+- **Run-time writers left.** `filefacts-allowlist.ts` has none, so its `RUNTIME_TABLE_WRITES` entry comes off. Only the accepted demo
+  simulator still writes through a table built at run time.
+- **Debt count:** `filefacts-allowlist.ts` comes off all three tables, which leaves 8.
+
+**Proof:**
+- **`server/test/filefacts-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, and null clears it. A removed site or cabinet is not written and keeps what it
+    had.
+  - **Hostile input.** 6 bad levels and ids are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `filefacts-allowlist.js`, with `table-ownership`, 54 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `setting-origins` "a cabinet approved after its site…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The id check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 54 of 54 pass.
+
+---
+
 ## D122. An approved-programs list is written with one fixed statement per level (2026-11-18)
 
 **What the code did** (at `900a1b9`; three entries on the ownership debt list, F21.R2):
