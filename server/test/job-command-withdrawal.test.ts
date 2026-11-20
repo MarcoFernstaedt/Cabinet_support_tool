@@ -25,9 +25,9 @@ async function place(): Promise<{ online: string; offline: string; user: string 
   return { online, offline, user };
 }
 /** A command issued `agoMs` ago, expiring an hour after it was issued, in the given state. */
-async function command(cabinet: string, user: string, job: string, o: { agoMs: number; status?: string; delivered?: boolean }): Promise<string> {
+async function command(cabinet: string, user: string, job: string, o: { agoMs: number; status?: string; delivered?: boolean }, on: Queryable = db.app): Promise<string> {
   const id = randomUUID();
-  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id, delivered_at)
+  await on.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, bulk_id, delivered_at)
     VALUES ($1, $2, 'time.sync', '{}', $3, DATEADD(millisecond, -$4, SYSUTCDATETIME()), DATEADD(millisecond, 3600000 - $4, SYSUTCDATETIME()), $5, $6,
             CASE WHEN $7 = 1 THEN SYSUTCDATETIME() ELSE NULL END)`, [id, cabinet, user, o.agoMs, o.status ?? "queued", job, o.delivered ? 1 : 0]);
   return id;
@@ -81,12 +81,13 @@ test("a budget of 0 withdraws every outstanding command at once", async () => {
 
 test("a budget of 0 withdraws a command issued a moment ago, every time, though its issue time was rounded up when stored", async () => {
   // issued_at keeps milliseconds, so a command issued now can be stored up to half a millisecond ahead of the clock it is compared with.
+  // Issued on the withdrawal's own transaction, the two clock reads are close enough that the old comparison misses on every run.
   const { online, user } = await place();
   let missed = 0;
   for (let i = 0; i < 300; i++) {
     const job = randomUUID();
-    const fresh = await command(online, user, job, { agoMs: 0 });
-    if ((await db.app.transaction(tx => withdrawJobCommands(tx, job, [fresh], OFFLINE, 0))).length !== 1) missed++;
+    const out = await db.app.transaction(async tx => withdrawJobCommands(tx, job, [await command(online, user, job, { agoMs: 0 }, tx)], OFFLINE, 0));
+    if (out.length !== 1) missed++;
   }
   assert.equal(missed, 0, `${missed} of 300 were left outstanding`);
 });
