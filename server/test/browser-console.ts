@@ -76,7 +76,11 @@ export async function startConsole(staticDir: string): Promise<Console> {
     signInAs,
     async signIn(page) {
       await signInAs(page, "ada.admin");
+      // The console records the skip without waiting for it; a test that navigated before the answer could cancel it (as at D79).
+      const recorded = page.waitForResponse(r => r.request().method() === "POST" && new URL(r.url()).pathname === "/api/auth/tour-complete");
       await page.getByRole("button", { name: "Skip tour" }).click();
+      const r = await recorded;
+      if (!r.ok()) throw new Error(`skipping the tour answered ${r.status()}`);
       await page.getByRole("heading", { name: "Fleet", level: 1 }).waitFor();
     },
     async addUser(username, role, canApproveFixes = false) {
