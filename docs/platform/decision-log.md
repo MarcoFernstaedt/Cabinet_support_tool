@@ -15,8 +15,8 @@ not yet due and stayed outstanding. CI failed "a budget of 0 withdraws every out
 #326's at `10f8448`; here the same case missed 4 to 12 times in 300.
 
 **The decision:** the statement reads the clock once into a `datetime2(3)`, rounded as `issued_at` is, and compares the budget against
-that. A command issued before the withdrawal is then always due. The other windows that compare against `SYSUTCDATETIME()` are a second
-or more, where half a millisecond cannot change the answer.
+that. A command issued before the withdrawal is then always due. The other clock reads in the statement are unaffected: the heartbeat
+window is a second or more, and the expiry CASE comparison of one millisecond against the raw `SYSUTCDATETIME()` still leaves `expires_at` above `issued_at` in every branch, as `commands_check` requires.
 
 **Proof:** a new test in `server/test/job-command-withdrawal.test.ts` withdraws a just-issued command with a budget of 0, 300 times. With the
 old comparison it leaves 4 of 300 outstanding; restored and `cmp` identical, 5 of 5 on three runs.
