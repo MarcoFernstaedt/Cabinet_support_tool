@@ -6,6 +6,25 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D136. The browser tests' sign-in waits for the skipped tour to be recorded (2026-11-20)
+
+D132 to D135 are the numbers `feat/remote-access-tunnel` takes for its own four decisions when `main` is merged into it, so this entry
+skips them.
+
+**What the code did** (at `7d38a6a`): `signIn` in `server/test/browser-console.ts:77` clicked "Skip tour" and waited for the Fleet heading.
+The console records the skip with a `POST /api/auth/tour-complete` it does not wait for (`console/src/components/WelcomeTour.tsx:53`).
+A test that navigated straight after could cancel it, and the next page showed the tour again over the form the test meant to use.
+`console-replacement-e2e` failed that way on #327's run at `c27a0b4`: its click on the baseline choice was taken by the tour panel for
+30 s.
+
+**The decision:** `signIn` returns only once that request has been answered, as the code step does since D79. The console is unchanged.
+
+**Proof:** `server/test/console-sign-in-tour-e2e.test.ts` (new) delays the answer by 1.5 s and checks the database the moment `signIn`
+returns. With the old helper it fails ("the skip is recorded before signIn returns"), twice. Restored and `cmp` identical, it passes,
+and with `console-replacement-e2e` 2 of 2 on three runs.
+
+---
+
 ## D130. The baseline-alert diagnosis test waits for its own diagnosis (2026-11-20)
 
 **What the code did** (at `af30ed4`):
