@@ -6,6 +6,21 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D137. The heartbeat's backoff cap is tested on a clock the test moves (2026-11-20)
+
+**What the code did** (at `8f3744c`): `The_heartbeat_caps_the_backoff_at_its_interval` in
+`agent/tests/Cabinet.Agent.Core.Tests/Protocol11Tests.cs:157` timed a real wait capped at 200 ms against 2 s of wall clock. On a busy Windows
+runner the wait took 3.62 s (#327's run at `c27a0b4`), though the cap in `Connectivity.EnterAsync` was applied as written.
+
+**The decision:** the test gives `Connectivity` the suite's `ManualClock` and moves it by hand. One millisecond before the cap, entering
+still waits; at the cap, it completes at once rather than after the 5-minute backoff. No wall time is measured. The agent is unchanged.
+
+**Proof:** the agent solution does not build in this environment (NuGet's revocation check cannot reach its server through the proxy), so
+the hosted runs are the proof: `contracts-server-agent` runs Core on Linux and `agent-windows` on Windows. With the cap removed from
+`EnterAsync`, the "at the cap" assertion cannot hold: the backoff is 5 minutes and the clock has moved 200 ms.
+
+---
+
 ## D136. The browser tests' sign-in waits for the skipped tour to be recorded (2026-11-20)
 
 D132 to D135 are the numbers `feat/remote-access-tunnel` takes for its own four decisions when `main` is merged into it, so this entry
