@@ -6,6 +6,610 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D130. The baseline-alert diagnosis test waits for its own diagnosis (2026-11-20)
+
+**What the code did** (at `af30ed4`):
+- **The test.** `server/test/network-troubleshooting.test.ts:270` holds the cabinet's alert row on a second connection until a
+  diagnosis of that cabinet is done. The holder treated any finished diagnosis that started in the last second as the one the test starts.
+- **The failure.** The test before it diagnoses the same site, including the same cabinet. In CI it took 925 to 943 ms on the three runs
+  at `c1d6454` and `af30ed4`, so its diagnosis was within that second. The holder stopped at once and gave the row back. The test then
+  failed with "the holder never took the alert row". On the runs where the earlier test took 1,099 and 1,411 ms, it passed. Locally it
+  takes about 1,330 ms, so the failure never appeared here.
+
+**The decision:** the holder waits for a diagnosis that did not exist before the test, named by the ids that did. The test also plants a
+finished diagnosis of the cabinet from a moment ago, so the case is met on every run, not only when the earlier test is fast.
+
+**Proof:** with the old window and the planted diagnosis, the test fails with the same message as in CI (12 of 13). Restored and `cmp`
+identical, 13 of 13, three runs.
+
+---
+
+## D129. A replacement renames, re-links and retires through the owners (2026-11-18)
+
+**What the code did** (at `0633751`; the last entry on the ownership debt list, F21.R2):
+- **The statements.** `server/src/services/replacement.ts` wrote the cabinets table itself, three times:
+  - `freeName` (`:60`) renamed the old cabinet to "<name> (replaced <date>)" with `UPDATE cabinets SET name`;
+  - `completeReplacement` (`:71`) moved a replaced sync cabinet's satellites with `UPDATE cabinets SET sync_cabinet_id`;
+  - `completeReplacement` (`:83`) retired the old cabinet with `UPDATE cabinets SET status = 'removed'`.
+- **The debt it caused.** `cabinets.ts` owns the table and `sync-cabinets.ts` owns `sync_cabinet_id` (D118). Renaming and removing are the
+  table owner's, so `replacement.ts` was listed as debt on cabinets, the last entry on the list.
+
+**The decision:**
+- **The rename and the retirement through the table's owner.** `cabinets.ts` exports `renameCabinet(c, id, name)` and
+  `retireCabinet(c, id)`, the same statements, each answering whether there was such a cabinet. A name in use still fails with the
+  unique-index error, and `freeName` still picks a name free at the site first.
+- **The satellites through the column's owner.** `sync-cabinets.ts` exports `moveSatellites(c, fromId, toId)`, the same statement: a
+  removed satellite keeps its link as history. `sync-cabinets.ts` still sets only its own columns, so it stays covered by them.
+- **What stays in `replacement.ts`.** The order of the steps, revoking the certificates, telling the other processes, closing the alerts
+  and the audit entries.
+- **Checks.** The ids must be uuids and the name must follow the cabinet name rule (D128), checked before the database is touched.
+  Satellites cannot be moved to the cabinet they already reach. The old cabinet was read under lock, its name passed the contract when
+  it was approved, and `freeName` only shortens it and adds a stamp, so no replacement that reached the database before is refused.
+- **Debt count:** `replacement.ts` comes off cabinets, which leaves 0. Every table's writers are now its owner, a column owner that sets
+  only its own columns, or a writer accepted with its reason (D108). The ownership test still refuses any new cross-module write.
+
+**Proof:**
+- **`server/test/replacement-writes.test.ts`** (new, 4 tests, against the database):
+  - **Rename.** Only the named cabinet is renamed. Another cabinet's name at the site fails with the unique-index error. A missing cabinet
+    answers false.
+  - **Retire.** Only the named cabinet is marked removed, and it keeps its record. A missing cabinet answers false.
+  - **Satellites.** An active and a pending satellite move. A removed satellite, and another sync cabinet's satellite, stay where they are.
+  - **Hostile input.** 15 bad ids, names and pairs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js`, `sync-cabinets.js` or `replacement.js`, with `table-ownership`). Each of these
+  fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `replacement.ts` retires the cabinet itself again | The ownership test |
+  | The old cabinet not retired | The retire test, and `cabinet-replacement` (3 of 4) |
+  | The rename writes nothing | The rename test, and `cabinet-replacement` (3 of 4) |
+  | A removed satellite moved too | The satellites test |
+  | Satellites not moved at all (run against `cabinet-replacement` only) | `cabinet-replacement` "a sync cabinet's replacement takes its name…" |
+  | The name check removed | The hostile-input test |
+  | The same-cabinet check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 247 pass, 0 fail.
+
+  `cabinet-replacement` imports none of these modules (it goes through the routes), so the file selection left it out. I ran the three
+  write edits against it on their own afterwards, and it is 4 of 4 green once restored.
+- **The audit sweep.** The full gate then failed `audit-sweep`: `retireCabinet` sets `status = 'removed'` in a function that does not
+  audit, because its caller does. The sweep's `NOT_TRANSITIONS` list gains one entry for it, in the same way `removeSetting` was listed
+  in D117. No assertion changed. The reason is held from outside: with the `cabinet.revoke` audit dropped from `completeReplacement`,
+  `cabinet-replacement` fails (8 of 9 across it and `audit-sweep`). Restored and `cmp` identical, 9 of 9.
+
+---
+
+## D128. An enrolment approval creates its cabinet through cabinets.ts (2026-11-18)
+
+**What the code did** (at `dcdfb42`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `approveEnrollment` in `server/src/services/enrollment.ts:252` created the cabinet row itself. One
+  `INSERT INTO cabinets (…) SELECT … WHERE NOT EXISTS (… WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)` wrote 16 fields: the
+  place, the name and role, the reported facts, the sync link, and the replaced cabinet's own settings.
+- **The debt it caused.** `cabinets.ts` owns the table and row creation is the table owner's (D118), so `enrollment.ts` was listed as debt
+  on cabinets.
+
+**The decision:**
+- **One place.** `cabinets.ts` exports `insertCabinet(c, k: NewCabinet)`, the one place a cabinet is created. It holds the same
+  statement, with the name check and its lock in the insert itself, and answers false for a name in use at the site, which the approval
+  turns into `name_taken` as before.
+- **What stays in `enrollment.ts`.** The approval still decides every value it passes: the place, the sync cabinet, the replaced cabinet
+  and which of its settings carry over.
+- **Checks.** Every field is checked before the database is touched:
+  - the ids are uuids;
+  - the name is 1 to 128 characters with no control character or angle bracket (the approval contract's rule);
+  - the role is one of the three, and the architecture one of the two or null;
+  - the hostname is 1 to 255 characters, and the agent version at most 64;
+  - the carried-over settings are what the replaced row held (text, or the list or object the connection parses it into) or null;
+  - a carried-over sync address is a private IPv4 address an Admin set, or there is none.
+
+  The request and approval contracts, and the replaced cabinet's own row, already hold to these, so no approval that reached the database
+  before is refused.
+- **Found on the way.** `OldCabinet` in `replacement.ts` types the replaced cabinet's settings as text. The connection reads those JSON
+  columns back parsed (`shape` in `server/src/db/db.ts`), so at run time they are lists and objects, and they are written back as their
+  JSON text (`bind`). A first version of the check took text only. It refused every replacement that carries settings, and
+  `cabinet-replacement` caught that. The check now takes either form. The type is left as it is, as its own change.
+- **Debt count:** `enrollment.ts` comes off cabinets, which leaves 1: `replacement.ts`.
+
+**Proof:**
+- **`server/test/cabinet-insert.test.ts`** (new, 3 tests, against the database):
+  - **Writing.** Every field of a replacing sync cabinet with carried-over settings is written as given. Settings given as the
+    connection reads them, parsed, are stored as their JSON. A satellite is placed with its sync cabinet.
+  - **Names.** A name in use at the site, in another case, is answered false and nothing is written. A removed cabinet keeps its name,
+    and another site may use it.
+  - **Hostile input.** 22 bad fields are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `enrollment.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `enrollment.ts` inserts a cabinet itself again | The ownership test |
+  | The name check in the insert dropped | The names test, and `batch-approval` "a refusal with no sentence of its own…" |
+  | In-office not carried over | The writing test, and `cabinet-replacement` "a sync cabinet's replacement takes its name…" |
+  | The name check removed | The hostile-input test |
+  | The architecture check removed | The hostile-input test |
+  | The address check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 369 pass, 0 fail.
+
+---
+
+## D127. A cabinet's role is changed through cabinets.ts (2026-11-18)
+
+**What the code did** (at `8bb4ce3`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `setCabinetRole` in `server/src/services/admin.ts:133` wrote the cabinets table itself. One `UPDATE cabinets SET role
+  = $2, sync_cabinet_id = CASE …, sync_address = CASE …, sync_address_source = CASE …` changed the role and the sync columns that follow it.
+- **The debt it caused.** `cabinets.ts` owns the table. The statement sets `role`, which no column owner holds, as well as
+  `sync-cabinets.ts`'s columns, so `admin.ts` was listed as debt on cabinets.
+
+**The decision:**
+- **One owner.** `cabinets.ts` exports `changeCabinetRole(c, id, role, reported)`. It holds the same statement and the same conditions
+  (an active cabinet only), and answers the role the cabinet had and its site, or null when there is no such active cabinet.
+- **What stays in `admin.ts`.** `setCabinetRole` still reads the reported address and consumes the step-up code. It still refuses
+  `not_found`, links the site's waiting satellites and audits, as before.
+- **Checks.** The id must be a uuid, the role must be one of the three, and the reported address must be null or a canonical private
+  IPv4 address, checked before the database is touched. `reportedAddress` only ever answers null or such an address (`lanAddress`), and the
+  route's contract holds the role to the three, so no request that reached the database before is refused now.
+- **Debt count:** `admin.ts` comes off cabinets, which leaves 2: `enrollment.ts`'s cabinet insert and `replacement.ts`.
+
+**Proof:**
+- **`server/test/cabinet-role-write.test.ts`** (new, 3 tests, against the database):
+  - **The sync columns follow the role.**
+    - A cabinet that becomes a sync cabinet starts from the reported address, and has none when nothing was reported.
+    - A sync cabinet that stays one keeps the address an Admin gave it.
+    - A satellite that stays one keeps its link, and drops it when it stops being a satellite.
+    - A sync cabinet that stops being one drops its address.
+    - The role the cabinet had and its site come back.
+  - **Active only.** A pending or removed cabinet is not changed, and neither is a cabinet that does not exist.
+  - **Hostile input.** 11 bad ids, roles and addresses are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `admin.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `admin.ts` writes the table itself again | The ownership test |
+  | A cabinet that is not active changed | The active-only test |
+  | A sync cabinet that stays one loses its own address | The sync-columns test, and no test before this one |
+  | A satellite that stays one loses its link | The sync-columns test, and no test before this one |
+  | The role check removed | The hostile-input test |
+  | The address check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 251 pass, 0 fail.
+
+---
+
+## D126. The presence batch records its contacts through cabinets.ts (2026-11-18)
+
+**What the code did** (at `7cd7b7e`; one entry on the ownership debt list, F21.R2):
+- **The statement.** `Presence.flush` in `server/src/agent-api/presence.ts:46` wrote `cabinets.last_heartbeat_at` itself, one batched
+  `UPDATE k … FROM cabinets k JOIN OPENJSON($1)` per 500 contacts, for active cabinets only and never backwards.
+- **The debt it caused.** `cabinets.ts` owns the table and writes the same column on every heartbeat, so the column cannot be given to
+  `presence.ts` (D118), and `presence.ts` was listed as debt on cabinets.
+
+**The decision:**
+- **One owner.** `cabinets.ts` exports `recordContacts(c, contacts)`. It holds the same statement, the same 500-row chunks and the same
+  conditions, and answers the rows written. `presence.ts` keeps the batching in memory, the timer, one flush at a time, and putting a
+  failed batch back. It calls `recordContacts` for the write.
+- **Checks.** Every id must be a uuid and every time must be in `toISOString`'s own UTC form, checked before the database is touched.
+- **What differs.** None of these changes the outcome:
+  - a bad entry refuses the whole batch before the database, where before the database's conversion error refused it;
+  - the batch is put back for the next flush either way;
+  - `presence.ts` only ever passes ids of cabinets that authenticated, so neither path is reached.
+- **Debt count:** `presence.ts` comes off cabinets, which leaves 3, all on cabinets: `admin.ts`, `enrollment.ts` and `replacement.ts`.
+
+**Proof:**
+- **`server/test/contacts-write.test.ts`** (new, 3 tests, against the database):
+  - **Writing.** Only an active cabinet is written; a pending, a removed and another cabinet are not; an older contact does not move it
+    back.
+  - **Chunks.** 1,001 contacts, with the real cabinets in the first, second and third statements, are all written.
+  - **Hostile input.** 11 bad lists, ids and times are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `cabinets.js` or `presence.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `presence.ts` writes the table itself again | The ownership test |
+  | A cabinet that is not active written | The new writing test, and `protocol` "a poll counts as contact…" |
+  | A contact moved backwards | The new writing test, and `protocol` "a poll counts as contact…" |
+  | Only the first statement of 500 written | The chunks test |
+  | The id check removed | The hostile-input test |
+  | The time check removed | The hostile-input test |
+
+  Restored and `cmp` identical: 232 pass, 0 fail.
+
+---
+
+## D125. An enrolment approval creates its client and site through admin.ts, and sets the site's zone through time.ts (2026-11-18)
+
+**What the code did** (at `3e31b39`; two entries on the ownership debt list, F21.R2):
+- **The statements.** `approveEnrollment` in `server/src/services/enrollment.ts` wrote both tables itself:
+  - it created the client it names with its own `IF NOT EXISTS … INSERT INTO clients` (`:196`);
+  - it created the site the same way (`:208`);
+  - it set a new site's time zone with a bare `UPDATE sites SET time_zone` (`:223`) and audited it itself.
+- **The debt it caused.** `admin.ts` owns both tables and `time.ts` owns `sites.time_zone` (D118), so `enrollment.ts` was listed as debt
+  on clients and sites.
+
+**The decision:**
+- **Rows through their owner.** A client or site the approval names is created with `insertClient` or `insertSite` (D124) when the read
+  just before found no live one of that name. That read holds an update and range lock, the same condition the `IF NOT EXISTS` checked; a
+  concurrent insert that wins anyway is still taken as the same outcome, as before.
+- **The zone through its owner.** A new site's zone is written with `writeSiteTimeZone` in `time.ts`, which the site's page already uses.
+  It takes an optional `{ enrollment }`, so the audit entry keeps naming the request that set the zone, as it did.
+- **What differs.** Three things now happen that did not before, and none of them changes the outcome:
+  - the entry's `before` is read from the row, not written as null; a new site has no zone, so it is still null;
+  - `writeSiteTimeZone` refuses a site that is not live, and the site was created in the same transaction, so it is live;
+  - it checks the site's cabinets' clocks again, and the new site has none yet.
+- **Debt count:** `enrollment.ts` comes off clients and sites, which leaves 4, all on cabinets.
+
+**Proof:**
+- **`server/test/site-policies.test.ts`**, "a new site's policies are confirmed with its first approval…", gains assertions. No existing
+  assertion was changed. They check that:
+  - the `site.time_zone` entry's details are exactly `{ before: null, timeZone, enrollment: requestId }`;
+  - after three approvals naming the same client, there is one live client of that name, with the sites East and West.
+- **Red checks** (every file that imports `enrollment.js`, with `table-ownership`). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | The approval inserts a client itself again | The ownership test (1 of 277) |
+  | The new client not created | Every approval of a new client: `admin`'s and `agent-api`'s cabinets cannot be enrolled, and those files fail from their first test. The run then hung, was stopped at one hour, and was run again with a 15-minute limit, which failed the same way |
+  | The zone written without its request | The site-policies test above (1 of 277) |
+  | `writeSiteTimeZone` drops the request | The site-policies test above (1 of 277) |
+
+  Restored and `cmp` identical, 277 of 277 pass.
+
+---
+
+## D124. The bulk import creates its clients and sites through admin.ts (2026-11-18)
+
+**What the code did** (at `20f7b86`; two entries on the ownership debt list, F21.R2):
+- **The statements.** `importClientsAndSites` in `server/src/services/fleet-import.ts:83` and `:89` inserted its new client and site rows
+  itself, with the same `INSERT INTO clients` and `INSERT INTO sites` that `createClient` and `createSite` in `admin.ts` use.
+- **The debt it caused.** Row creation belongs to the table owner (D118), and `admin.ts` owns clients and sites, so `fleet-import.ts` was
+  listed as debt on both.
+
+**The decision:**
+- **One place.** `admin.ts` exports `insertClient(c, id, name)` and `insertSite(c, id, clientId, name)`, the one place each row is created.
+  The Admin screens and the bulk import both use them. The caller still decides who may, consumes the code and audits, as before, and a
+  name in use still fails with the database's unique-index error, which each caller turns into its own `name_taken`.
+- **Checks.** The ids must be uuids and the name 1 to 128 characters with no control character or angle bracket, checked before the
+  database is touched. That is the loosest name any caller's contract allows (`site-create`'s), so no request the contracts accept is
+  refused; the contracts stay the first line.
+- **Not in this change.** `enrollment.ts` still creates the clients and sites an enrolment approval names, and is the next entry.
+- **Debt count:** `fleet-import.ts` comes off clients and sites, which leaves 6.
+
+**Proof:**
+- **`server/test/client-site-insert.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** A client and a site are created with the id, client and name given; the same name in another case fails with the
+    unique-index error.
+  - **Hostile input.** 14 bad ids and names are refused, each with its own reason, on a connection that throws if used; a name of 128
+    characters outside the basic plane is not refused by the check.
+- **Red checks** (every file that imports `admin.js` or `fleet-import.js`, with `fleet-import` and `table-ownership`, 41 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | The import inserts a client itself again | The ownership test |
+  | The client row given another id | The new writing test, `fleet-import` "a list is previewed, then imported…", and `sqlserver-services` "clients, sites, issue types…" |
+  | The name check removed | The hostile-input test |
+  | The client id check on a site removed | The hostile-input test |
+
+  Restored and `cmp` identical, 41 of 41 pass.
+
+---
+
+## D123. A file-facts list is written with one fixed statement per level (2026-11-18)
+
+**What the code did** (at `243d119`; three entries on the ownership debt list, F21.R2):
+- **The statement.** `setAllowlist` in `server/src/services/filefacts-allowlist.ts:216` wrote a client's, site's or cabinet's own
+  file-facts paths with one statement that built both its table and its column at run time:
+  `UPDATE ${TABLE[level]} SET ${ALLOWLIST_COLUMN} …`.
+- **The debt it caused.** The file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients, sites and cabinets, though nothing
+  else writes `filefacts_paths`. It was the same shape D122 removed from `approved-apps.ts`.
+
+**The decision:**
+- **Fixed statements.** `filefacts-allowlist.ts` owns `filefacts_paths` on clients, sites and cabinets. It writes the column through
+  `writeAllowlistLevel(c, level, key, value)`, with one fixed statement per level, the same stored text, and the same live-row conditions.
+- **Checks.** The level and the id are checked before the database is touched. The function answers whether a live client, site or
+  cabinet took the list, and `setAllowlist` turns false into `not_found`, as before.
+- **Why it is exported.** `setAllowlist` reads the level first (`readLevel` checks the id and refuses a removed scope), so these checks are
+  the second line. The function is exported so the module's own test can hold them, as in D122.
+- **Run-time writers left.** `filefacts-allowlist.ts` has none, so its `RUNTIME_TABLE_WRITES` entry comes off. Only the accepted demo
+  simulator still writes through a table built at run time.
+- **Debt count:** `filefacts-allowlist.ts` comes off all three tables, which leaves 8.
+
+**Proof:**
+- **`server/test/filefacts-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, and null clears it. A removed site or cabinet is not written and keeps what it
+    had.
+  - **Hostile input.** 6 bad levels and ids are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `filefacts-allowlist.js`, with `table-ownership`, 54 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `setting-origins` "a cabinet approved after its site…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The id check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 54 of 54 pass.
+
+---
+
+## D122. An approved-programs list is written with one fixed statement per level (2026-11-18)
+
+**What the code did** (at `900a1b9`; three entries on the ownership debt list, F21.R2):
+- **One run-time statement.** `writeLevel` in `server/src/services/approved-apps.ts:502` wrote a client's, site's or cabinet's list with a
+  statement that built both its table and its column at run time: `UPDATE ${TABLE[level]} SET ${APPS_COLUMN} …`.
+- **What that cost.** The reader can see neither, so the file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients, sites
+  and cabinets. Nothing else writes `approved_apps`.
+
+**The decision:**
+- **Fixed statements.** `approved-apps.ts` owns `approved_apps` on clients, sites and cabinets, and writes it with one fixed statement per
+  level. The text it stores and the live-row conditions are as before.
+- **Checks.** Before the database is touched, the function checks that the level is client, site or cabinet and that the id is a uuid.
+- **Why export it.** Every caller in the module reads the level first (`readRaw`, which checks the id and refuses a removed scope), so these
+  checks and the live-row condition are the second line. No public path can turn them red. The function is exported as
+  `writeApprovedLevel` so the module's own test can hold them.
+- **`approved-apps.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **Debt count:** `approved-apps.ts` comes off all three tables, which leaves 11.
+
+**Proof:**
+- **`server/test/approved-apps-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, and null clears it. A removed site or cabinet is not found and keeps what it
+    had.
+  - **Hostile input.** 6 bad levels and ids are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (every file that imports `approved-apps.js`, with `table-ownership`, 113 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `approved-list-signing-sql` "signing the approved list…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The id check removed | The hostile-input test |
+
+  The last two failed no test before the new file: no public path reaches them.
+
+  Restored and `cmp` identical, 113 of 113 pass.
+
+---
+
+## D121. A client's or site's scanner hardware IDs are written in one place, device-settings.ts (2026-11-18)
+
+Numbered D121 as the next free number on the trunk. `feat/remote-access-tunnel` also carries a D120 and a D121, so it renumbers when it
+lands (review of #315).
+
+**What the code did** (at `66e66c4`; three entries on the ownership debt list, F21.R2):
+- **`device-settings.ts`.** `setScanner` wrote a client's or site's scanner hardware IDs through a table name built at run time
+  (`UPDATE ${TABLE[level]} SET scanner_hardware_ids …`). So the file was declared in `RUNTIME_TABLE_WRITES` and listed as debt on clients
+  and sites.
+- **`client-scanner.ts`.** Switching a client's fingerprint scanner on with IDs set `clients.scanner_hardware_ids` in its own statement,
+  behind a condition built at run time. That made a second writer of the column, so `client-scanner.ts` stayed debt after D120.
+
+**The decision:**
+- **One owner for the column.** `device-settings.ts` owns `scanner_hardware_ids` on clients and sites, and exports
+  `writeScannerIds(c, level, id, ids)`.
+  - It has one fixed statement per level, and writes only a live client or site.
+  - It stores the same JSON text as before.
+  - Before the database is touched it checks the level, the id, and the list against the contract's rule: 1 to 16 distinct hardware IDs
+    of `common.schema.json`'s pattern, or null.
+- **The callers.** `setScanner` calls it. The scanner switch calls it when it is given IDs, and without them leaves the client's IDs as
+  they were, as before. The switch's own statement is now fixed text that sets only `fingerprint_scanner` and `scanner_service`.
+- **The column owners.**
+
+  | Column | Owner |
+  |---|---|
+  | `scanner_hardware_ids` on clients and sites | `device-settings.ts` |
+  | `sync_ports` on clients | `device-settings.ts` (nothing else writes it) |
+  | `fingerprint_scanner` and `scanner_service` on clients | `client-scanner.ts` |
+
+- **`device-settings.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **Debt count:** `device-settings.ts` comes off clients and sites, and `client-scanner.ts` off clients, which leaves 14.
+
+**Proof:**
+- **`server/test/scanner-ids-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's IDs go to that level only, can be cleared to inherit, and a removed site, or a client that does not exist,
+    is not written.
+  - **Hostile input.** 13 inputs are refused, each with its own reason, on a connection that throws if used.
+- **Red checks** (the new file, `device-settings`, `client-scanner-sql` and `table-ownership`, 22 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back in `device-settings.ts` | The run-time declaration test |
+  | A site's IDs written to its client | The new writing test, `device-settings.test.ts` "scanner IDs: the cabinet's own, else the site's…", and the column-owner and covered-set tests |
+  | A removed site still written | The new writing test |
+  | The list not checked | The hostile-input test |
+  | Switching the scanner on and dropping its IDs | `client-scanner-sql` "switching on with signing…" |
+  | `client-scanner.ts` writing the IDs itself again | The unlisted-write and covered-set tests |
+
+  Restored and `cmp` identical, 22 of 22 pass.
+
+---
+
+## D120. A watched-services list is written in one place, watched-services.ts (2026-11-18)
+
+**What the code did** (at `af88248`; three entries on the ownership debt list, F21.R2):
+- **`watched-services.ts`.** `setWatched` wrote a client's, site's or cabinet's own list with one statement whose table it built at run
+  time (`UPDATE ${table} SET watched_services …`). The reader cannot see a table built that way, so the file was declared in
+  `RUNTIME_TABLE_WRITES` and listed as debt on all three tables.
+- **`client-scanner.ts`.** Switching a client's fingerprint scanner on or off set `clients.watched_services` too, in the same statement as
+  its own columns: the scanner's service is added to the list, or taken off it. So the column had two writers, and D118 could give it no
+  owner.
+
+**The decision:**
+- **One owner for the column.** `watched-services.ts` owns `watched_services` on clients, sites and cabinets, and exports
+  `writeWatchedServices(c, level, id, names)`.
+  - It has one fixed statement per level, so the table each writes is in the text.
+  - It writes only a live client, site or cabinet, and answers whether one took the list.
+  - Before the database is touched it checks the level, the id, and every name against the watched-services contract's rule, at most 16.
+  - It stores the same JSON text the data layer stored before.
+- **The callers.** `setWatched` and the scanner switch both call it. The switch's own statement now sets only `fingerprint_scanner`,
+  `scanner_service` and, when given, `scanner_hardware_ids`. Switching off still leaves the list alone unless the service was on it.
+- **`watched-services.ts` has no run-time table write left**, so its `RUNTIME_TABLE_WRITES` entry comes off.
+- **The column reader** now counts a `SET` with part of it built at run time (`${…}`) as unreadable, not read in part. The scanner
+  switch's statement is that shape, with `scanner_hardware_ids` behind a condition. The reader had stopped at the quote inside the
+  `${…}` and would have read the statement as setting only the first two columns.
+- **What stays debt.** `client-scanner.ts` stays on the debt list for clients. `scanner_hardware_ids` is also written by
+  `device-settings.ts` through a run-time table, which is its own change.
+- **Debt count:** `watched-services.ts` comes off all three tables, which leaves 17.
+
+**Proof:**
+- **`server/test/watched-services-write.test.ts`** (new, 2 tests, against the database):
+  - **Writing.** Each level's list goes to that level only, a list can be cleared to inherit, and a removed site or cabinet, or a client
+    that does not exist, is not written.
+  - **Hostile input.** 11 inputs are refused, each with its own reason, on a connection that throws if used.
+- **The reader test** gains the scanner switch's statement, read as unreadable.
+- **Red checks** (the new file, `client-scanner-sql`, `services`, `sqlserver-services` and `table-ownership`, 37 tests). Each of these
+  fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A run-time table name back in `watched-services.ts` | The run-time declaration test |
+  | A site's list written to its client | The new writing test, `services.test.ts` "watch lists: the most specific level wins…", and the column-owner and covered-set tests |
+  | A removed cabinet still written | The new writing test |
+  | The names not checked | The hostile-input test |
+  | Switching the scanner on without watching its service | `client-scanner-sql` "switching on with signing…" |
+  | Switching it off and keeping its service watched | `client-scanner-sql` "switching off: … the service off the watched list" |
+  | A run-time `SET` read in part again | The reader test |
+
+  Restored and `cmp` identical, 37 of 37 pass.
+
+---
+
+## D119. A cabinet's make and model are written in one place, config-ingest.ts (2026-11-18)
+
+**What the code did** (at `68e1f67`; two entries on the ownership debt list, F21.R2):
+- **Two writers of one pair of columns.** `cabinets.manufacturer` and `cabinets.model` were set by two files with the same statement, each
+  trimming what the cabinet reported to 200 characters:
+  - `config-ingest.ts:90`, from a configuration snapshot's hardware item;
+  - `commands.ts:252`, from a `system.hardware` result.
+
+  With two writers, D118 could give the columns no owner, so both files stayed on the debt list. `commands.ts` also sets `ipv4` and
+  `ipv4_at` from a `network.config` result, and nothing else writes those.
+- **What no test held.** A `system.hardware` result keeping the make and model. With that write taken out of `commands.ts`, every test
+  still passed.
+
+**The decision:**
+- **One owner for the pair.** `config-ingest.ts` owns `manufacturer` and `model` and exports
+  `rememberCabinetModel(c, cabinetId, { manufacturer, model })`, the statement both files ran. `commands.ts` calls it for a
+  `system.hardware` result, in the same transaction as before.
+- **What it does.** It checks the cabinet is a uuid before the database is touched, and trims each value to 200 characters. A value the
+  cabinet did not give (missing, empty or not text) keeps the stored one, and with neither nothing is written.
+  - The `commands.ts` path used `?.trim()` and would have thrown on a value that was not text. The output contract refuses one before it
+    gets there, so nothing that works today changes.
+- **`commands.ts` owns `ipv4` and `ipv4_at`.**
+- **Debt count:** both files are now covered by their own columns, so both entries for `cabinets` come off, which leaves 20.
+
+**Proof:**
+- **`server/test/cabinet-model.test.ts`** (new, 3 tests, against the database):
+  - **Keeping the values.** They are trimmed and kept. An empty make, or a value that is not text, keeps the stored one, and another cabinet
+    is untouched.
+  - **Nothing to keep, and hostile input.** Four empty reports write nothing on a connection that throws if used, and seven bad cabinet ids
+    are refused there.
+  - **The command path.** A real `system.hardware` result, the contract's `typical.json`, sent through `issueCommand` and `storeResult`,
+    keeps the make and model it reports.
+- **`table-ownership.test.ts`'s covered set** gains `commands.ts` and `config-ingest.ts` for `cabinets`.
+- **Red checks** (`cabinet-model`, `baselines`, `readings` and `table-ownership`, 50 tests). Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | `commands.ts` writing the columns itself again | The unlisted-write and covered-set tests |
+  | A `system.hardware` result no longer kept | The command-path test (no test failed on this before it) |
+  | An empty value overwriting the stored one | The first two new tests |
+  | The cabinet check removed | The hostile-input test |
+
+  Restored and `cmp` identical, 50 of 50 pass.
+
+---
+
+## D118. A setting column on a client, site or cabinet is owned by its feature module (2026-11-18)
+
+**What the code did** (at `271121a`; the last 32 entries on the ownership debt list, F21.R2):
+- **Owners of whole tables.** `clients` and `sites` are owned by `services/admin.ts`, and `cabinets` by `services/cabinets.ts`.
+- **What the other writers do.** Most of the 32 entries are feature modules setting their own column on one of those rows:
+  - `time.ts` sets `time_zone` and `clock_tolerance_seconds`;
+  - `firewall-policy.ts` sets `firewall_policy`;
+  - `network-baseline.ts` sets `network_baseline`;
+  - `rollouts.ts` sets `in_office`;
+  - `sync-cabinets.ts` sets the sync address and the sync cabinet.
+- **What the rule assumed.** The ownership rule only knew tables, so every one of these counted as debt to move behind `admin.ts` or
+  `cabinets.ts`.
+
+**The decision** (the owner's, asked 2026-11-18; spec 09 "Who owns the setting columns of clients, sites and cabinets"):
+- **Column owners.** A table's entry in `table-owners.ts` can name `columns`, mapping each column to the module that owns it.
+- **What a column owner may write.** A file is not debt for a table when every write it makes of it is a plain `UPDATE` whose `SET` names
+  only columns it owns there. An update through an alias counts, read through the alias.
+- **What stays with the table's owner.** `INSERT`, `DELETE`, `MERGE`, a `SET` the reader cannot split into columns, and a table named at run
+  time. So do creating, removing and renaming a row, and every column no feature owns.
+- **Why not the alternatives.** Moving every write into `admin.ts` and `cabinets.ts` would make those two hold every feature's rules.
+  Accepting the writers as exceptions would stop anything checking which module sets which column.
+- **What is declared now.** Only columns that one file sets and that cover all of that file's writes of the table:
+
+  | Table | Column | Owner |
+  |---|---|---|
+  | `clients` | `firewall_policy` | `firewall-policy.ts` |
+  | `clients` | `time_zone`, `clock_tolerance_seconds` | `time.ts` |
+  | `clients` | `write_paused`, `write_pause_reason` | `writes.ts` |
+  | `sites` | `firewall_policy` | `firewall-policy.ts` |
+  | `sites` | `time_zone`, `clock_tolerance_seconds` | `time.ts` |
+  | `sites` | `sync_ports` | `settings.ts` |
+  | `sites` | `network_baseline` | `network-baseline.ts` |
+  | `cabinets` | `scanner_hardware_ids` | `settings.ts` |
+  | `cabinets` | `in_office` | `rollouts.ts` |
+  | `cabinets` | `sync_address`, `sync_address_source`, `sync_cabinet_id` | `sync-cabinets.ts` |
+
+- **What stays debt, and why:**
+  - shared columns: `manufacturer` and `model` (`commands.ts` and `config-ingest.ts`), and `watched_services` (`client-scanner.ts` and
+    `watched-services.ts`);
+  - writes through a table named at run time: `approved-apps.ts`, `device-settings.ts`, `filefacts-allowlist.ts`, `watched-services.ts`;
+  - row creation: `enrollment.ts`, `fleet-import.ts`;
+  - row removal and renaming: `replacement.ts`, `admin.ts` for `cabinets`;
+  - `presence.ts`.
+
+  Each needs its own change.
+- **Debt count:** 10 entries come off, which leaves 22.
+
+**Proof** (`server/test/table-ownership.test.ts`, 8 tests, 3 of them new; reader in `server/test/table-writes.ts`):
+- **What the new tests check.**
+  - Every declared column exists in the migrations.
+  - Every column owner sets its column.
+  - No column is declared for the table's owner or an accepted writer.
+  - The set of files the columns cover is exactly the ten above. Changing it is changing what counts as debt.
+  - A debt entry its own columns cover must come off.
+- **The reader's self-test** gains column cases:
+  - a comma inside `COALESCE(…)` does not split a `SET`;
+  - an alias's columns are read;
+  - an `INSERT`, a `DELETE` and a `SET` built at run time are other writes;
+  - a clause it cannot split is unreadable;
+  - a subquery's own `FROM` or `WHERE` does not end the `SET` clause early. The clause is cut only outside parentheses, and a statement
+    that ends inside an open one is unreadable (`setClause`, added after review of #313). Before this, `SET a = (SELECT … FROM … WHERE
+    …), b = …` was read as setting `a` alone, so a file setting a column it does not own could count as covered;
+  - a quoted string (`'…'`, with `''` inside it) and a comment (`--` to the end of the line, `/* … */`) are just as opaque. A word in one
+    no longer ends the clause, a comma in one no longer splits it, and text that ends inside one is unreadable (`opaqueEnd`, also after
+    review of #313). Before this, `SET write_pause_reason = 'paused from the console', write_paused = 1` was read as setting the reason
+    alone;
+  - a part of a `SET` that starts with a comment is read past the comment to its column. `alerts.ts` writes one before `severity = …` in
+    two of its three folds: the first one (`writeAlerts`, line 289) and `FOLD_EVENT` at 344. `FOLD_EVENT` read as another write until this
+    change; `writeAlerts` was not read at all before the reach change below;
+  - an `UPDATE` or `DELETE` through an alias is followed to its `FROM` anywhere in its own statement, up to the semicolon or the end of the
+    string that holds it. The reader used to look only 600 characters past the verb. The first fold in `alerts.ts` (`writeAlerts`,
+    line 289) has its `FROM alerts a` at 610, so that write was not read at all: not as a column update, and not as another write
+    (review of #313). The table-writer scan the debt list is checked against had the same window and uses the same reach now. It finds no
+    writer it did not find before, since no ownership test changed.
+- **Red checks.** Each of these fails:
+
+  | Edit | What fails |
+  |---|---|
+  | A covered column left undeclared (`clients.time_zone`) | The unlisted-write test and the covered-set test |
+  | A covered file left on the debt list | The shrink test |
+  | A column the table does not have | The column test |
+  | A column owner that never sets its column | The column test |
+  | A column owner that also inserts the table, or sets another feature's column (`time.ts` with an `INSERT INTO sites`, or setting `network_baseline`) | The unlisted-write test and the covered-set test |
+  | The reader splitting at a comma inside a call | The reader test |
+  | The reader not reading an alias's columns | The reader test, the unlisted-write test and the covered-set test |
+  | The `SET` clause cut at any depth again | The reader test, on the subquery case |
+  | Strings and comments read like the rest of the statement again | The reader test, on the string case |
+  | A part's leading comment not skipped | The reader test, on the comment case and the `alerts.ts` folds |
+  | The 600-character reach back | The reader test, on the three `alerts.ts` folds |
+
+  Restored and `cmp` identical, 8 of 8 pass.
+
+---
+
 ## D117. Settings rows are removed only by settings.ts, through removeSetting (2026-11-17)
 
 **What the code did** (at `db9616f`; seven entries on the ownership debt list, F21.R2):
@@ -4302,7 +4906,7 @@ holding a temporary password, cannot sign in. All six are red with `src/cli.ts` 
 
 ---
 
-## D118. Opening a remote session needs a grant and a step-up code (2026-11-15)
+## D132. Opening a remote session needs a grant and a step-up code (2026-11-15)
 
 **What the brief asked for** (`docs/codex-tasks/remote-access-tunnel-lifecycle.md:39`, revision 1): opening a session "is behind
 the console's existing permission for it **and** a step-up token". There is no such permission. Nothing named `session.open`
@@ -4363,7 +4967,7 @@ rather than by the server alone.
 
 ---
 
-## D119. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
+## D133. A list shows as many rows as fit, and Next shows the next page (2026-11-15)
 
 **Marco's direction, in his words:** a page can carry as many rows as fit comfortably; when there are more, the reader
 presses Next and sees another page of the same amount. So the rule is the screenful, not a number - neither the 25 that
@@ -4386,16 +4990,16 @@ pins the *rule* instead - the page holds what fits and Next shows the next page 
 the test drives.
 
 **Proof.** `docs/spec/06-console-spec.md:27` states the behaviour rather than the number, and D81's "each page of 25"
-records that D119 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
+records that D133 supersedes it. The browser test above is the red/green: reverting the computation to a constant makes
 it fail on a viewport whose screenful is not that constant.
 
 ---
 
 ---
 
-## D120. A development-only operator shell over the session transport (2026-11-15)
+## D134. A development-only operator shell over the session transport (2026-11-15)
 
-**Superseded by D121.**
+**Superseded by D135.**
 
 **Marco's direction:** he wants full shell access to a cabinet, so the platform can be used the way a machine with ssh
 is used - to fix issues, resolve errors and see the hardware - and he scoped it himself: only on the development
@@ -4421,7 +5025,7 @@ log for every session, and a process rather than a script runner.
 
 ---
 
-## D121. SSH supersedes the development-only operator shell (2026-11-18)
+## D135. SSH supersedes the development-only operator shell (2026-11-18)
 
 The operator chose SSH for cabinet access. Cabinets on the tailnet use ordinary SSH directly.
 For cabinets off the tailnet, the dev-only capability on `feat/remote-access-tunnel`
@@ -4433,7 +5037,7 @@ adds no cabinet listener and accepts no destination parameter.
 The typed operation has its own allowlist entry and records the requesting user, cabinet, and
 endpoint in audit rows on open and close.
 
-D121 supersedes D120. The repeated PowerShell child experiment lost output in 20 of 20 runs
+D135 supersedes D134. The repeated PowerShell child experiment lost output in 20 of 20 runs
 because of pseudoconsole output attribution. That result informed the decision to retire the
 console shell. The off-network harness reuses the enrollment proof and checks a real SSH command,
 cabinet file evidence, the agent's socket table, endpoint revocation, and both audit rows. Live

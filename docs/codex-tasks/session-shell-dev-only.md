@@ -17,7 +17,7 @@ the shell is a capability that rides it, and both live here and never on `main`.
 
 **Why we want it, in Marco's words:** so the platform can "look around the cabinet to find things and see if we can add
 them". The shell is how we learn what a machine exposes; a typed operation with its own allowlist entry and its own
-audit row is how any of it ships to `main`. D119 keeps that route open, and this branch does not replace it.
+audit row is how any of it ships to `main`. D134 keeps that route open, and this branch does not replace it.
 
 ## Why the branch matters more than the feature
 
@@ -26,7 +26,7 @@ to run an arbitrary file"*, and `docs/spec/11-security-review-brief.md:29` repea
 do". That promise is why a customer lets this agent run as SYSTEM on their cabinet, and it is what the compiled catalog,
 the release signing and the step-up codes exist to keep. The shell is worth having for our own fleet and our own
 diagnostics; it is not worth changing that promise. Keeping it on this branch is what lets both be true, and it is why
-D119 says the same thing in the decision log.
+D134 says the same thing in the decision log.
 
 ## The job
 

@@ -8,6 +8,7 @@ import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ingestAndEvaluate } from "./config-service.js";
+import { rememberCabinetModel } from "./config-ingest.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
@@ -264,11 +265,9 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       await refuseAgentSession(c, cabinetId, sessionId, "Agent refused or failed session.open");
     }
     // What the cabinet says about its make and model keeps the model baseline applying to it.
-    if (result.status === "succeeded" && command.operation === "system.hardware") {
-      const hw = result.output as { manufacturer?: string | null; model?: string | null };
-      await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1",
-        [cabinetId, hw.manufacturer?.trim().slice(0, 200) || null, hw.model?.trim().slice(0, 200) || null]);
-    }
+    // Those two columns are config-ingest.ts's (D119).
+    if (result.status === "succeeded" && command.operation === "system.hardware")
+      await rememberCabinetModel(c, cabinetId, result.output as { manufacturer?: unknown; model?: unknown });
     // A service set to restart the computer when it fails is an alert, named; a reading with none closes it (F14.R3).
     if (result.status === "succeeded" && command.operation === "services.list")
       await checkServiceRecovery(c, cabinetId, (result.output as { services: ServiceWithRecovery[] }).services);
