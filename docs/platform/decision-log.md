@@ -6,6 +6,26 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D131. A fleet job's withdrawal compares issue times at their own precision (2026-11-20)
+
+**What the code did** (at `7d38a6a`): `withdrawJobCommands` in `server/src/services/commands.ts:146` withdrew a command whose budget had
+passed with `issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())`. `issued_at` is `datetime2(3)`, so a command issued now is stored
+rounded, up to half a millisecond ahead of the unrounded clock. With a budget of 0, a command issued within that half millisecond was
+not yet due and stayed outstanding. CI failed "a budget of 0 withdraws every outstanding command at once" on #324's run at `c1d6454` and
+#326's at `10f8448`; here the same case missed 4 to 12 times in 300.
+
+**The decision:** the statement reads the clock once into a `datetime2(3)`, rounded as `issued_at` is, and compares the budget against
+that. A command issued before the withdrawal is then always due. The other clock reads in the statement are unaffected: the heartbeat
+window is a second or more, and the expiry CASE comparison of one millisecond against the raw `SYSUTCDATETIME()` still leaves `expires_at` above `issued_at` in every branch, as `commands_check` requires.
+
+**Proof:** a new test in `server/test/job-command-withdrawal.test.ts` withdraws a just-issued command with a budget of 0, 300 times. It issues
+each command on the withdrawal's own transaction, so the two clock reads are close enough for the old comparison to miss on every run:
+with the old comparison it failed 10 runs of 10, leaving 55 to 77 of 300 outstanding. A first version issued through the pool and missed
+only when a round trip landed inside the half millisecond, so it passed 4 of 11 runs against the old code (found in review of #327).
+Restored and `cmp` identical, 5 of 5 runs.
+
+---
+
 ## D130. The baseline-alert diagnosis test waits for its own diagnosis (2026-11-20)
 
 **What the code did** (at `af30ed4`):
