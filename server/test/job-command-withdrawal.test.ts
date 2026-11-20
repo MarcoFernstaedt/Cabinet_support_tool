@@ -79,6 +79,18 @@ test("a budget of 0 withdraws every outstanding command at once", async () => {
   assert.equal((await stored(fresh)).ok, 1, "an immediate withdrawal keeps the expiry after the issue time");
 });
 
+test("a budget of 0 withdraws a command issued a moment ago, every time, though its issue time was rounded up when stored", async () => {
+  // issued_at keeps milliseconds, so a command issued now can be stored up to half a millisecond ahead of the clock it is compared with.
+  const { online, user } = await place();
+  let missed = 0;
+  for (let i = 0; i < 300; i++) {
+    const job = randomUUID();
+    const fresh = await command(online, user, job, { agoMs: 0 });
+    if ((await db.app.transaction(tx => withdrawJobCommands(tx, job, [fresh], OFFLINE, 0))).length !== 1) missed++;
+  }
+  assert.equal(missed, 0, `${missed} of 300 were left outstanding`);
+});
+
 test("a withdrawal in a transaction that rolls back leaves the command queued and unaudited", async () => {
   const { offline, user } = await place();
   const job = randomUUID();

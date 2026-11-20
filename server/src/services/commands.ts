@@ -136,6 +136,8 @@ export async function withdrawJobCommands(tx: Queryable, jobId: string, commandI
   if (!Number.isInteger(batchMs) || batchMs < 0 || batchMs > 86_400_000) throw new Error("a batch's answer budget is 0 to 86400000 whole milliseconds");
   const retired = (await tx.query<WithdrawnCommand>(
     `DECLARE @retired TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), status varchar(16), delivered bit);
+     -- At issued_at's own precision: a command issued now is stored rounded, up to half a millisecond ahead of SYSUTCDATETIME().
+     DECLARE @now datetime2(3) = SYSUTCDATETIME();
      UPDATE commands SET status = CASE WHEN delivered_at IS NOT NULL OR NOT EXISTS
          (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
            AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())) THEN 'expired' ELSE 'failed' END, expires_at = CASE WHEN DATEADD(millisecond, 1, issued_at) > SYSUTCDATETIME() THEN DATEADD(millisecond, 1, issued_at)
@@ -143,7 +145,7 @@ export async function withdrawJobCommands(tx: Queryable, jobId: string, commandI
        OUTPUT inserted.id, inserted.cabinet_id, inserted.operation, inserted.status,
          CAST(CASE WHEN inserted.delivered_at IS NULL THEN 0 ELSE 1 END AS bit) INTO @retired
        WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status IN ('queued', 'delivered')
-         AND (issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())
+         AND (issued_at <= DATEADD(millisecond, -$3, @now)
            OR (status = 'queued' AND delivered_at IS NULL AND NOT EXISTS
              (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
                AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))));
