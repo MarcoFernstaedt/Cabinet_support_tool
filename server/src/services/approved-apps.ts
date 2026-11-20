@@ -39,7 +39,7 @@ export const APPS_SETTING_KEY = "apps.approved";
 export const APPS_COLUMN = "approved_apps";
 /** The most entries one level may hold (the contract caps the request at the same number). */
 export const MAX_APPS = 32;
-const TABLE: Record<Exclude<AppLevel, "fleet">, string> = { client: "clients", site: "sites", cabinet: "cabinets" };
+const LEVEL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** The step-up action a level's write is bound to, named after the levels the rest of the platform already uses. */
 export const APPS_SET_ACTION: Record<AppLevel, string> = { fleet: "settings.apps", client: "client.apps", site: "site.apps", cabinet: "cabinet.apps" };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -352,7 +352,7 @@ async function writeApprovedList(c: Queryable, userId: string, level: AppLevel, 
   const kept = parseJson<Record<string, unknown>>(raw);
   const inForce = !stored.present ? {} : kept && typeof kept === "object" && !Array.isArray(kept) ? withoutPending(kept) : { unreadable: true };
   const value = next === null ? null : waits ? { ...inForce, pending: next } : next;
-  await writeLevel(c, level, key, value, userId);
+  await writeApprovedLevel(c, level, key, value, userId);
   const place = level === "fleet" ? {} : { targetKind: level, targetId: key };
   await audit(c, { actorKind: "user", actorId: userId, action: APPS_SET_ACTION[level], ...place, outcome: "succeeded",
     details: { level, id: key, removed: next === null, waitsForSignature: waits, entries: entries?.length ?? 0, version: next?.version ?? null, keys: entries?.map(e => e.key) ?? [],
@@ -459,7 +459,7 @@ export async function signApprovedApps(pool: Pool, user: { userId: string; role:
     // Signing the list in force keeps a change that is still waiting; signing the waiting change consumes it.
     const kept = parseJson<Record<string, unknown>>(raw);
     if (!target.waiting && kept && typeof kept === "object" && !Array.isArray(kept) && kept.pending) live.pending = kept.pending;
-    await writeLevel(c, level, key, live, user.userId);
+    await writeApprovedLevel(c, level, key, live, user.userId);
     await audit(c, { actorKind: "user", actorId: user.userId, action: `${APPS_SET_ACTION[level]}.sign`, ...placeOf(level, key), outcome: "succeeded",
       details: { level, id: key, version, keyId: signature.keyId, entries: target.list.entries.length } });
     return { key, list: splitStored(live).live! } as const;
@@ -481,7 +481,7 @@ export async function discardPendingApps(pool: Pool, user: { userId: string; rol
     if (!stored.pending) throw new Refused("not_found", 404, "no change is waiting for a signature here");
     const kept = parseJson<Record<string, unknown>>(raw)!;
     const rest = withoutPending(kept);
-    await writeLevel(c, level, key, Object.keys(rest).length === 0 ? null : rest, user.userId);
+    await writeApprovedLevel(c, level, key, Object.keys(rest).length === 0 ? null : rest, user.userId);
     await audit(c, { actorKind: "user", actorId: user.userId, action: `${APPS_SET_ACTION[level]}.discard`, ...placeOf(level, key), outcome: "succeeded",
       details: { level, id: key, version: stored.pending.version } });
   });
@@ -492,15 +492,25 @@ function withoutPending(value: Record<string, unknown>): Record<string, unknown>
   return rest;
 }
 
-/** Writes one level's column (or the fleet's settings row); null clears it. */
-async function writeLevel(c: Queryable, level: AppLevel, key: string, value: unknown, by: string): Promise<void> {
+/**
+ * Writes one level's column (or the fleet's settings row); null clears it. This module owns the approved_apps column of clients, sites and
+ * cabinets (F21.R2, decision-log D122): one fixed statement per level, so the table and the column each writes are in the text
+ * (table-ownership.test.ts reads them). The level and the id are checked before the database is touched; a removed one is not found.
+ * Every caller in this module reads the level first (readRaw, which checks the id and refuses a removed scope), so these checks are the
+ * second line; they are exported so the module's tests can hold them.
+ */
+export async function writeApprovedLevel(c: Queryable, level: AppLevel, key: string, value: unknown, by: string): Promise<void> {
   if (level === "fleet") {
     if (value === null) await removeSetting(c, APPS_SETTING_KEY);
     else await upsertSetting(c, APPS_SETTING_KEY, value, by);
     return;
   }
-  const r = await c.query(`UPDATE ${TABLE[level]} SET ${APPS_COLUMN} = $2 WHERE id = $1 AND ${level === "cabinet" ? "status <> 'removed'" : "removed_at IS NULL"}`,
-    [key, value === null ? null : JSON.stringify(value)]);
+  if (level !== "client" && level !== "site" && level !== "cabinet") throw new Error("an approved list belongs to the fleet, a client, a site or a cabinet");
+  if (typeof key !== "string" || !LEVEL_ID.test(key)) throw new Error(`the ${level} must be a uuid`);
+  const text = value === null ? null : JSON.stringify(value);
+  const r = level === "client" ? await c.query("UPDATE clients SET approved_apps = $2 WHERE id = $1 AND removed_at IS NULL", [key, text])
+    : level === "site" ? await c.query("UPDATE sites SET approved_apps = $2 WHERE id = $1 AND removed_at IS NULL", [key, text])
+    : await c.query("UPDATE cabinets SET approved_apps = $2 WHERE id = $1 AND status <> 'removed'", [key, text]);
   if (r.rowCount !== 1) throw new Refused("not_found", 404, `no such ${level}`);
 }
 

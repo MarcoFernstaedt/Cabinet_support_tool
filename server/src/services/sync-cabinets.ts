@@ -109,6 +109,20 @@ export async function linkUnassigned(c: Queryable, siteId: string): Promise<numb
   return linked.length;
 }
 
+const CABINET_UUID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+/**
+ * Moves every satellite that reaches one sync cabinet to another, in the caller's transaction: a replaced sync cabinet's satellites
+ * follow it to its replacement (replacement.ts; F21.R2, decision-log D129). A removed satellite keeps its link as history. Returns how many
+ * moved; the caller audits the replacement. Both ids are checked before the database is touched.
+ */
+export async function moveSatellites(c: Queryable, fromId: string, toId: string): Promise<number> {
+  if (typeof fromId !== "string" || !CABINET_UUID.test(fromId) || typeof toId !== "string" || !CABINET_UUID.test(toId))
+    throw new Error("satellites move from one sync cabinet's uuid to another's");
+  if (fromId.toLowerCase() === toId.toLowerCase()) throw new Error("satellites move to another sync cabinet");
+  return (await c.query("UPDATE cabinets SET sync_cabinet_id = $2 WHERE sync_cabinet_id = $1 AND status <> 'removed'", [fromId, toId])).rowCount ?? 0;
+}
+
 /** What a satellite reaches. "unassigned": no live link, so its enrollment is incomplete. "address_needed": linked, but its sync cabinet has no address yet. */
 export type SatelliteState = "linked" | "unassigned" | "address_needed";
 

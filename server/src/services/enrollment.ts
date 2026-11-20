@@ -8,12 +8,13 @@ import type { IssuingKey } from "../pki/x509.js";
 import { CsrError, verifyCsr } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 import { assertSyncCabinetAt, linkUnassigned } from "./sync-cabinets.js";
-import { recordIssuedCertificate } from "./cabinets.js";
+import { insertCabinet, recordIssuedCertificate } from "./cabinets.js";
 import { applyScannerChoice, type ScannerChoice } from "./client-scanner.js";
 import type { ListSigningKeys } from "./approved-list-signing.js";
 import { approvedFor, attachChoices, attachToSite, recordEnrollmentDecision, type Scope } from "./baselines.js";
 import { fleetPolicy, writeSitePolicy, type FirewallPolicy } from "./firewall-policy.js";
-import { fleetTimeZone, type TimeZoneId } from "./time.js";
+import { fleetTimeZone, writeSiteTimeZone, type TimeZoneId } from "./time.js";
+import { insertClient, insertSite } from "./admin.js";
 import { parseJson } from "./settings.js";
 import { completeReplacement, freeName, lockReplaced, type OldCabinet } from "./replacement.js";
 import { noteRevocation } from "../agent-api/revocations.js";
@@ -191,10 +192,11 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     const existed = !!(await c.query("SELECT 1 AS x FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0];
     if (existed && approval.scanner) throw new Refused("scanner_for_existing_client", 409, "this client already exists; change its fingerprint scanner setting on the client's page",
       { reason: "This client already exists. Its fingerprint scanner setting is changed on the client's page, not with an approval." });
-    // Insert unless a live client of that name exists (a concurrent insert that wins the race is the same outcome).
-    try {
-      await c.query("IF NOT EXISTS (SELECT 1 FROM clients WITH (UPDLOCK, HOLDLOCK) WHERE name = $2 AND removed_at IS NULL) INSERT INTO clients (id, name) VALUES ($1, $2)", [randomUUID(), approval.clientName]);
-    } catch (e) { if (!isUniqueViolation(e)) throw e; }
+    // Created through its owner unless a live client of that name exists: the read above holds its lock, and a concurrent insert that
+    // wins the race anyway is the same outcome.
+    if (!existed) {
+      try { await insertClient(c, randomUUID(), approval.clientName); } catch (e) { if (!isUniqueViolation(e)) throw e; }
+    }
     const client = (await c.query<{ id: string; demo: boolean }>("SELECT id, demo FROM clients WHERE name = $1 AND removed_at IS NULL", [approval.clientName])).rows[0]!;
     // A real cabinet never joins a simulated client: turning demo mode off deletes those, and its data would be mixed with the simulation.
     if (client.demo) throw new Refused("demo_client", 409, "that is a simulated demo client; file the cabinet under a real client");
@@ -204,10 +206,9 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     const siteExisted = !!(await c.query("SELECT 1 AS x FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0];
     if (siteExisted && approval.sitePolicies) throw new Refused("site_policies_for_existing_site", 409, "this site already exists; change its policies on the site's page",
       { reason: "This site already exists. Its firewall policy and time zone are changed on the site's page, not with an approval." });
-    try {
-      await c.query("IF NOT EXISTS (SELECT 1 FROM sites WITH (UPDLOCK, HOLDLOCK) WHERE client_id = $2 AND name = $3 AND removed_at IS NULL) INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)",
-        [randomUUID(), client.id, approval.siteName]);
-    } catch (e) { if (!isUniqueViolation(e)) throw e; }
+    if (!siteExisted) {
+      try { await insertSite(c, randomUUID(), client.id, approval.siteName); } catch (e) { if (!isUniqueViolation(e)) throw e; }
+    }
     const site = (await c.query<{ id: string }>("SELECT id FROM sites WHERE client_id = $1 AND name = $2 AND removed_at IS NULL", [client.id, approval.siteName])).rows[0]!;
     // A cabinet installed with a site installer belongs to that site, and to its role when the installer named one (F6.R1). Placing it
     // anywhere else is refused: the installer was made for there, and the person who made it confirmed that with a code.
@@ -219,11 +220,7 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
         { reason: `This cabinet's installer is for ${request.token_role} cabinets. Approve it with that role, or reject it.` });
     // A new site's own policies, confirmed with this approval and written with it (each audited as its own change).
     if (!siteExisted && approval.sitePolicies?.firewall) await writeSitePolicy(c, userId, site.id, approval.sitePolicies.firewall);
-    if (!siteExisted && approval.sitePolicies?.timeZone) {
-      await c.query("UPDATE sites SET time_zone = $2 WHERE id = $1", [site.id, approval.sitePolicies.timeZone]);
-      await audit(c, { actorKind: "user", actorId: userId, action: "site.time_zone", targetKind: "site", targetId: site.id, outcome: "succeeded",
-        details: { before: null, timeZone: approval.sitePolicies.timeZone, enrollment: requestId } });
-    }
+    if (!siteExisted && approval.sitePolicies?.timeZone) await writeSiteTimeZone(c, userId, site.id, approval.sitePolicies.timeZone, { enrollment: requestId });
 
     // The cabinet this one replaces, read and checked under lock before anything is written.
     const old: OldCabinet | null = approval.replacesCabinetId ? await lockReplaced(c, approval.replacesCabinetId, site.id, approval.role) : null;
@@ -248,18 +245,16 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     const cabinetId = randomUUID();
     // A replacement that takes the old cabinet's name frees it first (the old record keeps its history under "<name> (replaced <date>)").
     if (old && old.name.toLowerCase() === approval.cabinetName.trim().toLowerCase()) await freeName(c, old);
-    // A cabinet name is unique within its site (removed cabinets keep theirs). The check is in the insert itself, with a lock on the rows
-    // it reads, so two approvals at the same moment cannot both pass: one inserts, the other sees the row and is refused.
+    // A cabinet name is unique within its site (removed cabinets keep theirs): cabinets.ts, the table's owner, checks it in the insert
+    // itself (D128), so of two approvals at the same moment one inserts and the other is refused.
     // A replacement starts with the old cabinet's own settings; an Admin-set sync address carries over (a reported one comes from the new report).
     const keepAddress = old?.role === "sync" && old.syncAddressSource === "admin";
-    const insert = await c.query<{ id: string }>(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
-                     replaces_cabinet_id, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source)
-                   SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
-                   WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
-      [cabinetId, site.id, approval.cabinetName, approval.role, request.fingerprints.hostname, request.fingerprints.serialNumber, request.fingerprints.agentVersion,
-       request.fingerprints.architecture ?? null, syncCabinetId, old?.id ?? null, old?.scannerHardwareIds ?? null, old?.watchedServices ?? null, old?.filefactsPaths ?? null,
-       old?.inOffice ? 1 : 0, keepAddress ? old!.syncAddress : null, keepAddress ? "admin" : null]);
-    if (insert.rowCount !== 1) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
+    const inserted = await insertCabinet(c, { id: cabinetId, siteId: site.id, name: approval.cabinetName, role: approval.role,
+      hostname: request.fingerprints.hostname, serialNumber: request.fingerprints.serialNumber, agentVersion: request.fingerprints.agentVersion,
+      architecture: request.fingerprints.architecture ?? null, syncCabinetId, replacesCabinetId: old?.id ?? null,
+      scannerHardwareIds: old?.scannerHardwareIds ?? null, watchedServices: old?.watchedServices ?? null, filefactsPaths: old?.filefactsPaths ?? null,
+      inOffice: old?.inOffice ? true : false, syncAddress: keepAddress ? old!.syncAddress : null, syncAddressSource: keepAddress ? "admin" : null });
+    if (!inserted) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
     // The old cabinet's place, its own settings, and the old cabinet retired (its satellites follow it before any are linked below).
     const replacement = old ? await completeReplacement(c, userId, old, cabinetId, approval.cabinetName, signing) : null;
     // The site's first sync cabinet takes in the satellites that were waiting for one.

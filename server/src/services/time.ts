@@ -78,13 +78,16 @@ export async function setSiteTimeZone(pool: Pool, userId: string, siteId: string
   await transaction(pool, c => writeSiteTimeZone(c, userId, siteId, zone));
 }
 
-/** Writes a site's zone in the caller's transaction, audits it and checks the site's cabinets again (the caller checked the role). */
-export async function writeSiteTimeZone(c: Queryable, userId: string, siteId: string, zone: TimeZoneId | null): Promise<void> {
+/**
+ * Writes a site's zone in the caller's transaction, audits it and checks the site's cabinets again (the caller checked the role). An
+ * enrolment approval that sets a new site's zone names its request, which the audit entry carries.
+ */
+export async function writeSiteTimeZone(c: Queryable, userId: string, siteId: string, zone: TimeZoneId | null, via?: { enrollment: string }): Promise<void> {
   const r = await c.query<{ old_zone: string | null }>(
     "UPDATE sites SET time_zone = $2 OUTPUT deleted.time_zone AS old_zone WHERE id = $1 AND removed_at IS NULL", [siteId, zone]);
   if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such site");
   await audit(c, { actorKind: "user", actorId: userId, action: "site.time_zone", targetKind: "site", targetId: siteId, outcome: "succeeded",
-    details: { before: r.rows[0]!.old_zone, timeZone: zone } });
+    details: { before: r.rows[0]!.old_zone, timeZone: zone, ...(via ? { enrollment: via.enrollment } : {}) } });
   await evaluateTime(c, { siteId });
 }
 

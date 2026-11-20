@@ -5,12 +5,12 @@ import { audit, HOT_PATH_TIMEOUT_MS, notify, transaction, type Pool, type Querya
 import { AGENT_RENEW_DAYS, issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
-import { linkUnassigned } from "./sync-cabinets.js";
+import { isCanonicalIpv4, linkUnassigned } from "./sync-cabinets.js";
 import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
 import { rawEntry, resolveLevels, type ApprovedAppEntry, type SignedList } from "./approved-apps.js";
-import { parseJson } from "./settings.js";
+import { isPrivateIpv4, parseJson } from "./settings.js";
 import { noteRevocation, REVOCATION_CHANNEL } from "../agent-api/revocations.js";
 import { raiseSecurityAlert } from "./security.js";
 import { ISSUE } from "./rules.js";
@@ -254,6 +254,128 @@ export async function listCabinets(db: Queryable): Promise<CabinetSummary[]> {
 }
 
 const CABINET_ID = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+
+const CABINET_ROLES = ["sync", "satellite", "standalone"] as const;
+
+/** A cabinet as an approval places it: its place, name and role, what it reported, and what it takes over from a cabinet it replaces. */
+export interface NewCabinet {
+  id: string; siteId: string; name: string; role: string;
+  hostname: string; serialNumber: string | null; agentVersion: string; architecture: string | null;
+  syncCabinetId: string | null; replacesCabinetId: string | null;
+  /**
+   * The replaced cabinet's own settings, as read from its row, or null. The connection reads these JSON columns back parsed (a list or an
+   * object, whatever OldCabinet's type says) and writes a value back as its JSON text, so either form is taken.
+   */
+  scannerHardwareIds: string | null; watchedServices: string | null; filefactsPaths: string | null; inOffice: boolean;
+  /** An Admin-set sync address carried over from the replaced sync cabinet: both null, or the address and "admin". */
+  syncAddress: string | null; syncAddressSource: "admin" | null;
+}
+
+// The loosest cabinet name the approval's contract allows: 1 to 128 characters, none a control character or an angle bracket.
+const CABINET_NAME = /^[^\u0000-\u001f\u007f<>]+$/u;
+const ARCHITECTURES = ["windows-x64", "windows-x86"];
+const isUuidOrNull = (v: unknown) => v === null || (typeof v === "string" && CABINET_ID.test(v));
+const isTextOrNull = (v: unknown) => v === null || typeof v === "string";
+const isStoredSetting = (v: unknown) => v === null || typeof v === "string" || Array.isArray(v) || (typeof v === "object" && Object.getPrototypeOf(v) === Object.prototype);
+
+/**
+ * Creates an active cabinet, the one place one is created (F21.R2, decision-log D128): enrollment calls it in the transaction that
+ * approves the cabinet. A name is unique within its site (removed cabinets keep theirs); the check is in the insert itself, with a lock on
+ * the rows it reads, so of two approvals at the same moment one inserts and the other is answered false. Every field is checked before the
+ * database is touched; the caller checked the contract, the place, the role and the replaced cabinet.
+ */
+export async function insertCabinet(c: Queryable, k: NewCabinet): Promise<boolean> {
+  if (typeof k !== "object" || k === null) throw new Error("a new cabinet is required");
+  if (typeof k.id !== "string" || !CABINET_ID.test(k.id) || typeof k.siteId !== "string" || !CABINET_ID.test(k.siteId)) throw new Error("a new cabinet's id and site are uuids");
+  if (typeof k.name !== "string" || [...k.name].length > 128 || !CABINET_NAME.test(k.name)) throw new Error("a cabinet name is 1 to 128 characters with no control characters or angle brackets");
+  if (!(CABINET_ROLES as readonly unknown[]).includes(k.role)) throw new Error("a cabinet's role is sync, satellite or standalone");
+  if (typeof k.hostname !== "string" || k.hostname.length < 1 || k.hostname.length > 255 || !isTextOrNull(k.serialNumber) || typeof k.agentVersion !== "string"
+      || k.agentVersion.length > 64 || !(k.architecture === null || ARCHITECTURES.includes(k.architecture))) throw new Error("a new cabinet's reported facts are its hostname, serial, agent version and architecture");
+  if (!isUuidOrNull(k.syncCabinetId) || !isUuidOrNull(k.replacesCabinetId)) throw new Error("a sync cabinet and a replaced cabinet are uuids or null");
+  if (!isStoredSetting(k.scannerHardwareIds) || !isStoredSetting(k.watchedServices) || !isStoredSetting(k.filefactsPaths) || typeof k.inOffice !== "boolean")
+    throw new Error("a replaced cabinet's settings are what its row held, or null");
+  if (!(k.syncAddress === null && k.syncAddressSource === null)
+      && !(typeof k.syncAddress === "string" && isCanonicalIpv4(k.syncAddress) && isPrivateIpv4(k.syncAddress) && k.syncAddressSource === "admin"))
+    throw new Error("a carried-over sync address is a private IPv4 address an Admin set, or none");
+  const r = await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
+                   replaces_cabinet_id, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source)
+                 SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                 WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
+    [k.id, k.siteId, k.name, k.role, k.hostname, k.serialNumber, k.agentVersion, k.architecture, k.syncCabinetId, k.replacesCabinetId,
+     k.scannerHardwareIds, k.watchedServices, k.filefactsPaths, k.inOffice ? 1 : 0, k.syncAddress, k.syncAddressSource]);
+  return r.rowCount === 1;
+}
+
+/**
+ * Changes an active cabinet's role, and the sync columns that follow it, in the caller's transaction (F21.R2, decision-log D127): a
+ * cabinet that stops being a satellite drops its link; one that stops being a sync cabinet drops its address; one that becomes a sync
+ * cabinet starts from `reported`, the address it last reported, and one that already was keeps its own. The caller (admin.ts) checks the
+ * code, links the site's waiting satellites and audits. The id, the role and the address are checked before the database is touched.
+ * Answers the role it had and its site, or null when there is no such active cabinet.
+ */
+export async function changeCabinetRole(c: Queryable, id: string, role: string, reported: string | null): Promise<{ oldRole: string; siteId: string } | null> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to change its role");
+  if (!(CABINET_ROLES as readonly unknown[]).includes(role)) throw new Error("a cabinet's role is sync, satellite or standalone");
+  if (reported !== null && (typeof reported !== "string" || !isCanonicalIpv4(reported) || !isPrivateIpv4(reported)))
+    throw new Error("a reported sync address is null or a private IPv4 address");
+  const r = await c.query<{ old_role: string; site_id: string }>(
+    `UPDATE cabinets SET role = $2,
+            sync_cabinet_id = CASE WHEN $2 = 'satellite' THEN sync_cabinet_id ELSE NULL END,
+            sync_address = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address WHEN $2 = 'sync' THEN $3 ELSE NULL END,
+            sync_address_source = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address_source WHEN $2 = 'sync' AND $3 IS NOT NULL THEN 'reported' ELSE NULL END
+     OUTPUT deleted.role AS old_role, inserted.site_id WHERE id = $1 AND status = 'active'`, [id, role, reported]);
+  return r.rowCount === 1 ? { oldRole: r.rows[0]!.old_role, siteId: r.rows[0]!.site_id } : null;
+}
+
+/**
+ * Renames a cabinet, in the caller's transaction: a replaced cabinet gives its name up to its replacement (replacement.ts freeName; F21.R2,
+ * decision-log D129). The caller chose a name free at the site; one in use fails with the unique-index error. The id and the name are
+ * checked before the database is touched. Answers whether there was such a cabinet.
+ */
+export async function renameCabinet(c: Queryable, id: string, name: string): Promise<boolean> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to rename it");
+  if (typeof name !== "string" || [...name].length > 128 || !CABINET_NAME.test(name)) throw new Error("a cabinet name is 1 to 128 characters with no control characters or angle brackets");
+  return (await c.query("UPDATE cabinets SET name = $2 WHERE id = $1", [id, name])).rowCount === 1;
+}
+
+/**
+ * Marks a cabinet removed, keeping its record and history, in the caller's transaction: a replaced cabinet is retired this way
+ * (replacement.ts; F21.R2, D129). The caller revokes its certificates, tells the other processes and audits. The id is checked before the
+ * database is touched. Answers whether there was such a cabinet.
+ */
+export async function retireCabinet(c: Queryable, id: string): Promise<boolean> {
+  if (typeof id !== "string" || !CABINET_ID.test(id)) throw new Error("a cabinet id is required to retire it");
+  return (await c.query("UPDATE cabinets SET status = 'removed' WHERE id = $1", [id])).rowCount === 1;
+}
+
+/** Rows per statement: small enough that the row locks are held only briefly (2,000 made heartbeats wait at 8,000 cabinets). */
+const CONTACT_CHUNK = 500;
+/** A contact time as the presence batch writes it: Date.prototype.toISOString's own form, in UTC. */
+const CONTACT_AT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
+/**
+ * Records when each active cabinet was last heard from, for the presence batch (agent-api/presence.ts; F21.R2, decision-log D126):
+ * cabinets.last_heartbeat_at, which every "offline after 5 minutes" judgement reads, is never moved backwards, and a removed or pending
+ * cabinet is not written. Written in statements of 500 rows. Every id and time is checked before the database is touched, so a bad entry
+ * refuses the whole batch, as the database's own conversion error did. Returns the rows written.
+ */
+export async function recordContacts(c: Queryable, contacts: readonly { id: string; at: string }[]): Promise<number> {
+  if (!Array.isArray(contacts)) throw new Error("contacts are a list of cabinet ids and times");
+  for (const e of contacts) {
+    if (typeof e !== "object" || e === null || typeof e.id !== "string" || !CABINET_ID.test(e.id)) throw new Error("a contact names a cabinet by its uuid");
+    if (typeof e.at !== "string" || !CONTACT_AT.test(e.at) || Number.isNaN(Date.parse(e.at))) throw new Error("a contact time is an ISO 8601 UTC time");
+  }
+  let written = 0;
+  for (let i = 0; i < contacts.length; i += CONTACT_CHUNK) {
+    const r = await c.query(
+      `UPDATE k SET last_heartbeat_at = j.[at]
+         FROM cabinets k JOIN OPENJSON($1) WITH (id uniqueidentifier '$.id', [at] datetime2(3) '$.at') j ON k.id = j.id
+        WHERE k.status = 'active' AND (k.last_heartbeat_at IS NULL OR k.last_heartbeat_at < j.[at])`,
+      [JSON.stringify(contacts.slice(i, i + CONTACT_CHUNK).map(e => ({ id: e.id, at: e.at })))]);
+    written += r.rowCount ?? 0;
+  }
+  return written;
+}
 
 /**
  * Removes these cabinets' raw health samples taken before `before`, once the caller has folded them into health_hourly in the same

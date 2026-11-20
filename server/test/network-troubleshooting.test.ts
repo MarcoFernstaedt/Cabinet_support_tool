@@ -277,19 +277,23 @@ test("a diagnosis is shown as done only once its baseline alert is settled: a re
   // rows, saw this one free and waited out its limit.
   const alertId = (await db.app.query<{ id: string }>("SELECT id FROM alerts WHERE cabinet_id = $1 AND issue_type_id = $2 AND state <> 'resolved'",
     [k.id, ISSUE.networkBaseline])).rows[0]!.id;
+  // A diagnosis of this cabinet that finished a moment ago, as the batch in the test above leaves when it takes under a second.
+  await db.app.query("INSERT INTO diagnoses (id, cabinet_id, kind, run_by, state, finished_at) VALUES ($1, $2, 'network', $3, 'done', SYSUTCDATETIME())",
+    [randomUUID(), k.id, t1.id]);
+  // The holder waits for this test's own diagnosis: one that was already there does not end its wait.
+  const before = JSON.stringify((await db.app.query<{ id: string }>("SELECT id FROM diagnoses WHERE cabinet_id = $1", [k.id])).rows.map(r => r.id));
   // Another connection holds the alert row until the diagnosis says it is done (at most 7 s, inside the pools' 10 s limit). With the
   // alert settled first, the diagnosis cannot say done while the row is held; with done written first, it does, with the alert open.
   const holder = await createPool(db.ownerUrl, { max: 1, requestTimeoutMs: 30_000 });
   try {
-    const since = new Date(Date.now() - 1000);
     const held = holder.query<{ done_while_held: number; held: string | null }>(`BEGIN TRAN;
         DECLARE @held uniqueidentifier;
         SELECT @held = id FROM alerts WITH (UPDLOCK, ROWLOCK) WHERE id = $2 AND state <> 'resolved';
         DECLARE @until datetime2 = DATEADD(second, 7, SYSUTCDATETIME());
-        WHILE SYSUTCDATETIME() < @until AND NOT EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done')
+        WHILE SYSUTCDATETIME() < @until AND NOT EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND id NOT IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND state = 'done')
           WAITFOR DELAY '00:00:00.100';
-        SELECT CASE WHEN EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND started_at >= $3 AND state = 'done') THEN 1 ELSE 0 END AS done_while_held, @held AS held;
-        COMMIT;`, [k.id, alertId, since]);
+        SELECT CASE WHEN EXISTS (SELECT 1 FROM diagnoses WITH (READUNCOMMITTED) WHERE cabinet_id = $1 AND id NOT IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND state = 'done') THEN 1 ELSE 0 END AS done_while_held, @held AS held;
+        COMMIT;`, [k.id, alertId, before]);
     // Start the diagnosis only once the holder holds the row. A fixed wait was not enough under load: when the holder was late
     // taking the row, the diagnosis closed the alert and said done first, the holder then held nothing and reported done_while_held = 1.
     // An update-lock read that skips locked rows finds the alert only while nobody holds it.

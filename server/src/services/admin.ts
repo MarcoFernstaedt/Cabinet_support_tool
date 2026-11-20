@@ -4,6 +4,7 @@
 import { randomUUID } from "node:crypto";
 import { audit, isUniqueViolation, transaction, type Pool, type Queryable } from "../db/db.js";
 import { consumeStepUpToken } from "../auth/stepup.js";
+import { changeCabinetRole } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import { linkUnassigned, reportedAddress } from "./sync-cabinets.js";
 import { writeStatus } from "./writes.js";
@@ -27,11 +28,36 @@ export async function listClientsWithSites(db: Queryable) {
 
 const nameTaken = isUniqueViolation;
 
+const ROW_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The loosest name any caller's contract allows (site-create's): 1 to 128 characters, none a control character or an angle bracket.
+const ROW_NAME = /^[^\u0000-\u001f\u007f<>]+$/u;
+function checkRow(kind: "client" | "site", id: unknown, name: unknown): void {
+  if (typeof id !== "string" || !ROW_ID.test(id)) throw new Error(`the ${kind} id must be a uuid`);
+  if (typeof name !== "string" || [...name].length > 128 || !ROW_NAME.test(name))
+    throw new Error(`a ${kind} name is 1 to 128 characters with no control characters or angle brackets`);
+}
+
+/**
+ * Creates a client row: the one place one is created (F21.R2, decision-log D124). Its caller decides who may and audits it; the id and
+ * the name are checked before the database is touched, and a name already in use fails with the database's unique-index error.
+ */
+export async function insertClient(c: Queryable, id: string, name: string): Promise<void> {
+  checkRow("client", id, name);
+  await c.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [id, name]);
+}
+
+/** Creates a site row in a client, the one place one is created (D124), checked the way insertClient is. */
+export async function insertSite(c: Queryable, id: string, clientId: string, name: string): Promise<void> {
+  checkRow("site", id, name);
+  if (typeof clientId !== "string" || !ROW_ID.test(clientId)) throw new Error("the client id must be a uuid");
+  await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [id, clientId, name]);
+}
+
 export async function createClient(pool: Pool, adminId: string, name: string, stepUpToken: string): Promise<string> {
   const id = randomUUID();
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "client.create", "fleet");
-    await c.query("INSERT INTO clients (id, name) VALUES ($1, $2)", [id, name]).catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "a client with that name exists") : e; });
+    await insertClient(c, id, name).catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "a client with that name exists") : e; });
     await audit(c, { actorKind: "user", actorId: adminId, action: "client.create", targetKind: "client", targetId: id, outcome: "succeeded", details: { name } });
   });
   return id;
@@ -67,7 +93,7 @@ export async function createSite(pool: Pool, adminId: string, clientId: string, 
     const client = (await c.query<{ demo: boolean }>("SELECT demo FROM clients WHERE id = $1 AND removed_at IS NULL", [clientId])).rows[0];
     if (client?.demo) throw new Refused("demo_client", 409, "simulated demo clients cannot be changed");
     if (!client) throw new Refused("not_found", 404, "no such client");
-    await c.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [id, clientId, name])
+    await insertSite(c, id, clientId, name)
       .catch(e => { throw nameTaken(e) ? new Refused("name_taken", 409, "that client already has a site with that name") : e; });
     await audit(c, { actorKind: "user", actorId: adminId, action: "site.create", targetKind: "site", targetId: id, outcome: "succeeded", details: { clientId, name } });
   });
@@ -104,16 +130,12 @@ export async function setCabinetRole(pool: Pool, adminId: string, id: string, ro
   const reported = role === "sync" ? await reportedAddress(pool, id) : null;
   await transaction(pool, async c => {
     await consumeStepUpToken(c, stepUpToken, adminId, "cabinet.role", id);
-    const r = await c.query<{ old_role: string; site_id: string }>(
-      `UPDATE cabinets SET role = $2,
-              sync_cabinet_id = CASE WHEN $2 = 'satellite' THEN sync_cabinet_id ELSE NULL END,
-              sync_address = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address WHEN $2 = 'sync' THEN $3 ELSE NULL END,
-              sync_address_source = CASE WHEN $2 = 'sync' AND role = 'sync' THEN sync_address_source WHEN $2 = 'sync' AND $3 IS NOT NULL THEN 'reported' ELSE NULL END
-       OUTPUT deleted.role AS old_role, inserted.site_id WHERE id = $1 AND status = 'active'`, [id, role, reported]);
-    if (r.rowCount !== 1) throw new Refused("not_found", 404, "no such active cabinet");
-    const linked = await linkUnassigned(c, r.rows[0]!.site_id);
+    // The write is cabinets.ts's, the table's owner (D127).
+    const r = await changeCabinetRole(c, id, role, reported);
+    if (!r) throw new Refused("not_found", 404, "no such active cabinet");
+    const linked = await linkUnassigned(c, r.siteId);
     await audit(c, { actorKind: "user", actorId: adminId, action: "cabinet.role", targetKind: "cabinet", targetId: id, outcome: "succeeded",
-      details: { before: r.rows[0]!.old_role, role, satellitesLinked: linked } });
+      details: { before: r.oldRole, role, satellitesLinked: linked } });
   });
 }
 

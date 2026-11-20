@@ -8,6 +8,7 @@ import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
 import { ingestAndEvaluate } from "./config-service.js";
+import { rememberCabinetModel } from "./config-ingest.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
 import { adaptersFromNetworkConfig, followReportedAddress, lanAddress } from "./sync-cabinets.js";
@@ -146,6 +147,8 @@ export async function withdrawJobCommands(tx: Queryable, jobId: string, commandI
   if (!Number.isInteger(batchMs) || batchMs < 0 || batchMs > 86_400_000) throw new Error("a batch's answer budget is 0 to 86400000 whole milliseconds");
   const retired = (await tx.query<WithdrawnCommand>(
     `DECLARE @retired TABLE (id uniqueidentifier, cabinet_id uniqueidentifier, operation nvarchar(64), status varchar(16), delivered bit);
+     -- At issued_at's own precision: a command issued now is stored rounded, up to half a millisecond ahead of SYSUTCDATETIME().
+     DECLARE @now datetime2(3) = SYSUTCDATETIME();
      UPDATE commands SET status = CASE WHEN delivered_at IS NOT NULL OR NOT EXISTS
          (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
            AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME())) THEN 'expired' ELSE 'failed' END, expires_at = CASE WHEN DATEADD(millisecond, 1, issued_at) > SYSUTCDATETIME() THEN DATEADD(millisecond, 1, issued_at)
@@ -153,7 +156,7 @@ export async function withdrawJobCommands(tx: Queryable, jobId: string, commandI
        OUTPUT inserted.id, inserted.cabinet_id, inserted.operation, inserted.status,
          CAST(CASE WHEN inserted.delivered_at IS NULL THEN 0 ELSE 1 END AS bit) INTO @retired
        WHERE id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($1)) AND status IN ('queued', 'delivered')
-         AND (issued_at <= DATEADD(millisecond, -$3, SYSUTCDATETIME())
+         AND (issued_at <= DATEADD(millisecond, -$3, @now)
            OR (status = 'queued' AND delivered_at IS NULL AND NOT EXISTS
              (SELECT 1 FROM cabinets k WHERE k.id = commands.cabinet_id
                AND k.last_heartbeat_at > DATEADD(second, -$2, SYSUTCDATETIME()))));
@@ -264,11 +267,9 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       await refuseAgentSession(c, cabinetId, sessionId, "Agent refused or failed session.open");
     }
     // What the cabinet says about its make and model keeps the model baseline applying to it.
-    if (result.status === "succeeded" && command.operation === "system.hardware") {
-      const hw = result.output as { manufacturer?: string | null; model?: string | null };
-      await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1",
-        [cabinetId, hw.manufacturer?.trim().slice(0, 200) || null, hw.model?.trim().slice(0, 200) || null]);
-    }
+    // Those two columns are config-ingest.ts's (D119).
+    if (result.status === "succeeded" && command.operation === "system.hardware")
+      await rememberCabinetModel(c, cabinetId, result.output as { manufacturer?: unknown; model?: unknown });
     // A service set to restart the computer when it fails is an alert, named; a reading with none closes it (F14.R3).
     if (result.status === "succeeded" && command.operation === "services.list")
       await checkServiceRecovery(c, cabinetId, (result.output as { services: ServiceWithRecovery[] }).services);

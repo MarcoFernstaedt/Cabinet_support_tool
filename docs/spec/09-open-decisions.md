@@ -1021,3 +1021,12 @@ cabinet has the same condition (all clocks off, all firewalls differing) should 
 the cabinets' own, and at what severity. Until the owner decides, each cabinet keeps its own minor alert and nothing is raised for the
 site.
 
+## Who owns the setting columns of clients, sites and cabinets (F21.R2, 2026-11-18, decided)
+
+Asked how to handle the last 32 entries on the ownership debt list, which are mostly feature modules setting their own column on a
+client, site or cabinet, the owner chose the recommendation: column owners. Each setting column names the module that owns it
+(`sites.time_zone` belongs to `time.ts`), and the ownership test checks that every `UPDATE` sets only columns its file owns. Creating,
+removing and renaming a row stay with the table's owner (`admin.ts` for clients and sites, `cabinets.ts` for cabinets), so those
+writes still move behind them. The alternatives were moving every write into `admin.ts` and `cabinets.ts`, which would make them hold every
+feature's rules, or accepting the writers as exceptions, which would stop anything checking which module sets which column
+(decision-log D118).
