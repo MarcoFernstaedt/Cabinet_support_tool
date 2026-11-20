@@ -50,12 +50,12 @@ test("a site with more than 200 cabinets is paged by the server, through the rou
     // The site page: the whole count, and the last cabinets reachable.
     await page.goto(`${c.origin}/sites/${siteId}`);
     const pager = page.getByRole("navigation", { name: "Pages of cabinets" });
-    await pager.getByText(`1–25 of ${COUNT} · page 1 of 10`).waitFor();
-    for (let i = 1; i < 10; i++) await pager.getByRole("button", { name: "Next" }).click();
-    await pager.getByText(`226–${COUNT} of ${COUNT} · page 10 of 10`).waitFor();
+    await pager.getByText(`1–10 of ${COUNT} · page 1 of 23`).waitFor();
+    for (let i = 1; i < 23; i++) await pager.getByRole("button", { name: "Next" }).click();
+    await pager.getByText(`221–${COUNT} of ${COUNT} · page 23 of 23`).waitFor();
     const rows = page.getByRole("table").filter({ has: page.getByText("Cabinets at Big Site") }).getByRole("row");
     await page.getByRole("link", { name: "Cab 230" }).waitFor();
-    assert.equal(await rows.count(), 1 + 5, "the header and the last five cabinets");
+    assert.equal(await rows.count(), 1 + 10, "the header and a full last page of ten cabinets");
     assert.equal(await page.getByRole("heading", { name: "Big Site", level: 1 }).count(), 1, "the site stays on screen while a page loads");
   } finally {
     await browser.close();
