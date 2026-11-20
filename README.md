@@ -40,7 +40,7 @@ The specification in [docs/spec](docs/spec/00-README.md) is the source of truth.
 
 ## Build and test
 
-Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) is set up to run on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback. **GitHub Actions is on hold for billing (November 2026), so its checks show red on every PR and are not evidence either way.** Until it runs again, the gate is the local suites below, run on each change and quoted in the PR.
+Each part builds and tests on its own. CI (`.github/workflows/platform-contracts.yml`) is set up to run on every push. Linux runs the contracts, the server with a real agent end to end, the console in a real browser, and a 1,000-agent load check. A Windows runner installs the real services and runs the write operations, real signed packages, a signed upgrade and an automatic rollback. It is green on `main` from `7d38a6a` (run 44675273893). The local suites below are still run on each change and quoted in the PR.
 
 Run each line from the repository root:
 
