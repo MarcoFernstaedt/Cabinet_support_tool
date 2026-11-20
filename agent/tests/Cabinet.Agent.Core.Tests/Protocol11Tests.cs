@@ -156,10 +156,20 @@ public sealed class ConnectivityTests
     [Fact]
     public async Task The_heartbeat_caps_the_backoff_at_its_interval()
     {
-        var link = new Connectivity(new Backoff(TimeSpan.FromMinutes(5)));
+        // On a clock the test moves, so the answer does not depend on how busy the machine is (3.6 s on a Windows runner, #327).
+        var clock = new ManualClock(Fixtures.Start);
+        var link = new Connectivity(new Backoff(TimeSpan.FromMinutes(5)), clock);
         link.Failed(Network());
-        TimeSpan took = await Timed(async () => { using var _ = await link.EnterAsync(CancellationToken.None, maxBackoff: TimeSpan.FromMilliseconds(200)); });
-        Assert.True(took < TimeSpan.FromSeconds(2), $"{took}");
+        using var cts = new CancellationTokenSource();
+        clock.Advance(TimeSpan.FromMilliseconds(199));
+        Task<Connectivity.Lease> early = link.EnterAsync(cts.Token, maxBackoff: TimeSpan.FromMilliseconds(200));
+        Assert.False(early.IsCompleted, "before the cap it still waits");
+        cts.Cancel();
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => early);
+        clock.Advance(TimeSpan.FromMilliseconds(1));
+        Task<Connectivity.Lease> atCap = link.EnterAsync(CancellationToken.None, maxBackoff: TimeSpan.FromMilliseconds(200));
+        Assert.True(atCap.IsCompletedSuccessfully, "at the cap it enters at once, not after the 5-minute backoff");
+        using (await atCap) { }
     }
 
     [Fact]
