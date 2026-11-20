@@ -9,7 +9,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 ## D130. The baseline-alert diagnosis test waits for its own diagnosis (2026-11-20)
 
 **What the code did** (at `af30ed4`):
-- **The test.** `server/test/network-troubleshooting.test.ts:267` holds the cabinet's alert row on a second connection until a
+- **The test.** `server/test/network-troubleshooting.test.ts:270` holds the cabinet's alert row on a second connection until a
   diagnosis of that cabinet is done. The holder treated any finished diagnosis that started in the last second as the one the test starts.
 - **The failure.** The test before it diagnoses the same site, including the same cabinet. In CI it took 925 to 943 ms on the three runs
   at `c1d6454` and `af30ed4`, so its diagnosis was within that second. The holder stopped at once and gave the row back. The test then
