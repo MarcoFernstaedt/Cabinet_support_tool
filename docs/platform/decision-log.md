@@ -44,7 +44,8 @@ half between runs, so no number is projected for it.
 **Proof:** `server/test/same-error-elsewhere.test.ts` (new, 2 tests): the answer counts only the same log (exactly), source (without
 case) and event ID, in the window, from error events on other cabinets; and both statements' cached plans seek `events_error_key`. With
 `main`'s statements and the index kept, the plan test fails and the answer test still passes, so the answer is unchanged. Restored and
-`cmp` identical, 2 of 2, and with `alerts-sql` and `alerts` 37 of 37 on two runs.
+`cmp` identical, 2 of 2, and with `alerts-sql` 15 of 15. The full gate at `19dcf03`, `alerts` included: server 1,174 of 1,189 (15
+skipped), browser 46 of 49 (3 skipped), console 138 of 138, 0 failed.
 
 ---
 
