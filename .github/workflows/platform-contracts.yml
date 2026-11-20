@@ -115,7 +115,8 @@ jobs:
       - name: Build
         run: dotnet build agent/Cabinet.Agent.sln -c Release
       - name: Core tests on Windows
-        run: dotnet test agent/tests/Cabinet.Agent.Core.Tests -c Release --no-build
+        # The real SQL Server test runs in contracts-server-agent against its SQL Server; a Windows runner has none to give it.
+        run: dotnet test agent/tests/Cabinet.Agent.Core.Tests -c Release --no-build --filter "FullyQualifiedName!=Cabinet.Agent.Core.Tests.SqlConnectivityTests.A_real_sql_server_answers_as_sql_server"
       - name: Prepare real package fixtures (a driver signed through Microsoft, tampered, impostor and unsigned copies, a Microsoft MSI)
         shell: powershell
         run: |
