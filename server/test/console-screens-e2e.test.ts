@@ -105,6 +105,11 @@ test("every page fits its screen and shows no raw values", { skip, timeout: 600_
           }).slice(0, 3).map(e => `${e.tagName.toLowerCase()}.${e.className} ${Math.round(e.getBoundingClientRect().right)}px`),
         }));
         if (/undefined|\[object|NaN|null\b/.test(check.text.replace(/Demo mode.*$/m, ""))) faults.push(`${label} ${path}: shows a raw value (${(check.text.match(/.{0,30}(undefined|\[object|NaN|\bnull\b).{0,30}/) ?? [""])[0].replace(/\s+/g, " ")})`);
+        // A table held at its narrowest width has no room for a wider font: the runner's fonts made the services table 74 px too wide.
+        if (path.endsWith("/services")) for (const t of await page.evaluate(() => [...document.querySelectorAll<HTMLTableElement>("#main table.table")].map(t => {
+          const laid = t.getBoundingClientRect().width; t.style.width = "10px"; const narrowest = t.getBoundingClientRect().width; t.style.width = "";
+          return { laid: Math.round(laid), narrowest: Math.round(narrowest) };
+        }))) if (t.narrowest >= t.laid) faults.push(`${label} ${path}: a table cannot shrink below ${t.laid}px`);
         if (check.overflow > 1) faults.push(`${label} ${path}: page scrolls sideways by ${check.overflow}px (${check.wide.join(", ")})`);
         if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/screens/${label}${path.replace(/[^a-z0-9]+/gi, "_").replace(ids.cabinet, "CAB").replace(ids.client, "CLIENT").replace(ids.site, "SITE")}.png`, fullPage: true });
       }
