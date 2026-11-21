@@ -6,6 +6,26 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D139. The services table can wrap its start type and its buttons (2026-11-20)
+
+D138 is #332's, still open, so this entry takes the next number.
+
+**What the code did** (at `9977c60`): on a cabinet's services page (`console/src/pages/cabinet/Services.tsx:118` and `:141`), the Start
+cell and the actions cell were `nowrap`. With #271's two dependency columns the table had no room left to shrink: here its narrowest
+width was its laid-out width, 996 px. The hosted runner's fonts are wider, and there it was 1,354 px, 74 px past a 1,280 px screen.
+`console-screens-e2e` failed on `main` from `881b413` (#271's merge) on. #271's `ca68e05` let the dependency columns wrap, which did not
+change the width.
+
+**The decision:** the Start cell is no longer `nowrap`, and the actions are a wrapping row. Each button keeps its own label on one line
+(`.btn` is `nowrap`); the start type and its "Change…" button, and the buttons in a row, can stack. Here the table's narrowest width
+goes from 996 to 802 px.
+
+**Proof:** `console-screens-e2e` now also checks, on the services page, that each table can shrink below its laid-out width. Fonts differ
+from machine to machine, so the check is that there is room, not a number. With `main`'s `Services.tsx` it fails ("a table cannot shrink
+below 996px"); restored and `cmp` identical, it passes, twice.
+
+---
+
 ## D138. "The same error elsewhere" reads the matching events through an index (2026-11-20)
 
 **What the code did** (at `9977c60`; F21.R4): `sameErrorElsewhere` in `server/src/services/alerts.ts:479` runs on every event's detail
