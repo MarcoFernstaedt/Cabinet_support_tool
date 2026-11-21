@@ -6,6 +6,43 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D140. The alert list reads its page through an index (2026-11-20)
+
+D138 (#332) and D139 (#333) are open, so this entry takes the next number.
+
+**What the code did** (at `9977c60`; F21.R4): `listAlerts` in `server/src/services/alerts.ts:428` ran one statement for every filter, each
+condition written `($n IS NULL OR …)`, ordered by `CASE` expressions on the state and the severity. SQL Server could neither seek
+`alerts_fleet_scope` nor read it in order, so it joined every alert of the state to its cabinet, site and client, sorted them all and
+kept 500.
+
+**Measured** (`server/test/fleet-views-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 cabinets over
+500 sites, 202,000 alerts of which 200,000 resolved; median of 5 after one warm-up):
+
+| The list | Before | After |
+|---|---|---|
+| resolved | 3,435 ms | 11 ms |
+| one client's | 291 ms | 131 ms |
+| active (the default) | 273 ms | 162 ms |
+| major only | 108 ms | 20 ms |
+
+The same run measured the other fleet views, which this does not change: the badge count 135 ms, the fleet's clients 162 ms, one
+client 50 ms, one site's first page 32 ms, the offline list 24 ms, the fleet search 13 ms.
+
+**The decision** (the approach is mine):
+- **Only the filters given.** The statement is built from fixed fragments, one for each filter present, the values still passed as
+  parameters. Each combination has a plan of its own.
+- **Ordered as the index is.** `ORDER BY a.severity, a.last_seen DESC`. The order is the same: `alerts_severity_check` allows only
+  `major` and `minor`, which sort that way, and the old first key, resolved last, was the same for every row of one list (the active
+  list has no resolved alert, and every other list is one state).
+- **Tried first:** `OPTION (RECOMPILE)` on the old statement brought the resolved list to 279 ms, but sorts every resolved alert and
+  compiles on every call.
+
+**Proof:** `server/test/alert-list-plan.test.ts` (new, 2 tests): the list keeps its order (major before minor, then the newest first),
+active, resolved, by severity and by state; and with 100,000 resolved alerts the resolved list's cached plan has no Sort and seeks
+`alerts_fleet_scope`. With `main`'s `listAlerts` the order test passes and the plan test fails: its plan sorts and seeks neither index.
+
+---
+
 ## D139. The services table can wrap its start type and its buttons (2026-11-20)
 
 D138 is #332's, still open, so this entry takes the next number.

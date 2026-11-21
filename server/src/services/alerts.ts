@@ -426,18 +426,23 @@ export const alertView = (r: AlertRow) => ({
 });
 
 export async function listAlerts(db: Queryable, f: AlertFilter, me: string) {
+  // Only the filters given, so each combination has a plan of its own that can seek its index (D140).
+  const params: unknown[] = [];
+  const p = (v: unknown) => { params.push(v); return `$${params.length}`; };
   const state = f.state ?? "active";
+  const where = [state === "active" ? "a.state <> 'resolved'" : `a.state = ${p(state)}`];
+  if (f.severity !== undefined) where.push(`a.severity = ${p(f.severity)}`);
+  if (f.issueTypeId !== undefined) where.push(`a.issue_type_id = CAST(${p(f.issueTypeId)} AS uniqueidentifier)`);
+  if (f.unrecognized !== undefined) where.push(f.unrecognized === "true" ? "a.issue_type_id IS NULL" : "a.issue_type_id IS NOT NULL");
+  if (f.clientId !== undefined) where.push(`c.id = CAST(${p(f.clientId)} AS uniqueidentifier)`);
+  if (f.siteId !== undefined) where.push(`s.id = CAST(${p(f.siteId)} AS uniqueidentifier)`);
+  if (f.cabinetId !== undefined) where.push(`k.id = CAST(${p(f.cabinetId)} AS uniqueidentifier)`);
+  else where.push("a.scope = 'fleet'");
+  if (f.claimedBy !== undefined) where.push(`a.claimed_by = CAST(${p(f.claimedBy === "me" ? me : f.claimedBy)} AS uniqueidentifier)`);
   const rows = (await db.query<AlertRow>(`${ALERT_SELECT}
-     WHERE ($1 = 'active' AND a.state <> 'resolved' OR a.state = $1)
-       AND ($2 IS NULL OR a.severity = $2) AND ($3 IS NULL OR a.issue_type_id = CAST($3 AS uniqueidentifier))
-       AND ($4 IS NULL OR (CASE WHEN a.issue_type_id IS NULL THEN 1 ELSE 0 END) = CAST($4 AS bit))
-       AND ($5 IS NULL OR c.id = CAST($5 AS uniqueidentifier)) AND ($6 IS NULL OR s.id = CAST($6 AS uniqueidentifier)) AND ($7 IS NULL OR k.id = CAST($7 AS uniqueidentifier))
-       AND ($8 IS NULL OR a.claimed_by = CAST($8 AS uniqueidentifier))
-       AND (a.scope = 'fleet' OR $7 IS NOT NULL)
-     ORDER BY CASE WHEN a.state = 'resolved' THEN 1 ELSE 0 END, CASE WHEN a.severity = 'major' THEN 0 ELSE 1 END, a.last_seen DESC
-     OFFSET 0 ROWS FETCH NEXT 500 ROWS ONLY`,
-    [state, f.severity ?? null, f.issueTypeId ?? null, f.unrecognized === undefined ? null : f.unrecognized === "true",
-     f.clientId ?? null, f.siteId ?? null, f.cabinetId ?? null, f.claimedBy === "me" ? me : f.claimedBy ?? null])).rows;
+     WHERE ${where.join(" AND ")}
+     ORDER BY a.severity, a.last_seen DESC
+     OFFSET 0 ROWS FETCH NEXT 500 ROWS ONLY`, params)).rows;
   return rows.map(alertView);
 }
 
