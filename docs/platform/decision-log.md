@@ -6,6 +6,106 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D140. The alert list reads its page through an index (2026-11-20)
+
+D138 (#332) and D139 (#333) are open, so this entry takes the next number.
+
+**What the code did** (at `9977c60`; F21.R4): `listAlerts` in `server/src/services/alerts.ts:428` ran one statement for every filter, each
+condition written `($n IS NULL OR …)`, ordered by `CASE` expressions on the state and the severity. SQL Server could neither seek
+`alerts_fleet_scope` nor read it in order, so it joined every alert of the state to its cabinet, site and client, sorted them all and
+kept 500.
+
+**Measured** (`server/test/fleet-views-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 cabinets over
+500 sites, 202,000 alerts of which 200,000 resolved; median of 5 after one warm-up):
+
+| The list | Before | After |
+|---|---|---|
+| resolved | 3,435 ms | 11 ms |
+| one client's | 291 ms | 131 ms |
+| active (the default) | 273 ms | 162 ms |
+| major only | 108 ms | 20 ms |
+
+The same run measured the other fleet views, which this does not change: the badge count 135 ms, the fleet's clients 162 ms, one
+client 50 ms, one site's first page 32 ms, the offline list 24 ms, the fleet search 13 ms.
+
+**The decision** (the approach is mine):
+- **Only the filters given.** The statement is built from fixed fragments, one for each filter present, the values still passed as
+  parameters. Each combination has a plan of its own.
+- **Ordered as the index is.** `ORDER BY a.severity, a.last_seen DESC`. The order is the same: `alerts_severity_check` allows only
+  `major` and `minor`, which sort that way, and the old first key, resolved last, was the same for every row of one list (the active
+  list has no resolved alert, and every other list is one state).
+- **Tried first:** `OPTION (RECOMPILE)` on the old statement brought the resolved list to 279 ms, but sorts every resolved alert and
+  compiles on every call.
+
+**Proof:** `server/test/alert-list-plan.test.ts` (new, 2 tests): the list keeps its order (major before minor, then the newest first),
+active, resolved, by severity and by state; and with 100,000 resolved alerts the resolved list's cached plan has no Sort and seeks
+`alerts_fleet_scope`. With `main`'s `listAlerts` the order test passes and the plan test fails: its plan sorts and seeks neither index.
+
+---
+
+## D139. The services table can wrap its start type and its buttons (2026-11-20)
+
+D138 is #332's, still open, so this entry takes the next number.
+
+**What the code did** (at `9977c60`): on a cabinet's services page (`console/src/pages/cabinet/Services.tsx:118` and `:141`), the Start
+cell and the actions cell were `nowrap`. With #271's two dependency columns the table had no room left to shrink: here its narrowest
+width was its laid-out width, 996 px. The hosted runner's fonts are wider, and there it was 1,354 px, 74 px past a 1,280 px screen.
+`console-screens-e2e` failed on `main` from `881b413` (#271's merge) on. #271's `ca68e05` let the dependency columns wrap, which did not
+change the width.
+
+**The decision:** the Start cell is no longer `nowrap`, and the actions are a wrapping row. Each button keeps its own label on one line
+(`.btn` is `nowrap`); the start type and its "Change…" button, and the buttons in a row, can stack. Here the table's narrowest width
+goes from 996 to 802 px.
+
+**Proof:** `console-screens-e2e` now also checks, on the services page, that each table can shrink below its laid-out width. Fonts differ
+from machine to machine, so the check is that there is room, not a number. With `main`'s `Services.tsx` it fails ("a table cannot shrink
+below 996px"); restored and `cmp` identical, it passes, twice.
+
+---
+
+## D138. "The same error elsewhere" reads the matching events through an index (2026-11-20)
+
+**What the code did** (at `9977c60`; F21.R4): `sameErrorElsewhere` in `server/src/services/alerts.ts:479` runs on every event's detail
+view. It counted the other cabinets that reported the same log, source and event ID in the last 30 days by reading every event in the
+window and opening each one's JSON source, as no index held those values. Its cost grew with the fleet's event volume, not with the
+matches.
+
+**Measured** (`server/test/same-error-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 active cabinets;
+50 of them with the error asked about; 5 runs after one warm-up):
+
+| Events in the window | Before | Through the index |
+|---|---|---|
+| 300,050 (30 a cabinet) | median 1,342 ms | |
+| 2,000,050 (200 a cabinet), first probe | median 3,950 ms (best 3,845, worst 4,096) | median 6 ms (best 5, worst 8) |
+| 2,000,050, the committed bench | median 1,980 ms (best 1,772, worst 2,215) | median 5 ms (best 5, worst 9) |
+
+Both return the same answer (49 other cabinets, 50 events). The fleet's planned volume is 20 events a cabinet a day, about 6 million in the
+window ([performance](performance.md)); that size was not measured here, and the two runs at 2 million show the scan's cost varies by
+half between runs, so no number is projected for it.
+
+**The decision** (the approach is mine):
+- **Migration `0038_event_error_key.sql`** adds `err_source` and `err_event_id` to `events`, computed from `source` and not stored, and
+  the index `events_error_key` on them with `occurred_at`, including `cabinet_id`. The source is `nvarchar(512)`: the contract allows 256
+  characters (`shortText`), which can take more than 256 UTF-16 units.
+- **Only events that still have their source are indexed** (`WHERE [source] IS NOT NULL`). After 30 days most events lose it
+  (`clearOldEventDetail`), and the view looks back 30 days. SQL Server refuses a filter on the computed columns themselves.
+- **Both statements of `sameErrorElsewhere`** filter on those columns and on `source IS NOT NULL`, and name the index. The log is still compared exactly and the
+  source without case, as before; `kind` is `nvarchar(max)`, so it is checked on the rows the index finds, not in the index.
+- **Numbered 0038:** 0035 to 0037 are `feat/remote-access-tunnel`'s own migrations, so the two lines do not share a number.
+- **The cost, and why it is still taken:** the index was 59.1 MB built after 2 million events and 86.7 MB grown while they were
+  written, about 30 to 45 bytes an event. [Performance](performance.md) plans 6.6 M events with their source (6 M in the last 30 days
+  and 0.6 M older alerted ones), so about 195 to 290 MB, in a database planned at about 9.2 GB of Express's 10 GB. Without it the
+  view reads every event in the window: 2 to 4 s at 2 M of the planned 6 M, on every event opened. An unfiltered index would also hold
+  the 11.4 M cleared events, about twice the size.
+
+**Proof:** `server/test/same-error-elsewhere.test.ts` (new, 2 tests): the answer counts only the same log (exactly), source (without
+case) and event ID, in the window, from error events on other cabinets; and both statements' cached plans seek `events_error_key`. With
+`main`'s statements and the index kept, the plan test fails and the answer test still passes, so the answer is unchanged. Restored and
+`cmp` identical, 2 of 2, and with `alerts-sql` 15 of 15. The full gate at `19dcf03`, `alerts` included: server 1,174 of 1,189 (15
+skipped), browser 46 of 49 (3 skipped), console 138 of 138, 0 failed.
+
+---
+
 ## D137. The heartbeat's backoff cap is tested on a clock the test moves (2026-11-20)
 
 **What the code did** (at `8f3744c`): `The_heartbeat_caps_the_backoff_at_its_interval` in

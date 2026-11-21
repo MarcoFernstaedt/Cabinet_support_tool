@@ -4,6 +4,7 @@
 // and remote-access services and never changes a start type; the server checks every role again.
 import { useEffect, useState, type ReactNode } from "react";
 import type { ProcessEndOutput, ProcessesListOutput, ServiceControlOutput, ServicesListOutput, SystemPerformanceOutput } from "@mashura/cabinet-contracts/types";
+import { serviceOrder } from "../../lib/service-order";
 import { api, describeError } from "../../lib/api";
 import { useOperation } from "../../lib/commands";
 import { atLeast, useSession } from "../../lib/session";
@@ -100,6 +101,7 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
         const shown = out.services.filter(s => (!t || s.name.toLowerCase().includes(t) || s.displayName.toLowerCase().includes(t) || (s.executablePath ?? "").toLowerCase().includes(t))
           && (filter.state === "any" || s.state === filter.state || (filter.state === "watched" && isWatched(s.name))));
         return (<>
+          <ServiceStartOrder services={out.services} />
           <div className="row gap wrap filters">
             <label className="field inline"><span>Name or path</span><input value={filter.text} onChange={e => setFilter(f => ({ ...f, text: e.target.value }))} /></label>
             <label className="field inline"><span>Show</span><select value={filter.state} onChange={e => setFilter(f => ({ ...f, state: e.target.value }))}>
@@ -108,12 +110,12 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
           </div>
           <PagedRows rows={shown} label="services">{page => (<table className="table">
             <caption className="sr-only">Services on {cabinet.name}</caption>
-            <thead><tr><th scope="col">Service</th><th scope="col">State</th><th scope="col">Start</th><th scope="col">Runs as</th><th scope="col">Program</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
+            <thead><tr><th scope="col">Service</th><th scope="col">State</th><th scope="col">Start</th><th scope="col">Dependencies</th><th scope="col">Needed by</th><th scope="col">Runs as</th><th scope="col">Program</th><th scope="col"><span className="sr-only">Actions</span></th></tr></thead>
             <tbody>{page.map(s => (
               <tr key={s.name}>
                 <th scope="row">{s.displayName}<div className="muted small"><code>{s.name}</code>{s.processId ? ` · PID ${s.processId}` : ""}{isWatched(s.name) && <> · <Badge tone="info">Watched</Badge></>}</div></th>
                 <td><Badge tone={STATE[s.state]!.tone}>{STATE[s.state]!.label}</Badge></td>
-                <td className="nowrap">{editing?.name === s.name
+                <td>{editing?.name === s.name
                   ? <form className="row gap wrap" aria-label={`Change the start type of ${s.displayName}`} onSubmit={e => {
                       e.preventDefault();
                       const type = editing.type;
@@ -129,12 +131,14 @@ export function Services({ cabinet }: { cabinet: CabinetDetail }) {
                     </form>
                   : <>{START[s.startType]}{canStartType && ["automatic", "automatic_delayed", "manual", "disabled"].includes(s.startType)
                     && <> <button className="btn small ghost" data-tour={s.startType === "disabled" ? "start-type" : undefined} onClick={() => setEditing({ name: s.name, type: START_CHOICES.find(c => c[0] !== s.startType)![0] })}>Change…</button></>}</>}</td>
+                <td className="small wrap">{s.dependencies?.join(", ") || (s.dependencies ? "None" : "Could not check")}</td>
+                <td className="small wrap">{s.dependentServices?.join(", ") || (s.dependentServices ? "None" : "Could not check")}</td>
                 <td className="small">{s.account ?? <span className="muted">unknown</span>}</td>
                 <td className="small wrap">{s.executablePath ?? <span className="muted">unknown</span>}
                   {s.recovery && [s.recovery.firstFailure, s.recovery.secondFailure, s.recovery.subsequentFailures].includes("reboot")
                     ? <div><Badge tone="warn">Restarts the computer if it fails</Badge></div>
                     : s.recovery && s.recovery.firstFailure !== "none" && <div className="muted">On failure: {s.recovery.firstFailure.replace("_", " ")}</div>}</td>
-                <td className="nowrap"><div className="row gap">
+                <td><div className="row gap wrap">
                   {canControl && s.startType !== "disabled" && s.state === "stopped" && <button className="btn small" onClick={() => ask(s, "start")}>Start</button>}
                   {canControl && s.state === "running" && <><button className="btn small" onClick={() => ask(s, "restart")}>Restart</button><button className="btn small" onClick={() => ask(s, "stop")}>Stop</button></>}
                   {atLeast(me, "tier2") && <button className="btn small ghost" onClick={() => setWatchChange({ name: s.name, watch: !isWatched(s.name) })}>{isWatched(s.name) ? "Stop watching" : "Watch"}</button>}
@@ -267,4 +271,18 @@ export function WatchListEditor({ endpoint, own, inherited, what, editable, onSa
         }} />
     </div>
   );
+}
+
+/** Windows imposes dependency edges, not one chronological boot sequence. */
+function ServiceStartOrder({ services }: { services: Service[] }) {
+  const order = serviceOrder(services);
+  return <section aria-label="Service start order">
+    <h3>Service start order</h3>
+    <p>Windows waits for a service's dependencies when starting it. Independent services have no enforced relative order.
+      These stages show dependency precedence, not boot times or a guarantee that every service starts.
+      Manual services start on demand; disabled services cannot start. Delayed automatic start does not establish an order between independent services.</p>
+    {order.kind === "unknown" ? <p className="notice warn">Could not check: {order.reason}</p>
+      : order.kind === "cycle" ? <p className="notice warn">Dependency cycle: {order.names.join(" → ")}. No start order can be shown.</p>
+      : <ol>{order.stages.map((names, index) => <li key={index}>Dependency stage {index + 1}: {names.join(", ")}</li>)}</ol>}
+  </section>;
 }

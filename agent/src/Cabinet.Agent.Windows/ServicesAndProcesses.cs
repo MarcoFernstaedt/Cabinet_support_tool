@@ -35,7 +35,7 @@ public sealed class WindowsServicePlatform : IServicePlatform
                 Name = name!, DisplayName = Clean(r.Text("DisplayName") ?? name!, 256)!, State = State(r.Text("State")),
                 StartType = StartType(r.Text("StartMode"), r.Bool("DelayedAutoStart") == true), Account = Clean(r.Text("StartName"), 256),
                 ProcessId = pid is > 0 ? pid : null, ExecutablePath = ProgramOnly(r.Text("PathName")), Description = Clean(r.Text("Description"), 512),
-                Recovery = Recovery(name!),
+                Recovery = Recovery(name!), Dependencies = Dependencies(name!), DependentServices = Dependents(name!),
             });
         }
         return services;
@@ -158,6 +158,68 @@ public sealed class WindowsServicePlatform : IServicePlatform
         }
         finally { Marshal.FreeHGlobal(buffer); }
     }
+
+    // Configured dependencies: QueryServiceConfig preserves load-order groups rather than pretending each group is one service.
+    private static IReadOnlyList<string>? Dependencies(string name)
+    {
+        using SafeServiceHandle scm = OpenSCManagerW(null, null, ScManagerConnect);
+        if (scm.IsInvalid) return null;
+        using SafeServiceHandle svc = OpenServiceW(scm, name, ServiceQueryConfig);
+        if (svc.IsInvalid) return null;
+        QueryServiceConfigW(svc, IntPtr.Zero, 0, out uint needed);
+        if (needed < Marshal.SizeOf<ServiceConfig>() || needed > 64 * 1024) return null;
+        IntPtr buffer = Marshal.AllocHGlobal((int)needed);
+        try
+        {
+            if (!QueryServiceConfigW(svc, buffer, needed, out _)) return null;
+            var config = Marshal.PtrToStructure<ServiceConfig>(buffer);
+            var names = new List<string>();
+            long offset = config.Dependencies.ToInt64() - buffer.ToInt64();
+            if (config.Dependencies == IntPtr.Zero) return names;
+            if (offset < 0 || offset >= needed || offset % 2 != 0) return null;
+            int start = (int)offset;
+            for (int i = start; i + 1 < needed; i += 2)
+            {
+                if (Marshal.ReadInt16(buffer, i) != 0) continue;
+                if (i == start) return names;
+                string value = Marshal.PtrToStringUni(buffer + start, (i - start) / 2)!;
+                if (value.Length > 200 || value.Any(c => c < ' ' || c == '\u007f') || names.Count >= 1000) return null;
+                names.Add(value);
+                start = i + 2;
+            }
+            return null; // a malformed or incomplete MULTI_SZ is unknown, never an empty list
+        }
+        finally { Marshal.FreeHGlobal(buffer); }
+    }
+
+    private static IReadOnlyList<string>? Dependents(string name)
+    {
+        try
+        {
+            using var service = new ServiceController(name);
+            ServiceController[] dependents = service.DependentServices;
+            try
+            {
+                var names = dependents.Select(s => s.ServiceName).ToArray();
+                return names.Length <= 1000 && names.All(n => n.Length is > 0 and <= 200 && n.All(c => c >= ' ' && c != '\u007f')) ? names : null;
+            }
+            finally { foreach (var dependent in dependents) dependent.Dispose(); }
+        }
+        catch (Exception e) when (e is InvalidOperationException or Win32Exception) { return null; }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct ServiceConfig
+    {
+        public uint ServiceType, StartType, ErrorControl;
+        public IntPtr BinaryPath, LoadOrderGroup;
+        public uint TagId;
+        public IntPtr Dependencies, StartName, DisplayName;
+    }
+
+    [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool QueryServiceConfigW(SafeServiceHandle service, IntPtr buffer, uint size, out uint needed);
 
     private static RecoveryAction Action(uint type) => type switch { 1 => RecoveryAction.Restart, 2 => RecoveryAction.Reboot, 3 => RecoveryAction.RunProgram, _ => RecoveryAction.None };
 

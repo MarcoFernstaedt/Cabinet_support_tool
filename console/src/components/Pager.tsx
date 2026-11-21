@@ -2,7 +2,10 @@
 // The page resets to the first when the list itself changes (a new filter, a reload with different rows).
 import { useEffect, useState } from "react";
 
-export const PAGE_SIZE = 25;
+// Ten rows is the console's working size, not a display accident: a technical console is read, not scrolled, and a
+// page of tables that needs scrolling hides the row the support desk is looking for. The server contract allows up to
+// 500 (contracts/schemas/console/site-page-query.schema.json); the console chooses the small page deliberately.
+export const PAGE_SIZE = 10;
 
 export function usePaged<T>(rows: readonly T[], size = PAGE_SIZE) {
   const [page, setPage] = useState(0);

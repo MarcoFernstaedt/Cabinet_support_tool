@@ -109,7 +109,7 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     const card = page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" });
     await card.getByRole("button", { name: "Short version" }).click();
     await page.locator("#welcome-title", { hasText: "The main menu" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
     await page.locator("#welcome-title", { hasText: "Fleet" }).waitFor();
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector("#welcome-title"));
@@ -121,10 +121,10 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     await c.signInAs(page, "tess.tier1");
     await page.getByRole("dialog", { name: "Welcome to the Mashura Support Console" }).getByRole("button", { name: "Take the tour" }).click();
     await page.locator("#welcome-title", { hasText: "The main menu" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Back" }).click();
     await page.locator("#welcome-title", { hasText: "The main menu" }).waitFor();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
     const tier1 = await walk(page, { outlined: () => null });
     assert.ok(!tier1.includes("Admin") && !tier1.includes("Fixes"), "Tier 1 is not told about menus it does not have");
     assert.ok(tier1.includes("Standards") && tier1.includes("Command history"));
@@ -135,8 +135,8 @@ test("the welcome tour: first sign-in, role differences, every tab, leaving earl
     page = await open();
     await c.signInAs(page, "tom.tier2");
     await page.getByRole("button", { name: "Short version" }).click();
-    await page.getByRole("button", { name: "Next" }).click();
-    await page.getByRole("button", { name: "Next" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Next" }).click();
     const where = (await page.locator("#welcome-title").innerText()).trim();
     await page.reload();
     await page.locator("#welcome-title", { hasText: where }).waitFor({ timeout: 20_000 });
