@@ -12,7 +12,7 @@ D138 (#332) and D139 (#333) are open, so this entry takes the next number.
 
 **What the code did** (at `9977c60`; F21.R4): `listAlerts` in `server/src/services/alerts.ts:428` ran one statement for every filter, each
 condition written `($n IS NULL OR …)`, ordered by `CASE` expressions on the state and the severity. SQL Server could neither seek
-`alerts_state_severity` nor read it in order, so it joined every alert of the state to its cabinet, site and client, sorted them all and
+`alerts_fleet_scope` nor read it in order, so it joined every alert of the state to its cabinet, site and client, sorted them all and
 kept 500.
 
 **Measured** (`server/test/fleet-views-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 cabinets over
@@ -38,9 +38,8 @@ client 50 ms, one site's first page 32 ms, the offline list 24 ms, the fleet sea
   compiles on every call.
 
 **Proof:** `server/test/alert-list-plan.test.ts` (new, 2 tests): the list keeps its order (major before minor, then the newest first),
-active, resolved, by severity and by state; and with 100,000 resolved alerts the resolved list's cached statement reads fewer than 8,000
-pages (4,798 measured). With `main`'s `listAlerts` the order test passes and the reads test fails at 9,116 pages. Restored and `cmp`
-identical, 37 of 37 with `alerts-sql` and `alerts`, twice.
+active, resolved, by severity and by state; and with 100,000 resolved alerts the resolved list's cached plan has no Sort and seeks
+`alerts_fleet_scope`. With `main`'s `listAlerts` the order test passes and the plan test fails: its plan sorts and seeks neither index.
 
 ---
 
