@@ -683,7 +683,7 @@ export async function buildAgentApi(o: AgentApiOptions): Promise<FastifyInstance
     });
 
     if (o.sshTransport) registerSshTransportAgentRoutes(scoped, o.sshTransport);
-    registerSessionFrameRoute(scoped, o.sessionRelay, retryAfter, o.pool);
+    registerSessionFrameRoute(scoped, o.sessionRelay, retryAfter);
 
     scoped.post("/agent/v1/results", async request => {
       await storeResult(o.pool, request.cabinet!.id, envelopes.result.parse(request.body));

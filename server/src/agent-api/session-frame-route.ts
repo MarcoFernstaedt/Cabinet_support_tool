@@ -1,12 +1,9 @@
-import { SessionShell } from "../services/session-shell.js";
-import type { Pool } from "../db/db.js";
-import { sessionRecord } from "../services/session-records.js";
 import type { FastifyInstance } from "fastify";
 import { envelopes } from "../contracts.js";
 import { RelayError, SessionRelay } from "./session-relay.js";
 
 /** Registered inside the agent API's authenticated scope, after certificate authentication. */
-export function registerSessionFrameRoute(app: FastifyInstance, relay: SessionRelay | undefined, retryAfter: () => number, pool?: Pool): void {
+export function registerSessionFrameRoute(app: FastifyInstance, relay: SessionRelay | undefined, retryAfter: () => number): void {
   app.post<{ Params: { sessionId: string } }>("/agent/v1/sessions/:sessionId/frames", async (request, reply) => {
     if (!relay || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(request.params.sessionId) || request.body === null)
       return reply.code(404).send({ error: "not_found" });
@@ -16,9 +13,6 @@ export function registerSessionFrameRoute(app: FastifyInstance, relay: SessionRe
       return reply.code(413).send({ error: "frame_too_large" });
     const frame = envelopes.sessionFrame.parse(request.body);
     try {
-      if (pool && (await sessionRecord(pool, request.params.sessionId))?.kind === "shell")
-        return await new SessionShell(pool).exchange(request.cabinet!.id, request.params.sessionId.toLowerCase(), "agent", frame);
-      if (!("data" in frame) || "kind" in frame) return reply.code(400).send({ error: "diagnostic_frame_required" });
       const received = await relay.exchange(request.cabinet!.id, request.params.sessionId.toLowerCase(), "agent", Buffer.from(frame.data, "base64"));
       if (received === null) return reply.code(404).send({ error: "not_found" });
       return envelopes.sessionControl.parse(JSON.parse(received.toString("utf8")));

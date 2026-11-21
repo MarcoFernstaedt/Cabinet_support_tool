@@ -14,6 +14,8 @@ import { migrationColumns, migrationTables, runtimeTableWrites, setClause, setCo
 // dist/test/ -> server/
 const server = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const tables = migrationTables(join(server, "migrations"));
+// Migration 0036 still creates these tables. Application code has no writers for them.
+const retiredTables = ["session_shell_commands", "session_shell_frames"];
 const literal = tableWriters(join(server, "src"), tables);
 const runtime = runtimeTableWrites(join(server, "src"));
 const shapes = tableWriteShapes(join(server, "src"), tables);
@@ -34,7 +36,7 @@ for (const [file, list] of Object.entries(RUNTIME_TABLE_WRITES))
   for (const t of list) (writers.get(t) ?? writers.set(t, new Set()).get(t)!).add(file);
 
 test("every table the migrations create names its owning module", () => {
-  const missing = [...tables].filter(t => !TABLE_OWNERS[t]).sort();
+  const missing = [...tables].filter(t => !TABLE_OWNERS[t] && !retiredTables.includes(t)).sort();
   assert.deepEqual(missing, [], `name an owner in src/db/table-owners.ts for: ${missing.join(", ")}`);
   const gone = Object.keys(TABLE_OWNERS).filter(t => !tables.has(t)).sort();
   assert.deepEqual(gone, [], `no migration creates: ${gone.join(", ")}`);
@@ -51,6 +53,7 @@ test("a write whose table is built at run time is declared, with the tables it c
 test("no file writes a table it does not own unless the debt list names it", () => {
   const unlisted: string[] = [];
   for (const [table, files] of writers) {
+    assert.ok(!retiredTables.includes(table), `retired table ${table} has writers: ${[...files].join(", ")}`);
     const o = TABLE_OWNERS[table]!;
     for (const f of files) if (f !== o.owner && !o.also.includes(f) && !(o.accepted ?? []).includes(f) && !coveredByColumns(table, f)) unlisted.push(`${f} writes ${table} (owned by ${o.owner})`);
   }

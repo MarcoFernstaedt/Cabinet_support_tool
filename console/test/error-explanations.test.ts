@@ -12,7 +12,7 @@ import { PLATFORM_CODES, explainFailure, formatExplanation, normaliseFailure } f
 
 /** Server refusal codes covered by the shared platform explanations. */
 const DISCOVERED_CODES = [
-  "frame_too_large", "relay_backpressure", "shell_frame_required", "shell_line_too_large", "shell_unavailable",
+  "frame_too_large", "relay_backpressure", "shell_unavailable",
   "empty_frame", "ssh_transport_busy", "ssh_transport_unavailable",
   "invalid_permission", "invalid_scope", "invalid_session_record", "permission_required", "session_capacity", "session_live", "session_route_required", "unknown_session",
   "already_claimed", "already_pending", "already_renewed", "already_resolved", "bad_item", "busy",

@@ -5,10 +5,17 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { CLIENT_KEY_COLUMNS, CROSS_REFERENCES, TABLE_PLACEMENT } from "../src/db/client-data.js";
+import { CLIENT_KEY_COLUMNS, CROSS_REFERENCES, TABLE_PLACEMENT as activePlacement, type Placement } from "../src/db/client-data.js";
 import { createPool, type Pool } from "../src/db/db.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
 import { migrationTables } from "./table-writes.js";
+
+// Migration 0036 still puts these retired tables with client data.
+const TABLE_PLACEMENT: Readonly<Record<string, Placement>> = {
+  ...activePlacement,
+  session_shell_commands: "client",
+  session_shell_frames: "client",
+};
 
 const server = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
 let db: TestDatabase;

@@ -2099,7 +2099,7 @@ export interface SessionEnd {
 }
 
 export interface SessionOpen {
-  kind: "diagnostic" | "shell";
+  kind: "diagnostic";
   reason: string;
   stepUpToken: string;
 }
@@ -3391,7 +3391,6 @@ export interface Heartbeat {
    * Present, and true, only when this agent was built to accept agent upgrades whose programs are not code-signed (a development build with no code-signing publisher compiled in). The console marks such a cabinet: whoever holds the release key alone decides what it runs. Absent from every production build.
    */
   unsignedUpgrades?: true;
-  developmentShell?: boolean;
 }
 
 /**
@@ -3458,35 +3457,13 @@ export interface ServerAck {
   serverTime: string;
 }
 
-export type SessionControl =
-  | {
-      control: "open" | "close" | "keepalive";
-    }
-  | {
-      kind: "shell.in";
-      data: string;
-    }
-  | {
-      kind: "shell.resize";
-      columns: number;
-      rows: number;
-    }
-  | {
-      kind: "shell.exit";
-    };
+export interface SessionControl {
+  control: "open" | "close" | "keepalive";
+}
 
-export type OpaqueSessionTransportFrame =
-  | {
-      data: string;
-    }
-  | {
-      kind: "shell.out";
-      data: string;
-    }
-  | {
-      kind: "shell.exit";
-      code: number;
-    };
+export interface OpaqueSessionTransportFrame {
+  data: string;
+}
 
 export interface SshTransportClaim {
   transportId: string | null;
@@ -5734,7 +5711,7 @@ export interface SystemCheckHealthOutput {
 
 export interface SessionOpenParams {
   sessionId: string;
-  kind: "diagnostic" | "shell";
+  kind: "diagnostic";
 }
 
 export interface SessionOpenOutput {

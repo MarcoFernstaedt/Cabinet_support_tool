@@ -78,9 +78,14 @@ test("console opening needs complete sign-in and a step-up body, without consult
     const send = (payload: unknown) => app.inject({ method: "POST", url: `/api/cabinets/${sessionId}/sessions`, payload: payload as object });
     assert.equal((await send({ kind: "diagnostic", reason: "Investigate" })).statusCode, 401);
     stage = "complete";
-    for (const payload of [{ kind: "diagnostic", reason: "Investigate" }, { kind: "shell", reason: "Investigate", stepUpToken: "token" },
+    for (const payload of [{ kind: "diagnostic", reason: "Investigate" },
       { kind: "diagnostic", reason: "Investigate", stepUpToken: "token", operatorId: "other" }])
       assert.equal((await send(payload)).statusCode, 400);
+    // A shell session is retired, and refused as retired before the body is looked at — a complete sign-in
+    // and a step-up token do not open it.
+    const retired = await send({ kind: "shell", reason: "Investigate", stepUpToken: "token" });
+    assert.equal(retired.statusCode, 400);
+    assert.equal(retired.json().error, "shell_unavailable");
   } finally { await app.close(); }
 });
 
