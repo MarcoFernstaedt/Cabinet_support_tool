@@ -478,14 +478,14 @@ export async function cabinetEvents(db: Queryable, cabinetId: string, limit = 10
 /** How many other cabinets reported the same log, source and event ID in the last 30 days (the event detail view). */
 export async function sameErrorElsewhere(db: Queryable, cabinetId: string, log: string, source: string, eventId: number) {
   const r = (await db.query<{ cabinets: string; events: string }>(
-    `SELECT COUNT(DISTINCT CASE WHEN cabinet_id <> CAST($1 AS uniqueidentifier) THEN cabinet_id END) AS cabinets, COUNT(*) AS events FROM events e
-      WHERE e.kind = 'error' AND e.occurred_at > DATEADD(day, -30, SYSUTCDATETIME()) AND JSON_VALUE(e.source, '$.log') COLLATE Latin1_General_100_BIN2 = $2
-        AND JSON_VALUE(e.source, '$.source') = $3 AND JSON_VALUE(e.source, '$.eventId') = $4`, [cabinetId, log, source, String(eventId)])).rows[0]!;
+    `SELECT COUNT(DISTINCT CASE WHEN cabinet_id <> CAST($1 AS uniqueidentifier) THEN cabinet_id END) AS cabinets, COUNT(*) AS events FROM events e WITH (INDEX(events_error_key))
+      WHERE e.err_event_id = $4 AND e.err_source = $3 AND e.occurred_at > DATEADD(day, -30, SYSUTCDATETIME()) AND e.source IS NOT NULL
+        AND e.kind = 'error' AND JSON_VALUE(e.source, '$.log') COLLATE Latin1_General_100_BIN2 = $2`, [cabinetId, log, source, eventId])).rows[0]!;
   const rule = (await db.query<{ name: string }>(
-    `SELECT TOP (1) t.name FROM events e JOIN symptom_rules r ON r.id = e.matched_rule JOIN issue_types t ON t.id = r.issue_type_id
-      WHERE e.kind = 'error' AND e.occurred_at > DATEADD(day, -30, SYSUTCDATETIME())
-        AND JSON_VALUE(e.source, '$.log') COLLATE Latin1_General_100_BIN2 = $1 AND JSON_VALUE(e.source, '$.source') = $2 AND JSON_VALUE(e.source, '$.eventId') = $3
-      ORDER BY e.occurred_at DESC`, [log, source, String(eventId)])).rows[0];
+    `SELECT TOP (1) t.name FROM events e WITH (INDEX(events_error_key)) JOIN symptom_rules r ON r.id = e.matched_rule JOIN issue_types t ON t.id = r.issue_type_id
+      WHERE e.err_event_id = $3 AND e.err_source = $2 AND e.occurred_at > DATEADD(day, -30, SYSUTCDATETIME()) AND e.source IS NOT NULL
+        AND e.kind = 'error' AND JSON_VALUE(e.source, '$.log') COLLATE Latin1_General_100_BIN2 = $1
+      ORDER BY e.occurred_at DESC`, [log, source, eventId])).rows[0];
   return { otherCabinets: Number(r.cabinets), events: Number(r.events), issueName: rule?.name ?? null, days: 30 };
 }
 
