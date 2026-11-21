@@ -35,6 +35,9 @@ public sealed record ServiceInfo
     public required string? ExecutablePath { get; init; }
     public required string? Description { get; init; }
     public required ServiceRecovery? Recovery { get; init; }
+    /// <summary>Null means unreadable; empty means no dependencies. A + prefix names a load-order group.</summary>
+    public IReadOnlyList<string>? Dependencies { get; init; }
+    public IReadOnlyList<string>? DependentServices { get; init; }
 }
 
 public sealed record WatchedServiceStatus

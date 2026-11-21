@@ -40,13 +40,13 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 - F12.R3: the server half of the trace's sync address.
 - F23 is closed. F22 is parked by the owner.
 
-**In review:** see the open pull requests. The debt list is empty once D129 merges (`server/src/db/table-owners.ts`); the ratchet still refuses any new cross-module write.
+**In review:** see the open pull requests. The debt list is empty since D129 (#324, `server/src/db/table-owners.ts`); the ratchet still refuses any new cross-module write.
 
 **Can still be built in this environment** (server and console only). The PR counts are worked out from the code, not measured:
 
 | Work | Finding | PRs |
 |---|---|---|
-| Move the listed cross-module writes behind their owners, none left after D129 (30 more, the demo simulator's and usb-sql.ts's, accepted with their reasons, D108) (D65 to D78 done, and none is left in maintenance.ts; the firewall event writer in events.ts, D84, done in #274; the session writes in the console routes, D86, done in #276; the certificate writes in enrollment and replacement, D87, done in #277; the operations checks' alert resolve, D88, done in #278; the network diagnosis's writes to diagnoses, D90, done in #280; the issue-alert closes in the network diagnosis and the file-version check, D92, done in #282; the retitles and signature closes in service recovery, peer differences and firmware drift, D94, done in #284; the regroup close in rules.ts, D95, done in #285; the reboot-loop close in crashes.ts, D96, done in #292; the disk-forecast close in drives.ts, D98, done in #293; the site-outage close, D99, done in #294; the scanner switch-off close in client-scanner.ts, D100, done in #295; the replaced cabinet's alert close in replacement.ts, D101, done in #296; the bulk firewall change's command insert, D102, done in #298; the fleet job's command withdrawal, D103, done in #299; the regroup's event move in rules.ts, D104, done in #300; the same-alert case put back, D105, done in #301; the time zone and clock alerts in time.ts, D106, done in #302; the firewall alert in firewall-policy.ts, D107, done in #303; the demo and USB writers accepted, D108, done in #304; the migration-failed alert in db/migrate.ts, D110, done in #306; the event links in alerts.ts, D112, done in #307; the failed sign-in count in auth-failures.ts, D113, done in #308; the write-limit pause in writes.ts, D114, done in #309; the command line's account writes in cli.ts, D115, done in #310; the console sign-in's account writes in auth-routes.ts, D116, done in #311; the seven settings writers, D117, done in #312; ten writers covered by the setting columns they own, D118, done in #313; a cabinet's make and model in one place, D119, done in #314; the watched-services lists in one place, D120, done in #315; the scanner hardware IDs in one place, D121, done in #316; approved programs with fixed statements, D122, done in #317; file-facts paths with fixed statements, D123, done in #318; the bulk import's client and site rows through admin.ts, D124, done in #319; an enrolment approval's client, site and site time zone through their owners, D125, done in #320; the presence batch's contacts through cabinets.ts, D126, done in #321; a cabinet's role change through cabinets.ts, D127, done in #322; an approved cabinet's row through cabinets.ts, D128, done in #323; a replaced cabinet's rename, satellites and retirement through their owners, D129, in review, the last entry), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | D129 is the last |
+| Move the listed cross-module writes behind their owners, none left since D129 (30 more, the demo simulator's and usb-sql.ts's, accepted with their reasons, D108) (D65 to D78 done, and none is left in maintenance.ts; the firewall event writer in events.ts, D84, done in #274; the session writes in the console routes, D86, done in #276; the certificate writes in enrollment and replacement, D87, done in #277; the operations checks' alert resolve, D88, done in #278; the network diagnosis's writes to diagnoses, D90, done in #280; the issue-alert closes in the network diagnosis and the file-version check, D92, done in #282; the retitles and signature closes in service recovery, peer differences and firmware drift, D94, done in #284; the regroup close in rules.ts, D95, done in #285; the reboot-loop close in crashes.ts, D96, done in #292; the disk-forecast close in drives.ts, D98, done in #293; the site-outage close, D99, done in #294; the scanner switch-off close in client-scanner.ts, D100, done in #295; the replaced cabinet's alert close in replacement.ts, D101, done in #296; the bulk firewall change's command insert, D102, done in #298; the fleet job's command withdrawal, D103, done in #299; the regroup's event move in rules.ts, D104, done in #300; the same-alert case put back, D105, done in #301; the time zone and clock alerts in time.ts, D106, done in #302; the firewall alert in firewall-policy.ts, D107, done in #303; the demo and USB writers accepted, D108, done in #304; the migration-failed alert in db/migrate.ts, D110, done in #306; the event links in alerts.ts, D112, done in #307; the failed sign-in count in auth-failures.ts, D113, done in #308; the write-limit pause in writes.ts, D114, done in #309; the command line's account writes in cli.ts, D115, done in #310; the console sign-in's account writes in auth-routes.ts, D116, done in #311; the seven settings writers, D117, done in #312; ten writers covered by the setting columns they own, D118, done in #313; a cabinet's make and model in one place, D119, done in #314; the watched-services lists in one place, D120, done in #315; the scanner hardware IDs in one place, D121, done in #316; approved programs with fixed statements, D122, done in #317; file-facts paths with fixed statements, D123, done in #318; the bulk import's client and site rows through admin.ts, D124, done in #319; an enrolment approval's client, site and site time zone through their owners, D125, done in #320; the presence batch's contacts through cabinets.ts, D126, done in #321; a cabinet's role change through cabinets.ts, D127, done in #322; an approved cabinet's row through cabinets.ts, D128, done in #323; a replaced cabinet's rename, satellites and retirement through their owners, D129, done in #324, the last entry), one table or a few at a time. Boundary input checked against its contract, and side effects through an idempotent writer. | F21.R2 | done |
 | Console views read aggregates, never raw sample scans, with the SQL measured at 10,000 cabinets. The kinds of blue screen (D61) and the readings search (D63) are done; drives at risk already reads its aggregate; the other fleet-wide views are left to measure. | F21.R4 | about 1 more |
 | A documented path to per-client databases, with the connection resolved per client. The path is done (D62); the connection resolved per client is left. | F21.R5 | about 1 more |
 | Process and task expectations, for whatever the agent already reports | F7 | about 1 or 2 |
@@ -81,8 +81,8 @@ That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop 
   - F20's smoke test per build family, which needs real cabinets of each family;
   - gates 2 to 6 below.
 - **The owner:** row 12, Windows Update, has to be cut into a finding before it can be built.
-- **CI:** GitHub Actions are on hold for billing, so its checks are red on every PR and say nothing either way. Every PR states the
-  local full run that stands in for it.
+- **CI:** `platform-contracts.yml` is green on `main` from `7d38a6a` (run 44675273893, after #325 and #326). Every PR still states
+  its local full run.
 - **Real hardware:** the rest of the write sweep (the service and process writes wait for an approved-programs list on the test
   machine), and the read and write sweeps on a real 32-bit machine with the 11.0.0 dependencies ([live test](live-test.md)).
 
@@ -169,7 +169,7 @@ and a stated reason, so a builder can start on any of them without another surve
 
 ## Marco's decisions, 2026-11-15 (evening)
 
-- **#28 — reboot times, set by site or by individual cabinet: BLOCKED on the owner's own decision.** I wrote here that
+- **#28 — reboot times, set by site or by individual cabinet: ANSWERED by the owner, reopened narrowly (2026-11-15 late).** I wrote here that
   "`system.restart` restarts a cabinet now and the fleet-job machinery can drive it at scale, so the missing half is the
   schedule." **That is false, and it is the same class of mistake as the Windows-readers claim: I asserted a capability
   without reading the file that decides it.** The code says the opposite, in three places, all of them the owner's
@@ -181,8 +181,9 @@ and a stated reason, so a builder can start on any of them without another surve
   - `server/test/fleet-jobs-no-restart.test.ts:9` — asserts `JOB_OPERATIONS` excludes `system.restart` and that the
     contract refuses it. A guard, not a comment.
   What already exists is the *single-cabinet* case (`09-open-decisions.md:376`): restart now, or after a delay of up to
-  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist, and must not be
-  built without reversing that decision, is a recurring schedule and a fleet-wide run.
+  an hour, one cabinet at a time from its own page, with a shutdown Admin-only. What does not exist is a recurring
+  schedule and a fleet-wide run — and it may not be built without reversing that decision, which the owner then did, on
+  his word and in writing, the same evening: *"Narrow for schedualed reboots."*
   **The sync-cabinet order was also already answered** (`09-open-decisions.md:901`): *"Closed on 2026-10-29: restarts
   never become job operations ('No bulk restarts' above), so there is no restart order for the platform to keep; **a
   person restarting cabinets one at a time keeps this order**."* So the ordering half of Marco's 2026-11-15 ask
@@ -192,9 +193,15 @@ and a stated reason, so a builder can start on any of them without another surve
   cabinets (`server/src/services/sync-cabinets.ts:3`), and each satellite names its own via `sync_cabinet_id`
   (`server/migrations/0011_sync_cabinets.sql:12`). Any future ordering works per satellite -> its own sync cabinet, never
   "the site's one sync point".
-  **Open for Marco:** keep the decision (then #28 closes as *decided, not built*), or reverse it for a bounded case
-  (a per-site window with a cap, one lifecycle owner, a confirmation, and the ordering above) — in which case the spec
-  line and `fleet-jobs-no-restart.test.ts` change **on his word and in the same change**, never quietly.
+  **Answered by the owner, 2026-11-15 late:** *"Narrow for schedualed reboots."* The decision is reopened for one bounded
+  facility — a scheduled restart window, per site or per cabinet — and for nothing else. What stays exactly as it was:
+  `system.restart` does not enter `JOB_OPERATIONS`, the contract still refuses it as a fleet job, and
+  `fleet-jobs-no-restart.test.ts` stays green and unedited, because its meaning is *no ad-hoc bulk restarts*, which is
+  the part the owner was protecting. No button restarts a site. The schedule is a facility of its own and owes a spec
+  before it owes code: the window, the cap on simultaneous restarts, the confirmation bound to the parameters, the audit
+  trail, the ordering per satellite behind **its own** sync cabinet, and what happens when a cabinet does not come back.
+  The spec amendment is in `09-open-decisions.md` under "No bulk restarts" (the narrowed paragraph). The build brief
+  follows the two PRs, the demo split and the two baselines.
 - **Service start order — half is buildable, half is an owner question.** Codex stopped before implementing, and it was
   right twice over: `docs/spec/STANDING-INSTRUCTIONS.md:21` says *"if the spec does not answer something, stop and ask
   rather than guessing"*, and the spec **plans the read** — `12-milestones-8-to-12.md:51` defines `services.list` as

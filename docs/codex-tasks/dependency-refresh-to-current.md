@@ -45,7 +45,7 @@ current versions **and proves it with the suite**, and it produces the one list 
    cd server && node --test --test-concurrency=2 dist/test/*.test.js     # the suite lives under server/
    cd server && node --test dist/test/console-*-e2e.test.js              # ~10 minutes, needs console/dist
    ```
-   The browser tests need a Chromium **at `~/.cache/ms-playwright/chromium-1248/chrome-linux64/chrome`**
+   The browser tests need a Chromium **at `~/.cache/ms-playwright/chromium-1255/chrome-linux64/chrome`**
    (note `chrome-linux64`, not `chrome-linux`); confirm it is there before blaming a test.
    Also build the agent: `cd agent && ~/.dotnet/dotnet build Cabinet.Agent.sln -c Release`.
 6. **A dependency bump is not an excuse for a red test.** If an upgrade breaks a test, fix the cause in the smallest
