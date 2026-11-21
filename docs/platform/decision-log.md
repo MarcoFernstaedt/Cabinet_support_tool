@@ -64,6 +64,49 @@ below 996px"); restored and `cmp` identical, it passes, twice.
 
 ---
 
+## D138. "The same error elsewhere" reads the matching events through an index (2026-11-20)
+
+**What the code did** (at `9977c60`; F21.R4): `sameErrorElsewhere` in `server/src/services/alerts.ts:479` runs on every event's detail
+view. It counted the other cabinets that reported the same log, source and event ID in the last 30 days by reading every event in the
+window and opening each one's JSON source, as no index held those values. Its cost grew with the fleet's event volume, not with the
+matches.
+
+**Measured** (`server/test/same-error-at-scale.bench.ts`, by hand; 4 cores, 15 GB, SQL Server 2022 in Docker; 10,000 active cabinets;
+50 of them with the error asked about; 5 runs after one warm-up):
+
+| Events in the window | Before | Through the index |
+|---|---|---|
+| 300,050 (30 a cabinet) | median 1,342 ms | |
+| 2,000,050 (200 a cabinet), first probe | median 3,950 ms (best 3,845, worst 4,096) | median 6 ms (best 5, worst 8) |
+| 2,000,050, the committed bench | median 1,980 ms (best 1,772, worst 2,215) | median 5 ms (best 5, worst 9) |
+
+Both return the same answer (49 other cabinets, 50 events). The fleet's planned volume is 20 events a cabinet a day, about 6 million in the
+window ([performance](performance.md)); that size was not measured here, and the two runs at 2 million show the scan's cost varies by
+half between runs, so no number is projected for it.
+
+**The decision** (the approach is mine):
+- **Migration `0038_event_error_key.sql`** adds `err_source` and `err_event_id` to `events`, computed from `source` and not stored, and
+  the index `events_error_key` on them with `occurred_at`, including `cabinet_id`. The source is `nvarchar(512)`: the contract allows 256
+  characters (`shortText`), which can take more than 256 UTF-16 units.
+- **Only events that still have their source are indexed** (`WHERE [source] IS NOT NULL`). After 30 days most events lose it
+  (`clearOldEventDetail`), and the view looks back 30 days. SQL Server refuses a filter on the computed columns themselves.
+- **Both statements of `sameErrorElsewhere`** filter on those columns and on `source IS NOT NULL`, and name the index. The log is still compared exactly and the
+  source without case, as before; `kind` is `nvarchar(max)`, so it is checked on the rows the index finds, not in the index.
+- **Numbered 0038:** 0035 to 0037 are `feat/remote-access-tunnel`'s own migrations, so the two lines do not share a number.
+- **The cost, and why it is still taken:** the index was 59.1 MB built after 2 million events and 86.7 MB grown while they were
+  written, about 30 to 45 bytes an event. [Performance](performance.md) plans 6.6 M events with their source (6 M in the last 30 days
+  and 0.6 M older alerted ones), so about 195 to 290 MB, in a database planned at about 9.2 GB of Express's 10 GB. Without it the
+  view reads every event in the window: 2 to 4 s at 2 M of the planned 6 M, on every event opened. An unfiltered index would also hold
+  the 11.4 M cleared events, about twice the size.
+
+**Proof:** `server/test/same-error-elsewhere.test.ts` (new, 2 tests): the answer counts only the same log (exactly), source (without
+case) and event ID, in the window, from error events on other cabinets; and both statements' cached plans seek `events_error_key`. With
+`main`'s statements and the index kept, the plan test fails and the answer test still passes, so the answer is unchanged. Restored and
+`cmp` identical, 2 of 2, and with `alerts-sql` 15 of 15. The full gate at `19dcf03`, `alerts` included: server 1,174 of 1,189 (15
+skipped), browser 46 of 49 (3 skipped), console 138 of 138, 0 failed.
+
+---
+
 ## D137. The heartbeat's backoff cap is tested on a clock the test moves (2026-11-20)
 
 **What the code did** (at `8f3744c`): `The_heartbeat_caps_the_backoff_at_its_interval` in
