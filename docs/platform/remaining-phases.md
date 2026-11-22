@@ -81,8 +81,7 @@ That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop 
   - F20's smoke test per build family, which needs real cabinets of each family;
   - gates 2 to 6 below.
 - **The owner:** row 12, Windows Update, has to be cut into a finding before it can be built.
-- **CI:** GitHub Actions are on hold for billing, so its checks are red on every PR and say nothing either way. Every PR states the
-  local full run that stands in for it.
+- **CI:** GitHub Actions runs on free minutes now that the repository is public.
 - **Real hardware:** the rest of the write sweep (the service and process writes wait for an approved-programs list on the test
   machine), and the read and write sweeps on a real 32-bit machine with the 11.0.0 dependencies ([live test](live-test.md)).
 
