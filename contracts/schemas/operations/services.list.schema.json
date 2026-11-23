@@ -114,6 +114,42 @@
                     "type": "null"
                   }
                 ]
+              },
+              "dependencies": {
+                "description": "Configured Windows dependency names (+ prefixes a load-order group).",
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "dependentServices": {
+                "description": "Reverse dependencies reported by Windows. Null means the read failed; absent on older agents.",
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "maxItems": 1000,
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200,
+                      "pattern": "^[^\\u0000-\\u001f\\u007f]*$"
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
               }
             }
           }
