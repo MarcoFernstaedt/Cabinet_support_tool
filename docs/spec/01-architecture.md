@@ -49,8 +49,9 @@ D65).
 
 ## Per-client databases: the path
 
-Today every client's data is in one database. If a client's data has to move to a database of its own (for size, or because the client
-requires it), it moves along a line that is written down and tested now (F21.R5, decision-log D62). `server/src/db/client-data.ts`
+The fleet has one database, by the owner's decision (decision-log D141): no client gets a database of its own, and nothing looks one
+up per client. If that is ever reversed (a client requires it, or one client's share outgrows the database), the data moves along a
+line that is written down and tested now (F21.R5, decision-log D62). `server/src/db/client-data.ts`
 places every table:
 - **Platform:** one database for the whole platform. People and sign-in, the audit trail, issue types and symptom rules, releases
   and packages, settings and baselines at every scope, enrollment and certificates, and the work that spans clients (fleet jobs,

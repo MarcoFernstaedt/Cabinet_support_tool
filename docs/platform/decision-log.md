@@ -6,6 +6,21 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D141. One database for the fleet (2026-11-23)
+
+**Asked:** F21.R5 asked for a documented path to per-client databases, with the connection resolved per client. The path is done
+(D62); the owner was asked whether any client needs a database of its own.
+
+**Decided by the owner:** one database for the whole fleet. Nothing looks a database up per client, and the second half of F21.R5 is
+not built. It would route every client to the same database and change nothing in service.
+
+**Why it holds:** at 10,000 cabinets the fleet views read their aggregates in at most 162 ms once the two slow ones were fixed (D138,
+D140). No client has asked for its data apart.
+
+**Kept:** the line a split would follow, `server/src/db/client-data.ts` and its test (D62), so a reversal starts from it.
+
+---
+
 ## D140. The alert list reads its page through an index (2026-11-20)
 
 D138 (#332) and D139 (#333) are open, so this entry takes the next number.
