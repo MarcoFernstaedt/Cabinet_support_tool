@@ -6,6 +6,105 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D144. The remaining open choices, taken as recommended (2026-11-23)
+
+**Asked:** the owner said to take the best choice on every question still open, keep the documents current, and plan the rest
+(docs/platform/plan-to-completion.md). Each choice below is the one its item builds to. Any of them can be reversed before its item
+is built.
+
+- **Scheduled restarts (the schedule's spec, docs/spec/09-open-decisions.md "No bulk restarts").**
+  - **Window:** set per site, by an Admin. Days of the week, a start time in the site's time zone, and a length of 30 to 240 minutes.
+  - **Order and cap:** each sync cabinet restarts first. Its satellites start only once it has reported back with a new boot time.
+    At most 5 satellites of a site restart at once; the Admin may set 1 to 10.
+  - **Confirmation:** step-up, bound to the window's exact parameters. Any change is confirmed again.
+  - **Audit:** setting, changing and removing a window, and every restart and its outcome.
+  - **A cabinet that does not come back within 15 minutes:** nothing more restarts at that site in that window. The cabinet gets a
+    major alert.
+  - **Skipped:** a cabinet that is paused for writes, read-only or offline is passed over.
+  - **Unchanged:** `system.restart` stays out of the fleet job operations, and `fleet-jobs-no-restart.test.ts` stays as it is.
+- **Daily and weekly reports:** first in the console and as a downloadable file. Email goes through the operator's own mail relay,
+  set as a server setting; nothing is bought. No webhook until one is asked for.
+- **Windows Update (row 12):**
+  - **Checking** is the read that exists (`updates.status`).
+  - **Installing** covers only the updates an Admin approves for a client. It is staged per site like an agent rollout (one cabinet,
+    then the rest), and restarts only inside the site's restart window.
+  - **Deferral** is Windows' own setting: it is read and shown, never changed.
+- **Our own remote access (F22)** stays parked. The development SSH transport stays on the development branch.
+- **Service dependencies** are read and shown. The platform never sets them, and no operation is added for it.
+- **A device that vanishes** (the owner's ask): a device the cabinet's baseline requires that is no longer present raises a minor
+  alert, which closes when the device returns. Other devices that go missing show as differences only (D48).
+- **Restarting the agent:** a Tier 2 operation with a confirmation code. The broker restarts the network service.
+  `service.control` keeps refusing the agent's own services.
+- **Investigative tools:**
+  - **Machine variables:** built, with values that look like secrets hidden.
+  - **Packet capture:** Admin only, at most 60 seconds, one host or port, size-capped, deleted after retention.
+  - **SFC and DISM repair:** Tier 2, with a confirmation code.
+  - **On-demand ETW tracing:** last, after everything else.
+- **AMT / vPro:** detection only. Wake-on-LAN stays excluded.
+
+---
+
+## D143. No purchases: our own roots and offline keys (2026-11-23)
+
+**Asked:** the owner wants to avoid purchases where possible, starting with the code-signing certificate.
+
+**Already decided, and kept:** code signing uses our own publisher root, not a bought certificate (7 November;
+docs/spec/07-upgrade-channel.md "What the repository pins"). The installer pins the root by its SHA-256 and puts it in the
+machine's Root and TrustedPublisher stores, and release 0.3.1 was signed this way. Our cabinets are machines we install, so a public
+CA buys nothing the pinned root does not already give.
+
+**Decided here** (the recommendations, taken on the owner's instruction):
+- **Signing keys stay offline; no cloud KMS.** The release key is an offline key the operator holds outside the repository and uses
+  only where releases are cut. This is the "offline key" option of docs/spec/09-open-decisions.md "Signing key location".
+- **A production issuing CA for agent certificates, made from an offline root.** Its key is a file on the server, outside the
+  repository, readable only by the server's account. The agent API's TLS certificate comes from the same CA, which agents already
+  pin. Not built: `server/src/runtime.ts:11` knows only the development issuing key, so the live agent API presents "Mashura Cabinet
+  Platform DEVELOPMENT ONLY issuing CA". Building the production loader and the root ceremony script is its own piece of work, and
+  field cabinets wait for it.
+- **TPM-held agent keys need no purchase.** The cabinets' own TPMs are used through Windows' platform key provider. It is agent work,
+  not a purchase, and it waits on a real cabinet to prove it.
+- **No bought penetration test for now.** The security review brief (docs/spec/11-security-review-brief.md) is worked through by us,
+  with the findings recorded, before the first field site. A client that requires an independent test reopens this.
+
+**Costs:** keys we hold ourselves are only as safe as where we keep them. The release key and the offline roots must be backed up
+and kept off any networked machine.
+
+---
+
+## D142. Process and task expectations are baseline items, shown as differences (2026-11-23)
+
+**Asked:** F7 left open how expectations for processes and scheduled tasks are stated and judged (docs/spec/09-open-decisions.md
+"What a cabinet's role expects").
+
+**Decided** (the recommendation, taken on the owner's instruction):
+- **Stated as items of the role baseline,** like every other expectation (D33). A process item names a program that must be
+  running, with an optional CPU ceiling (percent of the machine) and memory ceiling (working set). A task item names a scheduled
+  task that must exist, be enabled, and have last ended with result 0.
+- **Judged against stored answers:** the cabinet's latest `processes.list` and `startup.list` results. The platform sends no command
+  of its own to judge them, and each judgement shows when the answer it used was taken.
+- **Shown in the Differences view,** by role and by the level a difference comes from, as F7.R3 already does. A miss is drift and is
+  never an alert (D48).
+
+**Alternatives:** a minor alert on a miss, which D48 refuses for drift; or waiting for the agent to report tasks in its
+configuration snapshot (F9), which leaves processes unjudged meanwhile.
+
+---
+
+## D141. One database for the fleet (2026-11-23)
+
+**Asked:** F21.R5 asked for a documented path to per-client databases, with the connection resolved per client. The path is done
+(D62); the owner was asked whether any client needs a database of its own.
+
+**Decided by the owner:** one database for the whole fleet. Nothing looks a database up per client, and the second half of F21.R5 is
+not built. It would route every client to the same database and change nothing in service.
+
+**Why it holds:** at 10,000 cabinets the fleet views read their aggregates in at most 162 ms once the two slow ones were fixed (D138,
+D140). No client has asked for its data apart.
+
+**Kept:** the line a split would follow, `server/src/db/client-data.ts` and its test (D62), so a reversal starts from it.
+
+---
+
 ## D140. The alert list reads its page through an index (2026-11-20)
 
 D138 (#332) and D139 (#333) are open, so this entry takes the next number.
