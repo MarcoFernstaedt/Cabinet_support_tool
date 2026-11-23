@@ -18,7 +18,7 @@ import { paramsHash } from "../src/auth/canonical.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { approveEnrollment, createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
 import { envelopes, operations } from "../src/contracts.js";
-import { DemoSimulator, scenarioEvents } from "../src/demo/demo.js";
+import { answer, DemoSimulator, scenarioEvents } from "../src/demo/demo.js";
 import { DEMO_FLEET, type Scenario } from "../src/demo/fleet.js";
 import { demoOutput, type DemoContext } from "../src/demo/outputs.js";
 import { searchReadings } from "../src/services/readings.js";
@@ -28,6 +28,7 @@ import { evaluateDrift } from "../src/services/firewall-policy.js";
 import { evaluateTime } from "../src/services/time.js";
 import { checkSiteOutages } from "../src/services/site-outage.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
+import { takeQueuedCommands } from "../src/services/commands.js";
 import { createTestDatabase, type TestDatabase, startFeed } from "./database.js";
 import { csrFor, ecKey, tempDir } from "./helpers.js";
 
@@ -258,7 +259,10 @@ test("every simulated cabinet reports its configuration through the server's own
       const now = (await call("GET", `/api/cabinets/${midtownSync}/condition`, undefined, t1)).body;
       return !now.reasons.some((r: { code: string }) => r.code === "required_item");
     });
-  } finally { sim.stop(); }
+  } finally {
+    sim.stop();
+    await sim.settled();
+  }
 });
 
 test("simulated cabinets answer commands, and a fix made on one takes effect", async () => {
@@ -304,6 +308,7 @@ test("simulated cabinets answer commands, and a fix made on one takes effect", a
     assert.equal((await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [real.body.commandId])).rows[0]!.status, "queued");
   } finally {
     sim.stop();
+    await sim.settled();
   }
 });
 
@@ -316,25 +321,28 @@ test("time: wrong zones and a drifting clock raise alerts; Tier 1 corrects them 
   const facts = (await call("GET", `/api/cabinets/${wrong}/time`, undefined, t1)).body;
   assert.equal(facts.zoneWrong, true);
   assert.notEqual(facts.timeZoneId, facts.siteTimeZone);
-  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
-  sim.start();
-  try {
-    const status = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.status", params: {} }, t1);
-    await until("time.status", async () => (await db.app.query<{ status: string }>("SELECT status FROM commands WHERE id = $1", [status.body.commandId])).rows[0]?.status === "succeeded");
-    // Tier 1 sets the site's zone with one click; the zone alert closes from the next heartbeat.
-    const set = await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params: { timeZoneId: facts.siteTimeZone } }, t1);
-    assert.equal(set.status, 202, JSON.stringify(set.body));
-    await until("the zone alert to close", async () => !(await openAlert(wrong, ISSUE.timeZone)));
-    assert.equal((await call("GET", `/api/cabinets/${wrong}/time`, undefined, t1)).body.zoneWrong, false);
-    const sync = await call("POST", `/api/cabinets/${drift}/commands`, { operation: "time.sync", params: {} }, t1);
-    assert.equal(sync.status, 202);
-    await until("the clock alert to close", async () => !(await openAlert(drift, ISSUE.clock)));
-    // Only the allowed zones can be sent; anything else is refused before a command exists.
-    for (const params of [{ timeZoneId: "UTC" }, { timeZoneId: "Eastern Standard Time /s UTC" }, {}, { timeZoneId: "Eastern Standard Time", force: true }])
-      assert.equal((await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params }, t1)).status, 400, JSON.stringify(params));
-  } finally {
-    sim.stop();
-  }
+  const runTimeCommand = async (cabinetId: string, operation: string, params: Record<string, unknown>) => {
+    const issued = await call("POST", `/api/cabinets/${cabinetId}/commands`, { operation, params }, t1);
+    assert.equal(issued.status, 202, JSON.stringify(issued.body));
+    const [command, ...others] = await takeQueuedCommands(db.app, cabinetId);
+    assert.equal(others.length, 0);
+    assert.ok(command, "the agent received a command");
+    assert.equal(command.commandId, issued.body.commandId);
+    // The result is stored before the heartbeat and alert evaluation finish. Await the whole answer
+    // without starting a periodic sweep that could read the old facts and write them back.
+    await answer(db.app, cabinetId, command);
+    const result = await call("GET", `/api/commands/${issued.body.commandId}`, undefined, t1);
+    assert.equal(result.body.status, "succeeded", JSON.stringify(result.body));
+  };
+  await runTimeCommand(wrong, "time.status", {});
+  await runTimeCommand(wrong, "time.setZone", { timeZoneId: facts.siteTimeZone });
+  assert.ok(!(await openAlert(wrong, ISSUE.timeZone)), "the zone alert closed");
+  assert.equal((await call("GET", `/api/cabinets/${wrong}/time`, undefined, t1)).body.zoneWrong, false);
+  await runTimeCommand(drift, "time.sync", {});
+  assert.ok(!(await openAlert(drift, ISSUE.clock)), "the clock alert closed");
+  // Only the allowed zones can be sent; anything else is refused before a command exists.
+  for (const params of [{ timeZoneId: "UTC" }, { timeZoneId: "Eastern Standard Time /s UTC" }, {}, { timeZoneId: "Eastern Standard Time", force: true }])
+    assert.equal((await call("POST", `/api/cabinets/${wrong}/commands`, { operation: "time.setZone", params }, t1)).status, 400, JSON.stringify(params));
   // A site's zone: Tier 2 sets it, Tier 1 cannot; the real cabinet in another zone gets an alert at once, cleared when it matches.
   const home = (await db.app.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [realCabinet])).rows[0]!.site_id;
   await recordHeartbeat(db.app, realCabinet, { agentVersion: "0.5.0", uptimeSeconds: 100, readOnlyMode: false, timeZoneId: "Pacific Standard Time", clockSkewSeconds: 0.2 });
