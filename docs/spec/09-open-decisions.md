@@ -6,6 +6,12 @@ Each item has a recommended default, written into the other specs, so coding can
 
 Cloud KMS with hardware backing, or an offline key. Default: cloud KMS. Also decides where the agent certificate issuing key lives, needed by milestone 2.
 
+**Decided 2026-11-23: offline keys, no cloud KMS** (the owner: avoid purchases where possible; decision-log D143). The release key stays
+an offline key held by the operator outside the repository, used only on the machine that cuts releases. The agent certificate issuing
+key becomes a production issuing CA made from an offline root, its key in a file on the server outside the repository, readable only
+by the server's account. Not built yet: the server knows only the development issuing key (`server/src/runtime.ts:11`), which is why
+the live agent API presents the development CA.
+
 Milestone 7 built the signing for both cloud options without choosing between them: `agent/install/New-AgentRelease.ps1` signs with AWS KMS (`-AwsKmsKeyId`) or Azure Key Vault / Managed HSM (`-AzureKeyId`), through their own command-line tools, sending only the manifest's hash. **Still needed before the first real release:**
 - which provider, and the P-256 signing key created in it, with only the build pipeline's identity allowed to sign;
 - the key's public half committed to `contracts/trust/upgrade/upgrade-keys.json` (`agent/install/New-UpgradeTrust.ps1 -AwsKmsKeyId …` or `-PublicKeyFile …` writes it).
@@ -15,6 +21,8 @@ ECDSA P-256 public key (`contracts/trust/upgrade/upgrade-keys.json`). So agents 
 that key. What remains undecided is where its private half lives and that only the build pipeline may use it.
 
 ## Agent code-signing certificate (needed before the first real release)
+
+**Decided (2026-11-07): our own publisher root, no bought certificate** (docs/spec/07-upgrade-channel.md "What the repository pins"). The installer pins the root and puts it in the machine's Root and TrustedPublisher stores; release 0.3.1 was signed this way. Kept below as it was asked:
 
 Every agent binary must be Authenticode-signed, and the agent checks its own files and every release against one pinned publisher. Needed: the organization's code-signing certificate (from a public CA, or an internal CA whose root is installed on cabinets), and its exact subject common name and organization. They go into `contracts/trust/upgrade` with the CA's root (`New-UpgradeTrust.ps1 -PublisherRootFile … -PublisherCommonName … -PublisherOrganization …`). Until then, agent builds skip the self-check and say so in their log, and refuse every release at the Authenticode check.
 
@@ -379,7 +387,7 @@ Asked of and answered by the product owner; specified in 12-milestones-8-to-12.m
 - **Restart after updates.** Never automatic. The cabinet shows "restart pending" and a person restarts it now or schedules it.
 - **Restarting a cabinet.** Every role, Tier 1 included (the owner, 2026-11-04: "everyone can restart since it's a common fix"; D28); a shutdown stays Admin only. Confirmed with an authenticator code bound to the parameters, as the operations catalog and the table under "Support actions" below say. (The 2026-10-10 answer read "all tiers, one click"; the code was kept, D28.) Now or after a delay of up to an hour, one cabinet at a time. Most cabinets already restart on a routine; the platform shows the pending-reboot state alongside.
 - **Bulk updates.** Allowed for a client or a site, confirmed with the password like the bulk firewall policy, up to 200 cabinets.
-- **No bulk restarts** (the owner's decision, 2026-10-29, replacing the earlier "bulk updates and restarts" answer): "Restarts shouldn't have bulk restarts for security." A restart is sent to one cabinet at a time from its own page, never as a fleet job or a client/site bulk action. `system.restart` stays out of the fleet job operations; `server/test/fleet-jobs-no-restart.test.ts` keeps it out. **Narrowed by the owner on 2026-11-15:** "Narrow for schedualed reboots." The prohibition is unchanged for *ad-hoc* restarts and for job operations — nobody restarts a site from a button, and the guard test stays green and keeps its meaning. What the owner added is a **schedule**: a restart window set per site, with the sync cabinet commanded first and its satellites held until it has reported back, a cap on how many restart at once, a confirmation bound to the parameters, and an audit trail naming who set it. The schedule is a facility of its own, not an entry in the job operations; its exact bounds (window, cap, ordering, what happens when a cabinet does not come back) are the schedule's spec, and until that spec exists this paragraph records the decision alone.
+- **No bulk restarts** (the owner's decision, 2026-10-29, replacing the earlier "bulk updates and restarts" answer): "Restarts shouldn't have bulk restarts for security." A restart is sent to one cabinet at a time from its own page, never as a fleet job or a client/site bulk action. `system.restart` stays out of the fleet job operations; `server/test/fleet-jobs-no-restart.test.ts` keeps it out. **Narrowed by the owner on 2026-11-15:** "Narrow for schedualed reboots." The prohibition is unchanged for *ad-hoc* restarts and for job operations — nobody restarts a site from a button, and the guard test stays green and keeps its meaning. What the owner added is a **schedule**: a restart window set per site, with the sync cabinet commanded first and its satellites held until it has reported back, a cap on how many restart at once, a confirmation bound to the parameters, and an audit trail naming who set it. The schedule is a facility of its own, not an entry in the job operations; its exact bounds (window, cap, ordering, what happens when a cabinet does not come back) are the schedule's spec. **Bounds chosen 2026-11-23** (decision-log D144): a window per site set by an Admin (days, a start in the site's time zone, 30 to 240 minutes); each sync cabinet first, its satellites only once it reports a new boot time, at most 5 satellites at once (1 to 10); step-up bound to the window's parameters; every restart and outcome audited; a cabinet not back within 15 minutes stops the rest at that site and raises a major alert; paused, read-only and offline cabinets are passed over.
 - **Cable or switch-port faults.** No packet capture. The diagnosis shows a physical-layer finding when the evidence supports it (no link, a gigabit port linking at 100 Mbps or less, rising receive errors, link up/down events), each paired with what to do. Every finding comes with its fix.
 - **Accounts.** Admin can do everything Tier 2 can, plus enrolment and user management (already so). A new account and an Admin password reset both force a new password at the next sign-in (already so; kept under test).
 - **Console redesign.** The product owner's brand: Midnight Navy and Electric Cyan, a dark interface, with status colours green, amber, red and blue, always with a text label. Tokens are centralised; existing workflows and security controls are kept.
@@ -977,7 +985,8 @@ and assigns, the owner chose the three roles. Built: a `role` baseline scope bet
 "Baselines"), counted at enrollment. Details and reasons in docs/platform/decision-log.md, D33.
 
 Still to build in F7, each its own piece: expectations for processes (with thresholds) and for scheduled tasks (a healthy last run, which
-needs F9's task fields from the agent); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
+needs F9's task fields from the agent; their shape decided 2026-11-23, decision-log D142: items of the role baseline, judged against
+the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
 watch lists, expected processes and drivers only from the template (F7.R4: watched services built, from the role baseline's required
 services, decision-log D34; expected processes and drivers come with the process and driver expectations).
 
@@ -992,12 +1001,12 @@ saved action (R3, built: decision-log D37), bulk create and import of clients, s
 from (R5, built: decision-log D38; no question for the owner, since inheritance at read time was already the rule). The installer's unattended switch and its machine-readable result, and re-running it on an enrolled cabinet, are agent-side
 work and wait for the agent build.
 
-## Per-client databases (F21.R5, 2026-11-09, open)
+## Per-client databases (F21.R5, 2026-11-09, decided 2026-11-23)
 
 Every client's data is in one database. The line it would split along is written down and tested (docs/spec/01-architecture.md
-"Per-client databases: the path", decision-log D62). Not decided: whether any client's data moves to a database of its own, and what
-would trigger it (a client's requirement, or one client's share of the database). Until the owner decides, the second half of F21.R5
-(the connection resolved per client) is built so that every client resolves to the one database, which changes nothing in service.
+"Per-client databases: the path", decision-log D62). Asked whether any client needs a database of its own, the owner chose one
+database for the fleet (decision-log D141). The second half of F21.R5, the connection resolved per client, is not built: with one
+database it would change nothing. The path stays documented and tested, so a later reversal starts from it.
 
 ## Where the time zone, clock and firewall alerts live, and who adjusts them (F21.R2, 2026-11-17, decided in part)
 
