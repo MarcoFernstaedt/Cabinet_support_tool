@@ -977,7 +977,8 @@ and assigns, the owner chose the three roles. Built: a `role` baseline scope bet
 "Baselines"), counted at enrollment. Details and reasons in docs/platform/decision-log.md, D33.
 
 Still to build in F7, each its own piece: expectations for processes (with thresholds) and for scheduled tasks (a healthy last run, which
-needs F9's task fields from the agent); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
+needs F9's task fields from the agent; their shape decided 2026-11-23, decision-log D142: items of the role baseline, judged against
+the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
 watch lists, expected processes and drivers only from the template (F7.R4: watched services built, from the role baseline's required
 services, decision-log D34; expected processes and drivers come with the process and driver expectations).
 

@@ -6,6 +6,25 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D142. Process and task expectations are baseline items, shown as differences (2026-11-23)
+
+**Asked:** F7 left open how expectations for processes and scheduled tasks are stated and judged (docs/spec/09-open-decisions.md
+"What a cabinet's role expects").
+
+**Decided** (the recommendation, taken on the owner's instruction):
+- **Stated as items of the role baseline,** like every other expectation (D33). A process item names a program that must be
+  running, with an optional CPU ceiling (percent of the machine) and memory ceiling (working set). A task item names a scheduled
+  task that must exist, be enabled, and have last ended with result 0.
+- **Judged against stored answers:** the cabinet's latest `processes.list` and `startup.list` results. The platform sends no command
+  of its own to judge them, and each judgement shows when the answer it used was taken.
+- **Shown in the Differences view,** by role and by the level a difference comes from, as F7.R3 already does. A miss is drift and is
+  never an alert (D48).
+
+**Alternatives:** a minor alert on a miss, which D48 refuses for drift; or waiting for the agent to report tasks in its
+configuration snapshot (F9), which leaves processes unjudged meanwhile.
+
+---
+
 ## D141. One database for the fleet (2026-11-23)
 
 **Asked:** F21.R5 asked for a documented path to per-client databases, with the connection resolved per client. The path is done
