@@ -6,6 +6,12 @@ Each item has a recommended default, written into the other specs, so coding can
 
 Cloud KMS with hardware backing, or an offline key. Default: cloud KMS. Also decides where the agent certificate issuing key lives, needed by milestone 2.
 
+**Decided 2026-11-23: offline keys, no cloud KMS** (the owner: avoid purchases where possible; decision-log D143). The release key stays
+an offline key held by the operator outside the repository, used only on the machine that cuts releases. The agent certificate issuing
+key becomes a production issuing CA made from an offline root, its key in a file on the server outside the repository, readable only
+by the server's account. Not built yet: the server knows only the development issuing key (`server/src/runtime.ts:11`), which is why
+the live agent API presents the development CA.
+
 Milestone 7 built the signing for both cloud options without choosing between them: `agent/install/New-AgentRelease.ps1` signs with AWS KMS (`-AwsKmsKeyId`) or Azure Key Vault / Managed HSM (`-AzureKeyId`), through their own command-line tools, sending only the manifest's hash. **Still needed before the first real release:**
 - which provider, and the P-256 signing key created in it, with only the build pipeline's identity allowed to sign;
 - the key's public half committed to `contracts/trust/upgrade/upgrade-keys.json` (`agent/install/New-UpgradeTrust.ps1 -AwsKmsKeyId …` or `-PublicKeyFile …` writes it).
@@ -15,6 +21,8 @@ ECDSA P-256 public key (`contracts/trust/upgrade/upgrade-keys.json`). So agents 
 that key. What remains undecided is where its private half lives and that only the build pipeline may use it.
 
 ## Agent code-signing certificate (needed before the first real release)
+
+**Decided (2026-11-07): our own publisher root, no bought certificate** (docs/spec/07-upgrade-channel.md "What the repository pins"). The installer pins the root and puts it in the machine's Root and TrustedPublisher stores; release 0.3.1 was signed this way. Kept below as it was asked:
 
 Every agent binary must be Authenticode-signed, and the agent checks its own files and every release against one pinned publisher. Needed: the organization's code-signing certificate (from a public CA, or an internal CA whose root is installed on cabinets), and its exact subject common name and organization. They go into `contracts/trust/upgrade` with the CA's root (`New-UpgradeTrust.ps1 -PublisherRootFile … -PublisherCommonName … -PublisherOrganization …`). Until then, agent builds skip the self-check and say so in their log, and refuse every release at the Authenticode check.
 

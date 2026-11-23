@@ -6,6 +6,33 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D143. No purchases: our own roots and offline keys (2026-11-23)
+
+**Asked:** the owner wants to avoid purchases where possible, starting with the code-signing certificate.
+
+**Already decided, and kept:** code signing uses our own publisher root, not a bought certificate (7 November;
+docs/spec/07-upgrade-channel.md "What the repository pins"). The installer pins the root by its SHA-256 and puts it in the
+machine's Root and TrustedPublisher stores, and release 0.3.1 was signed this way. Our cabinets are machines we install, so a public
+CA buys nothing the pinned root does not already give.
+
+**Decided here** (the recommendations, taken on the owner's instruction):
+- **Signing keys stay offline; no cloud KMS.** The release key is an offline key the operator holds outside the repository and uses
+  only where releases are cut. This is the "offline key" option of docs/spec/09-open-decisions.md "Signing key location".
+- **A production issuing CA for agent certificates, made from an offline root.** Its key is a file on the server, outside the
+  repository, readable only by the server's account. The agent API's TLS certificate comes from the same CA, which agents already
+  pin. Not built: `server/src/runtime.ts:11` knows only the development issuing key, so the live agent API presents "Mashura Cabinet
+  Platform DEVELOPMENT ONLY issuing CA". Building the production loader and the root ceremony script is its own piece of work, and
+  field cabinets wait for it.
+- **TPM-held agent keys need no purchase.** The cabinets' own TPMs are used through Windows' platform key provider. It is agent work,
+  not a purchase, and it waits on a real cabinet to prove it.
+- **No bought penetration test for now.** The security review brief (docs/spec/11-security-review-brief.md) is worked through by us,
+  with the findings recorded, before the first field site. A client that requires an independent test reopens this.
+
+**Costs:** keys we hold ourselves are only as safe as where we keep them. The release key and the offline roots must be backed up
+and kept off any networked machine.
+
+---
+
 ## D142. Process and task expectations are baseline items, shown as differences (2026-11-23)
 
 **Asked:** F7 left open how expectations for processes and scheduled tasks are stated and judged (docs/spec/09-open-decisions.md
