@@ -6,6 +6,44 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D144. The remaining open choices, taken as recommended (2026-11-23)
+
+**Asked:** the owner said to take the best choice on every question still open, keep the documents current, and plan the rest
+(docs/platform/plan-to-completion.md). Each choice below is the one its item builds to. Any of them can be reversed before its item
+is built.
+
+- **Scheduled restarts (the schedule's spec, docs/spec/09-open-decisions.md "No bulk restarts").**
+  - **Window:** set per site, by an Admin. Days of the week, a start time in the site's time zone, and a length of 30 to 240 minutes.
+  - **Order and cap:** each sync cabinet restarts first. Its satellites start only once it has reported back with a new boot time.
+    At most 5 satellites of a site restart at once; the Admin may set 1 to 10.
+  - **Confirmation:** step-up, bound to the window's exact parameters. Any change is confirmed again.
+  - **Audit:** setting, changing and removing a window, and every restart and its outcome.
+  - **A cabinet that does not come back within 15 minutes:** nothing more restarts at that site in that window. The cabinet gets a
+    major alert.
+  - **Skipped:** a cabinet that is paused for writes, read-only or offline is passed over.
+  - **Unchanged:** `system.restart` stays out of the fleet job operations, and `fleet-jobs-no-restart.test.ts` stays as it is.
+- **Daily and weekly reports:** first in the console and as a downloadable file. Email goes through the operator's own mail relay,
+  set as a server setting; nothing is bought. No webhook until one is asked for.
+- **Windows Update (row 12):**
+  - **Checking** is the read that exists (`updates.status`).
+  - **Installing** covers only the updates an Admin approves for a client. It is staged per site like an agent rollout (one cabinet,
+    then the rest), and restarts only inside the site's restart window.
+  - **Deferral** is Windows' own setting: it is read and shown, never changed.
+- **Our own remote access (F22)** stays parked. The development SSH transport stays on the development branch.
+- **Service dependencies** are read and shown. The platform never sets them, and no operation is added for it.
+- **A device that vanishes** (the owner's ask): a device the cabinet's baseline requires that is no longer present raises a minor
+  alert, which closes when the device returns. Other devices that go missing show as differences only (D48).
+- **Restarting the agent:** a Tier 2 operation with a confirmation code. The broker restarts the network service.
+  `service.control` keeps refusing the agent's own services.
+- **Investigative tools:**
+  - **Machine variables:** built, with values that look like secrets hidden.
+  - **Packet capture:** Admin only, at most 60 seconds, one host or port, size-capped, deleted after retention.
+  - **SFC and DISM repair:** Tier 2, with a confirmation code.
+  - **On-demand ETW tracing:** last, after everything else.
+- **AMT / vPro:** detection only. Wake-on-LAN stays excluded.
+
+---
+
 ## D143. No purchases: our own roots and offline keys (2026-11-23)
 
 **Asked:** the owner wants to avoid purchases where possible, starting with the code-signing certificate.
