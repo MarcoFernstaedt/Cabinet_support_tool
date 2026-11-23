@@ -1,5 +1,8 @@
 # What is left, and what each part contains
 
+The plan to the end of the project, item by item with what proves each one, is [plan to completion](plan-to-completion.md)
+(2026-11-23). This page keeps the history of the count.
+
 ## Where it stands (2026-11-14, at `6890466`, after #266)
 
 The work follows the owner's brief of 2026-11-07: findings F1 to F23, one finding or requirement per PR, in the order of the table
