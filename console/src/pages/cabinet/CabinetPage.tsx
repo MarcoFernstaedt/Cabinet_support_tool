@@ -24,7 +24,7 @@ import { CabinetNotes } from "../../components/CabinetNotes";
 import { CaseNotes } from "../../components/CaseNotes";
 import { LiveCheck } from "../../components/LiveCheck";
 import { Time } from "./Time";
-import { DevicesDrivers, DriveHealth, Firewall, Files, Network, Updates } from "./Sections";
+import { DevicesDrivers, Firewall, Files, Network, Updates } from "./Sections";
 import { Scanner } from "./Scanner";
 import { Standards } from "./Standards";
 import { History } from "./History";
@@ -135,7 +135,6 @@ function Section({ current, cabinet, reload }: { current: SectionId; cabinet: Ca
     case "devices": return <DevicesDrivers cabinet={cabinet} />;
     case "updates": return <Updates cabinet={cabinet} />;
     case "time": return <Time cabinet={cabinet} />;
-    case "drives": return <DriveHealth cabinetId={cabinet.id} />;
     case "network": return <Network cabinet={cabinet} />;
     case "firewall": return <Firewall cabinet={cabinet} />;
     case "services": return <Services cabinet={cabinet} />;
@@ -163,7 +162,7 @@ function Summary({ cabinet }: { cabinet: CabinetDetail }) {
   const candidates: [string, string][] = [];
   if (scanner?.offNow || (scanner?.drops24h ?? 0) > 0) candidates.push(["scanner", "Check the fingerprint scanner"]);
   if (cabinet.openAlerts > 0) candidates.push(["alerts", `Review ${cabinet.openAlerts === 1 ? "the open alert" : `${cabinet.openAlerts} open alerts`}`]);
-  if (cabinet.online) candidates.push(["troubleshoot", "Diagnose this cabinet"], ["events", "Browse event logs"], ["drives", "Check drive health"], ["scanner", "Check the fingerprint scanner"]);
+  if (cabinet.online) candidates.push(["troubleshoot", "Diagnose this cabinet"], ["events", "Browse event logs"], ["scanner", "Check the fingerprint scanner"]);
   else candidates.push(["changes", "See what changed"], ["history", "Open command history"], ["troubleshoot", "Troubleshoot a problem"]);
   const actions = candidates.filter(([k], i) => candidates.findIndex(c => c[0] === k) === i).slice(0, 3);
   return (

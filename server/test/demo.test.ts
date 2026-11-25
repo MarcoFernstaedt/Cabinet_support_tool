@@ -521,32 +521,6 @@ test("crash dumps on demo cabinets answer through the same path as a real agent:
   } finally { sim.stop(); }
 });
 
-test("storage health on demo cabinets answers through the same path as a real agent: the failing drive's own log says so, and nothing in a command reaches the drive", async () => {
-  const t1 = await signIn(await account("tier1"));
-  const sim = new DemoSimulator(db.app, m => assert.fail(m), 50, [0, 10]);
-  sim.start();
-  try {
-    const cabinet = async (scenario: string) => (await db.app.query<{ id: string }>("SELECT TOP (1) id FROM cabinets WHERE demo_scenario = $1 ORDER BY name", [scenario])).rows[0]!.id;
-    const read = async (cab: string) => {
-      const issued = await call("POST", `/api/cabinets/${cab}/commands`, { operation: "storage.health", params: {} }, t1);
-      assert.equal(issued.status, 202, JSON.stringify(issued.body));
-      let r: any;
-      await until("storage.health to answer", async () => ["succeeded", "failed", "rejected"].includes((r = (await call("GET", `/api/commands/${issued.body.commandId}`, undefined, t1)).body).status), 20_000);
-      assert.equal(r.status, "succeeded", JSON.stringify(r));
-      return r.result.output;
-    };
-    const worn = await read(await cabinet("disk_failing"));
-    assert.ok(worn.drives[0].nvme.criticalWarnings.spareBelowThreshold);
-    assert.ok(worn.drives[0].nvme.mediaErrors > 0);
-    assert.equal(worn.volumes[0].repair, "spot_fix_needed");
-    const fine = await read(await cabinet("healthy"));
-    assert.ok(Object.values(fine.drives[0].nvme.criticalWarnings).every(w => w === false));
-    assert.equal(fine.volumes[0].repair, "none");
-    for (const params of [{ drive: "\\\\.\\PhysicalDrive0" }, { nvmeCommand: "format" }])
-      assert.equal((await call("POST", `/api/cabinets/${await cabinet("healthy")}/commands`, { operation: "storage.health", params }, t1)).status, 400, JSON.stringify(params));
-  } finally { sim.stop(); }
-});
-
 test("diagnoses cannot be used to flood a cabinet or the server: a running one is shared, and one person runs at most 3", async () => {
   const t1 = await signIn(await account("tier1"));
   // Cabinets that never answer keep their diagnoses running.

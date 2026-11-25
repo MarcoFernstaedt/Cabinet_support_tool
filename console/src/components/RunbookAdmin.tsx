@@ -14,7 +14,7 @@ interface Overview { issues: { issueTypeId: string; name: string; runbook: Runbo
 interface Listed extends RunbookData { id: string; state: string; target: { kind: "issue"; issueTypeId: string; issueName?: string | null } | { kind: "finding"; key: string }; proposedAt: string }
 
 const CHECKS: { id: string; label: string; operation: string; params: Record<string, unknown> }[] = [
-  { id: "info", label: "System information", operation: "system.info", params: {} }, { id: "smart", label: "Drive health", operation: "disk.smart", params: {} },
+  { id: "info", label: "System information", operation: "system.info", params: {} },
   { id: "perf", label: "Processor, memory and drives", operation: "system.performance", params: {} }, { id: "scanner", label: "Fingerprint scanner", operation: "peripheral.status", params: {} },
   { id: "usb", label: "USB ports", operation: "usb.ports", params: {} }, { id: "devices", label: "Devices with a problem", operation: "devices.list", params: { problemsOnly: true } },
   { id: "services", label: "Services", operation: "services.list", params: {} }, { id: "updates", label: "Windows updates", operation: "updates.status", params: {} },

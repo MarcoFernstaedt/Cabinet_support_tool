@@ -31,7 +31,7 @@ function quoted(text: string, label: string): string[] {
   }
   return out;
 }
-const RULE_FUNCTION: Record<string, string> = { "cabinet.system": "system", "cabinet.storage": "storage", "cabinet.performance": "performance", "cabinet.scanner": "scanner",
+const RULE_FUNCTION: Record<string, string> = { "cabinet.system": "system", "cabinet.performance": "performance", "cabinet.scanner": "scanner",
   "cabinet.devices": "devices", "cabinet.usbPorts": "usbPorts", "cabinet.services": "services", "cabinet.updates": "updates", "cabinet.time": "time", "cabinet.logs": "logs" };
 const KNOWN_EVENTS = source.slice(source.indexOf("const KNOWN_EVENTS"), source.indexOf("\n];", source.indexOf("const KNOWN_EVENTS")));
 /** The finding keys the code behind a rule can produce: explicit keys, and plain ids (whose key is the id without an instance number). */
@@ -42,7 +42,7 @@ function keysOf(rule: string): Set<string> {
 
 test("every cabinet module is checked, runs in the registry's order, and every rule it names is a rule the server has", () => {
   const modules = cabinetModules();
-  assert.equal(modules.length, 9);
+  assert.equal(modules.length, 8, "cabinet-storage went with SMART (D152)");
   assert.deepEqual(new Set(modules.flatMap(m => m.procedure.filter(p => p.kind === "rule").map(p => p.rule))), new Set(Object.keys(CABINET_RULES)));
   const registry = loadRegistry(new Map([...modules, networkModule(), sqlLadderModule(), crashModule()].map(m => [m.id, m])));
   // A module runs after everything it depends on.

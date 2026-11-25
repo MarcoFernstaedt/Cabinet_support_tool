@@ -74,7 +74,7 @@ Tests also read `TEST_DATABASE_ADMIN_URL`, `TEST_AGENT_DLL` and `PLAYWRIGHT_CHRO
 
 Each new event is checked against the live symptom rules in the transaction that stores it (`src/services/alerts.ts`, `src/services/rules.ts`):
 - **Matching** uses structured fields only (event type, log, source, event ID, level, hardware ID) and a plain, case-insensitive phrase. There are no regular expressions, so no rule can stall the server. The same match is also built as parameterized SQL for the 30-day fleet preview, and a test checks both forms agree.
-- **Built-in rules:** scanner events → Fingerprint scanner problem, SMART warnings → Drive failing, firewall changes without a platform command → Unexpected firewall change.
+- **Built-in rules:** scanner events → Fingerprint scanner problem, firewall changes without a platform command → Unexpected firewall change.
 - **Anything unmatched** is a minor unrecognized alert, grouped by log, source and event ID.
 - **Correlation:** one active alert per issue per cabinet, with occurrences and first and last seen. The same issue on two or more cabinets at a site within an hour is flagged as a site-wide pattern.
 - **Claims are atomic** (`UPDATE … WHERE state = 'open'`). The loser is told who won, and both outcomes are audited.

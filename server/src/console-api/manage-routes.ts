@@ -212,7 +212,6 @@ export async function manageRoutes(app: FastifyInstance, o: ConsoleApiOptions & 
       ...(b.sessionAbsoluteHours !== undefined ? { sessionAbsoluteHours: b.sessionAbsoluteHours } : {}),
       ...(b.retention ? { retention: b.retention } : {}),
       ...(b.agents ? { agents: b.agents } : {}),
-      ...(b.drives ? { drives: b.drives } : {}),
     }, boundTo(b.stepUpToken, b));
     o.guards.settings.invalidate();
     return after;

@@ -54,6 +54,7 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 | 1.5 | `same-error-elsewhere.test.ts` test 927 fails one CI run in some PRs with "database is in transition" (#340, #342). Not reproduced locally; needs the full error text, then a fix a test proves | the failure's cause named and fixed |
 | 1.6 | `scale.test.ts`'s lock case fails on a fast SQL Server: the held lock gave up at 4.4 s against a 4.5 s floor (the owner's machine, `main` too). Passes in CI and here | the floor measured, or the cause named |
 | 1.7 | Sign-in under contention in `ConsoleHarness.account` (`troubleshooting.test.ts` 8 failures in one run at concurrency 2), and the suite's 19 minutes on CI: find the slow files | a cause for each |
+| 1.8 | Agent `ConnectivityTests.A_reset_of_a_held_connection_waits_a_random_short_time_not_the_backoff` failed once on Windows CI (#346, run 45582207846), at 2.0021 s against a 2 s bound. The test sets a 200 ms reset jitter, and 2 s is `Backoff`'s default first step (`Connectivity.cs:13`), so the reset may sometimes take the backoff path | the cause named, with a test that fails without the fix |
 
 ## 2. Server work that can be built now (about 30 to 40 PRs, 1.5 to 2.5 weeks)
 
@@ -62,10 +63,10 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 | 2.1 | F21.R4: measure the fleet views not yet measured at 10,000 cabinets and fix any that scan raw rows | `server/test/fleet-views-at-scale.bench.ts` | the bench, and a plan or reads test per fix | 2 to 3 |
 | 2.2 | F7: process and task expectations as role baseline items (D142) | `baselines`, the Differences view | a seeded cabinet whose stored answer misses an item shows the difference; the test fails without the judge | 2 to 3 |
 | 2.3 | Fleet incident correlation (the owner's top ask): one incident with its sites and cabinets, the attributes they share, the errors that come with it, what it is tied to | on `crashes.ts`, `crash-clusters.ts`, `fleet-patterns.ts` | a seeded fleet sharing exactly one attribute; a test that fails without the shared-attribute step | 3 to 5 |
-| 2.4 | **Changed by the owner** (D150): remove SMART and drive risk; keep free space, its low-space alert and its forecast. Older agents' SMART events and answers stay accepted and are ignored until the fleet is upgraded | agent, contracts, server, console | a 0.3.1 event batch carrying a SMART warning is still accepted; nothing raises a drive-risk alert | 2 |
+| 2.4 | **Done** (D152): SMART and drive risk removed from the server and console; free space, its alert and its forecast kept, the forecast now from the daily job. Older agents' SMART events and answers are accepted and ignored | server, console | `disk-forecast.test.ts`: the forecast raises and resolves from the daily job; an old agent's SMART report and `smart_warning` are accepted and kept nowhere; the two SMART reads are refused | 1 |
 | 2.5 | Fleet update compliance: which cabinets are behind, which lack a named update | `readings.ts`, `compare.ts` | a seeded fleet view test | 2 |
 | 2.6 | Site readiness: the per-site assembly of the checklist, a verdict, a schedule; unknown never ready | `checks.ts`, `cabinet-health.ts` | a site with one unknown check is not ready | 2 to 3 |
-| 2.7 | **Built** (D149, branch `feat/approved-entry-matches`). Approved programs: flag an entry no cabinet can match where it is written, and say the rule (key name and the running program) | console approved-programs editor | an unmatched entry is flagged | 1 to 2 |
+| 2.7 | **Done** (#344, D149). Approved programs: flag an entry no cabinet can match where it is written, and say the rule (key name and the running program) | console approved-programs editor | an unmatched entry is flagged | 1 to 2 |
 | 2.8 | Split the largest files when they are next touched: `alerts.ts`, `demo.ts`, `agent-api/server.ts`, `cabinet-findings.ts` (and `AgentConnection.cs` in 4) | — | the gate unchanged | 4 to 5 |
 | 2.9 | Open issues: #297 load shed hides the heartbeat; #291 guided demo unreliable in the gate; #289 `replacesCabinetId` in the CLI approval; #288 test the enrollment chain check; #56 re-approval after reactivation; #41 retire cabinet-to-cabinet ping. #39 is re-read first: the 2026-11-23 deployment may have closed it | per issue | a test per fix | 6 to 7 |
 | 2.10 | Agent restart by an operator (D144): the server, contract and console side | `catalog.json`, console | the operation refused below Tier 2 and without its code | 1 |
@@ -100,6 +101,7 @@ TypeScript in one PR.
 | 4.13 | TPM-held agent keys through Windows' platform key provider (D143) | 2 |
 | 4.14 | On-demand ETW tracing, last | 2 |
 | 4.15 | Split `AgentConnection.cs` | 1 |
+| 4.16 | Remove SMART from the agent: the `disk.smart` and `storage.health` operations, the daily drive check and the heartbeat's drive report, then from the contracts once no agent before it remains. Built where the agent compiles (CI's Windows job): this container's NuGet cannot check package revocation | 1 to 2 |
 
 ## 5. Development branch only (about 2 to 3 PRs)
 

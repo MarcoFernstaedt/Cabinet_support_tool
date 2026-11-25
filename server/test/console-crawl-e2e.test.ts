@@ -38,7 +38,7 @@ test("every page and cabinet section loads cleanly and its read buttons answer",
     const cabinet = (await q<{ id: string }>("SELECT id FROM cabinets WHERE name = 'Midtown Sync'"))[0]!.id;
     const site = (await q<{ id: string }>("SELECT site_id AS id FROM cabinets WHERE name = 'Midtown Sync'"))[0]!.id;
     const client = (await q<{ id: string }>("SELECT s.client_id AS id FROM sites s WHERE s.id = (SELECT site_id FROM cabinets WHERE name = 'Midtown Sync')"))[0]!.id;
-    const sections = ["overview", "standards", "troubleshoot", "changes", "compare", "baseline", "alerts", "events", "services", "processes", "files", "devices", "drives", "updates", "time", "network", "firewall", "scanner", "crashes", "windows", "software", "history"];
+    const sections = ["overview", "standards", "troubleshoot", "changes", "compare", "baseline", "alerts", "events", "services", "processes", "files", "devices", "updates", "time", "network", "firewall", "scanner", "crashes", "windows", "software", "history"];
     const pages = [
       "/", "/search", "/alerts", "/incidents", "/fleet-operations", "/fleet-differences", "/issues", "/fixes", "/account", "/demo",
       `/clients/${client}`, `/sites/${site}`,

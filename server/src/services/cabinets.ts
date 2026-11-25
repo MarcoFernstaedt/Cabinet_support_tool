@@ -6,7 +6,6 @@ import { AGENT_RENEW_DAYS, issueAgentCertificate } from "../pki/issuing.js";
 import type { IssuingKey, IssuedCertificate } from "../pki/x509.js";
 import { Refused } from "./errors.js";
 import { isCanonicalIpv4, linkUnassigned } from "./sync-cabinets.js";
-import { recordDriveReport } from "./drives.js";
 import { effectiveScanner } from "./device-settings.js";
 import { effectiveWatched } from "./watched-services.js";
 import { rawEntry, resolveLevels, type ApprovedAppEntry, type SignedList } from "./approved-apps.js";
@@ -127,7 +126,7 @@ export async function recordHeartbeat(db: Queryable, cabinetId: string, h: Heart
      h.health?.cpuPercent ?? null, h.health?.memoryUsedPercent ?? null, h.health?.diskFreePercent ?? null, ISSUE.offline,
      h.architecture ?? null, h.unsignedUpgrades === true ? 1 : 0], { timeoutMs: HOT_PATH_TIMEOUT_MS })).rows[0];
   // A boot when the uptime went back; a reboot loop is judged from the boots (crashes.ts).
-  if (r && h.health?.drives && h.health.drives.length > 0) await recordDriveReport(db, cabinetId, h.health.drives);
+  // An agent before D152 still sends its drives' SMART report here once a day; the contract accepts it and it is not kept.
   if (r) await bootFromHeartbeat(db, cabinetId, h.uptimeSeconds, { uptimeSeconds: r.prev_uptime === null ? null : Number(r.prev_uptime), at: r.prev_at });
   const scannerUsed = !(r?.scanner_used === false || r?.scanner_used === 0);
   const scanner = r ? effectiveScanner({ cabinet: parseJson<string[]>(r.ks), site: parseJson<string[]>(r.ss), client: parseJson<string[]>(r.cs), fleet: parseJson<string[]>(r.fs) }).effective : null;

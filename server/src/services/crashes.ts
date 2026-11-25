@@ -174,7 +174,8 @@ const MESSAGE_KEYS = Object.entries(MAP).filter(([, m]) => m && CHANGE_CATEGORIE
 interface Row { kind: string; source: { log: string; source: string; eventId: number } | null; message: string; fields: Record<string, string> | null }
 
 export function categorize(r: Row): { category: Category; label: string } | null {
-  if (r.kind === "smart_warning") return { category: "storage", label: "Drive predicts failure" };
+  // A SMART warning from an agent before D152 is not shown: the platform no longer reads drive health.
+  if (r.kind === "smart_warning") return null;
   if (r.kind === "scanner") return { category: "scanner", label: "Fingerprint scanner" };
   if (r.kind === "service") return { category: "service", label: `Watched service ${r.fields?.change ?? "changed"}` };
   if (r.kind === "firewall_changed") return { category: "firewall", label: "Firewall changed" };
@@ -425,7 +426,7 @@ export async function compareChanges(db: Queryable, o: { ids: readonly string[];
        FROM events e LEFT JOIN OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt') f ON f.id = e.cabinet_id
       WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND e.occurred_at BETWEEN $1 AND $2
         AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
-        AND (e.kind = 'smart_warning' OR (e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))))`,
+        AND e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))`,
     [lookFrom, o.to, o.ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_KEYS])).rows;
   const changes = changeRows.map(r => ({ cabinet_id: r.cabinet_id, kind: r.kind, message: r.message,
     source: r.has_source === 1 ? { log: "", source: r.src ?? "", eventId: r.event_id ?? 0 } : null as Row["source"] }));

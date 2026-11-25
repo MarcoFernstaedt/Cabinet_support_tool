@@ -1,5 +1,4 @@
 // The diagnostic sections of the cabinet view, with their write actions (Writes.tsx) for the roles the catalog allows.
-import { DriveTrends } from "../../components/DriveTrends";
 import { adapterRows, ipconfigText, NeighborsTable, PingSummary, RoutesTable, TraceTable } from "../../components/NetworkReadings";
 import { PortCheck } from "../../components/PortCheck";
 import { PacketPath } from "../../components/PacketPath";
@@ -8,10 +7,9 @@ import { UsbPorts } from "../../components/UsbPorts";
 import { DiagnoseNetwork } from "./Diagnose";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Pager, usePaged } from "../../components/Pager";
-import type { DevicesListOutput, DiskSmartOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
-  NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput, DatabaseConnectivityOutput, StorageHealthOutput } from "@mashura/cabinet-contracts/types";
+import type { DevicesListOutput, DriversListOutput, FilesListOutput, FirewallStateOutput, NetworkConfigOutput,
+  NetworkTestOutput, NetworkTraceOutput, UpdatesStatusOutput, DatabaseConnectivityOutput } from "@mashura/cabinet-contracts/types";
 import { useOperation } from "../../lib/commands";
-import { noLogText, nvmeVerdict, repairBadge, repairText } from "../../lib/storage-health";
 import { bytes, fullTime } from "../../lib/time";
 import { Badge, Empty, KeyValues, OperationPanel } from "../../components/ui";
 import type { CabinetDetail } from "./CabinetPage";
@@ -106,77 +104,6 @@ export function Updates({ cabinet }: { cabinet: CabinetDetail }) {
     </OperationPanel>
     {rollback.outcome}{rollback.dialog}
   </>);
-}
-
-const HEALTH: Record<string, ["ok" | "warn" | "crit" | "off", string]> = {
-  healthy: ["ok", "Healthy"], warning: ["warn", "Warning: plan a replacement"], failing: ["crit", "Failing: replace this drive"], unknown: ["off", "Unknown"],
-};
-
-export function DriveHealth({ cabinetId }: { cabinetId: string }) {
-  const op = useOperation<DiskSmartOutput>(cabinetId, "disk.smart");
-  useEffect(() => { void op.start(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  return (<>
-    <DriveTrends cabinetId={cabinetId} />
-    <OperationPanel title="Drive health"
-      run={op} onRun={() => void op.start()}>
-      {out => out.drives.length === 0 ? <Empty>No drive reported health data.</Empty> : (
-        <div className="cards">{out.drives.map((d, i) => {
-          const [tone, label] = HEALTH[d.health] ?? HEALTH.unknown!;
-          return (
-            <article key={i} className={`card ${tone}`} aria-label={`Drive ${d.model ?? i + 1}`}>
-              <h3>{d.model ?? `Drive ${i + 1}`}</h3>
-              <p><Badge tone={tone}>{label}</Badge></p>
-              <KeyValues rows={[["Serial", d.serialNumber], ["Failure predicted", d.predictFailure === null ? null : d.predictFailure ? "Yes" : "No"],
-                ["Temperature", d.temperatureCelsius === null ? null : `${d.temperatureCelsius} °C`], ["Power-on hours", d.powerOnHours?.toLocaleString() ?? null],
-                ["Reallocated sectors", d.reallocatedSectors], ["Pending sectors", d.pendingSectors], ["Uncorrectable errors", d.uncorrectableErrors],
-                ["Wear", d.wearPercent === null ? null : `${d.wearPercent}%`]]} />
-            </article>);
-        })}</div>)}
-    </OperationPanel>
-    <StorageHealth cabinetId={cabinetId} />
-  </>);
-}
-
-/** storage.health: each NVMe drive's own health log and each fixed volume's state. Run on request: it opens the drives in the broker. */
-function StorageHealth({ cabinetId }: { cabinetId: string }) {
-  const op = useOperation<StorageHealthOutput>(cabinetId, "storage.health");
-  return (
-    <OperationPanel title="Storage health (NVMe log and volumes)" run={op} onRun={() => void op.start()} buttonLabel="Read storage health">
-      {out => (<>
-        {out.drives.length === 0 ? <Empty>No drive was reported.</Empty> : (
-          <div className="cards">{out.drives.map(d => {
-            const v = d.nvme ? nvmeVerdict(d.nvme) : null;
-            const tone = v?.tone ?? "off";
-            return (
-              <article key={d.number} className={`card ${tone}`} aria-label={`Disk ${d.number}`}>
-                <h3>Disk {d.number}: {d.model ?? "unknown model"}</h3>
-                {!d.nvme ? <p>{noLogText(d.nvmeProblem)}</p> : (<>
-                  <p><Badge tone={tone}>{tone === "ok" ? "No warnings from the drive" : tone === "crit" ? "The drive reports a problem" : "Watch this drive"}</Badge></p>
-                  {v!.lines.length > 0 && <ul>{v!.lines.map(l => <li key={l}>{l}</li>)}</ul>}
-                  <KeyValues rows={[["Rated life used", `${d.nvme.percentageUsed}%`],
-                    ["Spare", d.nvme.availableSparePercent === null ? null : `${d.nvme.availableSparePercent}% (drive warns below ${d.nvme.spareThresholdPercent ?? "?"}%)`],
-                    ["Temperature", d.nvme.temperatureCelsius === null ? null : `${d.nvme.temperatureCelsius} °C`],
-                    ["Unsafe shutdowns", d.nvme.unsafeShutdowns.toLocaleString()], ["Power-on hours", d.nvme.powerOnHours.toLocaleString()],
-                    ["Written", bytes(d.nvme.dataWrittenBytes)], ["Error log entries", d.nvme.errorLogEntries.toLocaleString()]]} />
-                </>)}
-              </article>);
-          })}</div>)}
-        {out.volumes.length > 0 && (
-          <table className="table compact"><caption>Fixed volumes</caption>
-            <thead><tr><th scope="col">Volume</th><th scope="col">File system</th><th scope="col">Free</th><th scope="col">State</th><th scope="col">What it needs</th></tr></thead>
-            <tbody>{out.volumes.map((v, i) => {
-              const [tone, label] = repairBadge(v.repair);
-              return (<tr key={i}>
-                <td>{v.letter ? `${v.letter}:` : "(no letter)"}{v.label ? ` ${v.label}` : ""}</td>
-                <td>{v.fileSystem.toUpperCase()}</td>
-                <td>{bytes(v.freeBytes)} of {bytes(v.sizeBytes)}</td>
-                <td><Badge tone={tone}>{label}</Badge></td>
-                <td>{repairText(v.repair, v.dirty) ?? "None"}</td>
-              </tr>);
-            })}</tbody>
-          </table>)}
-      </>)}
-    </OperationPanel>);
 }
 
 export function Network({ cabinet }: { cabinet: CabinetDetail }) {

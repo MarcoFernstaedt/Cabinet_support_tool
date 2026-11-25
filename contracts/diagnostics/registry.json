@@ -12,16 +12,6 @@
       ]
     },
     {
-      "id": "cabinet-storage",
-      "status": "built",
-      "moduleVersion": 1,
-      "phase": 1,
-      "title": "Drive health from each drive's own report",
-      "provides": [
-        "diagnose"
-      ]
-    },
-    {
       "id": "cabinet-performance",
       "status": "built",
       "moduleVersion": 1,
