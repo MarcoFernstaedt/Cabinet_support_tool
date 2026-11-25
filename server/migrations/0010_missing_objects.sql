@@ -14,7 +14,7 @@ GRANT EXECUTE ON audit_head TO cabinet_app;
 GO
 
 -- The file-facts paths (services/filefacts-allowlist.ts): one JSON column per scope with the fleet default as one settings row, the same
--- convention and the same check as the approved programs (0006): a JSON object holding at most 32 entries (program-path.ts MAX_FILES).
+-- convention and the same check as the approved programs (0006): a JSON object holding at most 32 entries (filefacts-path.ts MAX_FILES).
 ALTER TABLE clients ADD [filefacts_paths] varchar(max) COLLATE Latin1_General_100_CI_AS_SC_UTF8 NULL;
 GO
 ALTER TABLE clients ADD CONSTRAINT [clients_filefacts_paths_check] CHECK ([filefacts_paths] IS NULL OR (CASE WHEN ISJSON([filefacts_paths], OBJECT) = 1 THEN CASE WHEN JSON_QUERY([filefacts_paths], '$.entries[32]') IS NULL THEN 1 ELSE 0 END ELSE 0 END) = 1);
