@@ -24,6 +24,25 @@ The archived reports in `docs/platform/archive/` are left as written: they recor
 **Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
 dated and left as written.
 
+## D147. A network diagnosis counts the fixes it showed before it says it is done (2026-11-23)
+
+**Found:** CI failed at `be5ae8c` (#338) in `real-cabinet-fixes.test.ts`, with `seen_count` expected 1. The second run on the same commit
+passed.
+
+**Cause.** `runNetworkDiagnosis` marked the diagnosis done (`finishDiagnosis`) and only then counted each known fix it matched as
+shown again (`markSeen`). Anyone who saw it done could read the count before it was written. That is the console, a batch or the
+test. Under load the gap was long enough for the test to read 0. The baseline alert above it was already settled first, for this
+reason.
+
+**The change (`server/src/diagnose/network.ts`).** The fixes are counted, then the diagnosis is marked done.
+
+**What it costs.** If marking the diagnosis done fails after the count, a fix was counted for a diagnosis that did not finish. That
+is one extra in a "shown N times" figure. Counting after done would instead lose it.
+
+**Proven:** a pause of 1.5 s, added after `finishDiagnosis` for the proof only.
+- On `main`'s order, the test failed 3 of 3 runs, expected 1, actual 0.
+- With the change and the same pause, it passed 3 of 3.
+
 ---
 
 ## D145. The demo suite answers its time commands itself and waits for the simulator to stop (2026-11-23)
