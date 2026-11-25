@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D149. The approved-programs editor flags a service entry no cabinet can use (2026-11-25)
+
+**Asked:** item 2.7 of docs/platform/plan-to-completion.md. On 2026-11-23 the real cabinet refused entries the console had accepted.
+The agent acts on a service only when the key name is on the list and the service runs the program the entry names
+(`ApprovedApps.RefuseServiceControl`). A person could save a list that approves nothing and not know it.
+
+**The change.**
+- `server/src/services/approved-apps-match.ts` (new): for each service entry, it counts three things over the cabinets of the
+  level. A removed cabinet is not counted.
+  - `reported`: cabinets whose last `services.list` answer is stored.
+  - `named`: of those, cabinets with a service of that key name.
+  - `matched`: of those, cabinets where that service's `executablePath` is the entry's program.
+
+  This is the same `executablePath` the agent compares (`ServiceRules.RegisteredProgram`). Names and paths compare without case, as
+  the agent does. One statement per list, through `commands_latest_result`.
+- The editor's GET and PUT responses at every level carry `checks` for the list the editor shows: the change waiting for a
+  signature, else the list in force.
+- The console shows a warning under a saved service entry with `reported > 0` and `matched = 0`. It names which half failed: no
+  such key name (with a reminder that display names are not accepted), or a different program. The add form says the rule where
+  the key name is typed. An entry edited and not yet saved shows no warning, because the check was made on what was saved.
+
+**Choices.**
+- **The scope is every cabinet of the level.** That includes cabinets whose own, more specific list overrides it. The count says
+  "cabinets here that reported their services", so it claims no more than that.
+- **Flag, not refuse.** An entry may be saved before the service is installed. The server and the agent still decide every
+  request, as before.
+- **Applications are not checked.** No reading names every program a cabinet could start.
+- **Freshness:** a cabinet's last answer can be old. The check is as current as the last `services.list` read.
+
+**Proven:** `server/test/approved-apps-match.test.ts` (4 tests) and one console test. Each of these failed its test:
+- the responses without `checks`;
+- the program not compared;
+- removed cabinets counted;
+- a console that never warns.
+
+Hostile input: a stored answer whose `services` is not a list, and service names with SQL text. Both count as nothing. The full
+local gate is in the PR.
+
+---
+
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
 
 **Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and

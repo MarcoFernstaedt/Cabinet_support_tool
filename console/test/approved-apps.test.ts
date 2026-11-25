@@ -1,7 +1,7 @@
 // The approved-programs editor: the key a request names an entry by, and what an entry needs before it can be added.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { documentBytes, entryKey, entryProblem, readSignatureFile, type AppEntry } from "../src/lib/approved-apps.ts";
+import { documentBytes, entryKey, entryProblem, entryWarning, readSignatureFile, type AppEntry } from "../src/lib/approved-apps.ts";
 
 const app = (over: Partial<AppEntry> = {}): AppEntry => ({ key: entryKey(over.name ?? "Scanner"), kind: "application", name: "Scanner", path: "C:\\Program Files\\Vendor\\scan.exe", ...over });
 
@@ -45,4 +45,17 @@ test("a signature file is read only when it is exactly what the signing script w
 test("the downloaded document holds exactly the bytes the server offered", () => {
   const original = Buffer.from('{"product":"mashura-approved-list","name":"König"}', "utf8");
   assert.deepEqual(Buffer.from(documentBytes(original.toString("base64"))), original);
+});
+
+test("a saved service entry no cabinet can use is explained; one that works, or one nothing can be compared with, says nothing", () => {
+  const c = (reported: number, named: number, matched: number) => ({ key: "app:scanner", reported, named, matched });
+  assert.equal(entryWarning(undefined, "BioScanSvc"), null, "no check: applications, or an entry not saved yet");
+  assert.equal(entryWarning(c(0, 0, 0), "BioScanSvc"), null, "no cabinet reported its services: nothing to compare");
+  assert.equal(entryWarning(c(5, 3, 1), "BioScanSvc"), null, "one cabinet can use it");
+  assert.equal(entryWarning(c(4, 0, 0), "Bio Scan Service"),
+    "No cabinet can use this entry: none of the 4 cabinets here that reported their services has a service with the key name Bio Scan Service. Use the service's key name, not its display name.");
+  assert.equal(entryWarning(c(1, 1, 0), "BioScanSvc"),
+    "No cabinet can use this entry: 1 of the 1 cabinet here that reported its services has BioScanSvc, but it runs a different program than the path above.");
+  assert.equal(entryWarning(c(3, 2, 0), "BioScanSvc"),
+    "No cabinet can use this entry: 2 of the 3 cabinets here that reported their services have BioScanSvc, but it runs a different program than the path above.");
 });
