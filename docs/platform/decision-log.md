@@ -6,6 +6,25 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D148. The server README says what a local Linux run of the suite needs (2026-11-25)
+
+**Asked:** item 1.3 of docs/platform/plan-to-completion.md. The local failures counted on 2026-11-23 came from this environment, not
+the code. Chromium was missing, and Git refused the checkout as root (`safe.directory`).
+
+**The change (`server/README.md` only).**
+- The "Full server suite in a local Linux container" section from the development branch (`a01e71e`): trust the checkout for
+  Git as root, install Chromium with Playwright, then run the suite.
+- Added for `main`: what is skipped without `TEST_AGENT_DLL` (10 tests) or PowerShell 7 (8 tests), and that each reason is
+  printed after `# SKIP`.
+
+**Proven:** a local run on `main` at `e8cd887`, without PowerShell 7 and with the console built, skipped 18: 15 in the
+non-browser run, 3 in the browser run. Each was read from its `# SKIP` line: 10 for `TEST_AGENT_DLL` (7 and 3) and 8 for
+PowerShell. There were 0 failures. Where PowerShell 7 is present, the same commit skips only the 10 `TEST_AGENT_DLL` ones, as the
+owner's run showed. So the total is 10 or 18 depending on the box. Earlier PR descriptions (#340, #341) said 13 and 5; the split
+was wrong.
+
+---
+
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
 
 **Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and
