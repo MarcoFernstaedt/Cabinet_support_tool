@@ -21,7 +21,8 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 The archived reports in `docs/platform/archive/` are left as written: they record what was true then.
 
-**Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions.
+**Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
+dated and left as written.
 
 ---
 
