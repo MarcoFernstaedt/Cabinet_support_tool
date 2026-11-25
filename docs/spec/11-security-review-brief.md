@@ -75,7 +75,7 @@ Interception or replay:
 
 Malicious agent update:
 
-- Rejected unless signed by the KMS-held key, version-checked, and released in stages starting with one cabinet.
+- Rejected unless signed by the offline release key (D143), version-checked, and released in stages starting with one cabinet.
 
 Honest mistake:
 

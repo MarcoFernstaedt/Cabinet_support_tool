@@ -266,7 +266,7 @@ export interface NewCabinet {
    * The replaced cabinet's own settings, as read from its row, or null. The connection reads these JSON columns back parsed (a list or an
    * object, whatever OldCabinet's type says) and writes a value back as its JSON text, so either form is taken.
    */
-  scannerHardwareIds: string | null; watchedServices: string | null; filefactsPaths: string | null; inOffice: boolean;
+  scannerHardwareIds: string | null; watchedServices: string | null; inOffice: boolean;
   /** An Admin-set sync address carried over from the replaced sync cabinet: both null, or the address and "admin". */
   syncAddress: string | null; syncAddressSource: "admin" | null;
 }
@@ -292,17 +292,17 @@ export async function insertCabinet(c: Queryable, k: NewCabinet): Promise<boolea
   if (typeof k.hostname !== "string" || k.hostname.length < 1 || k.hostname.length > 255 || !isTextOrNull(k.serialNumber) || typeof k.agentVersion !== "string"
       || k.agentVersion.length > 64 || !(k.architecture === null || ARCHITECTURES.includes(k.architecture))) throw new Error("a new cabinet's reported facts are its hostname, serial, agent version and architecture");
   if (!isUuidOrNull(k.syncCabinetId) || !isUuidOrNull(k.replacesCabinetId)) throw new Error("a sync cabinet and a replaced cabinet are uuids or null");
-  if (!isStoredSetting(k.scannerHardwareIds) || !isStoredSetting(k.watchedServices) || !isStoredSetting(k.filefactsPaths) || typeof k.inOffice !== "boolean")
+  if (!isStoredSetting(k.scannerHardwareIds) || !isStoredSetting(k.watchedServices) || typeof k.inOffice !== "boolean")
     throw new Error("a replaced cabinet's settings are what its row held, or null");
   if (!(k.syncAddress === null && k.syncAddressSource === null)
       && !(typeof k.syncAddress === "string" && isCanonicalIpv4(k.syncAddress) && isPrivateIpv4(k.syncAddress) && k.syncAddressSource === "admin"))
     throw new Error("a carried-over sync address is a private IPv4 address an Admin set, or none");
   const r = await c.query(`INSERT INTO cabinets (id, site_id, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
-                   replaces_cabinet_id, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source)
-                 SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16
+                   replaces_cabinet_id, scanner_hardware_ids, watched_services, in_office, sync_address, sync_address_source)
+                 SELECT $1, $2, $3, $4, 'active', $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15
                  WHERE NOT EXISTS (SELECT 1 FROM cabinets WITH (UPDLOCK, HOLDLOCK) WHERE site_id = $2 AND name = $3)`,
     [k.id, k.siteId, k.name, k.role, k.hostname, k.serialNumber, k.agentVersion, k.architecture, k.syncCabinetId, k.replacesCabinetId,
-     k.scannerHardwareIds, k.watchedServices, k.filefactsPaths, k.inOffice ? 1 : 0, k.syncAddress, k.syncAddressSource]);
+     k.scannerHardwareIds, k.watchedServices, k.inOffice ? 1 : 0, k.syncAddress, k.syncAddressSource]);
   return r.rowCount === 1;
 }
 

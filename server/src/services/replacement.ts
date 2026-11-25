@@ -27,7 +27,7 @@ export interface OldCabinet {
   /** Its live sync link (a satellite), or null. */
   syncCabinetId: string | null;
   syncAddress: string | null; syncAddressSource: string | null;
-  scannerHardwareIds: string | null; watchedServices: string | null; filefactsPaths: string | null; inOffice: boolean;
+  scannerHardwareIds: string | null; watchedServices: string | null; inOffice: boolean;
 }
 
 /**
@@ -36,9 +36,9 @@ export interface OldCabinet {
  */
 export async function lockReplaced(c: Queryable, cabinetId: string, siteId: string, role: string): Promise<OldCabinet> {
   const r = (await c.query<{ id: string; site_id: string; name: string; role: string; status: string; live_sync: string | null; sync_address: string | null;
-    sync_address_source: string | null; scanner_hardware_ids: string | null; watched_services: string | null; filefacts_paths: string | null; in_office: boolean }>(
+    sync_address_source: string | null; scanner_hardware_ids: string | null; watched_services: string | null; in_office: boolean }>(
     `SELECT k.id, k.site_id, k.name, k.role, k.status, CASE WHEN ${LIVE_LINK} THEN k.sync_cabinet_id END AS live_sync, k.sync_address, k.sync_address_source,
-            k.scanner_hardware_ids, k.watched_services, k.filefacts_paths, k.in_office
+            k.scanner_hardware_ids, k.watched_services, k.in_office
        FROM cabinets k WITH (UPDLOCK, ROWLOCK) WHERE k.id = $1`, [cabinetId])).rows[0];
   if (!r || r.status !== "active") throw new Refused("not_replaceable", 409, "only an active cabinet can be replaced",
     { reason: "That cabinet is not active (it may have been replaced or removed already). Choose another, or approve without replacing." });
@@ -47,7 +47,7 @@ export async function lockReplaced(c: Queryable, cabinetId: string, siteId: stri
   if (r.role !== role) throw new Refused("replacement_role_differs", 409, "a replacement has the replaced cabinet's role",
     { reason: `The cabinet it replaces is a ${r.role} cabinet. Approve the replacement with the same role.` });
   return { id: r.id, siteId: r.site_id, name: r.name, role: r.role, syncCabinetId: r.live_sync, syncAddress: r.sync_address, syncAddressSource: r.sync_address_source,
-    scannerHardwareIds: r.scanner_hardware_ids, watchedServices: r.watched_services, filefactsPaths: r.filefacts_paths, inOffice: !!r.in_office };
+    scannerHardwareIds: r.scanner_hardware_ids, watchedServices: r.watched_services, inOffice: !!r.in_office };
 }
 
 /** Frees the old cabinet's name for its replacement: "<name> (replaced YYYY-MM-DD)", made unique at the site if it has to be. */
@@ -86,7 +86,7 @@ export async function completeReplacement(c: Queryable, userId: string, old: Old
   const resolution = `Replaced by ${newName}.`;
   // alerts.ts closes them and audits each closure by this user, in this transaction (D101).
   const closed = await closeReplacedCabinetAlerts(c, userId, old.id, newId, resolution);
-  const copied = { scannerIds: old.scannerHardwareIds !== null, watchedServices: old.watchedServices !== null, filefactsPaths: old.filefactsPaths !== null,
+  const copied = { scannerIds: old.scannerHardwareIds !== null, watchedServices: old.watchedServices !== null,
     inOffice: old.inOffice, approvedApps: apps, usbPolicy: usb.ok, baseline: baseline?.versionId ?? null };
   // The settings on the machine (firewall, time zone, drawer, DNS, address), put back once the new agent reports.
   await queueReapply(c, newId, old.id, userId);

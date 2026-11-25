@@ -1,4 +1,4 @@
-// The unified incident record (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 2; migration 0017). One
+// The unified incident record (docs/spec/18-built-designs.md §2, item 2; migration 0017). One
 // incident follows one problem on one cabinet from its symptom to a verified repair or a stated outcome. Steps are appended in order and
 // never changed, and each one is written to the audit log in the same transaction. The incident's state follows from the steps:
 //

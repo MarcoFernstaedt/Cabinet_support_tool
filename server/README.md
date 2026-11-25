@@ -68,7 +68,7 @@ Tests also read `TEST_DATABASE_ADMIN_URL`, `TEST_AGENT_DLL` and `PLAYWRIGHT_CHRO
   - The entry is written in the same transaction as the action.
   - The table refuses UPDATE, DELETE and TRUNCATE, even from its owner.
   - `platform-admin audit-verify` finds the first changed entry.
-- **The development issuing key** refuses to run when `NODE_ENV=production`. The KMS key replaces the one function in `src/runtime.ts`.
+- **The development issuing key** refuses to run when `NODE_ENV=production`. The production issuing key (plan item 3.1, D143) replaces the one function in `src/runtime.ts`.
 
 ## Alerts engine
 

@@ -270,7 +270,7 @@ test("the server refuses a public sync address, and fills the sync target and sc
   assert.equal(db1.status, 202);
   assert.deepEqual((await db.app.query<any>("SELECT params FROM commands WHERE id = $1", [db1.body.commandId])).rows[0].params,
     { port: 1433, syncAddress: "10.20.0.15", syncPorts: [1433] }, "only the console's settings name the sync cabinet");
-  // A trace to the sync cabinet is aimed the same way (audit-network.md item 7): the browser's address is replaced, and without a sync
+  // A trace to the sync cabinet is aimed the same way (spec 18 §3): the browser's address is replaced, and without a sync
   // cabinet it is dropped rather than passed on, so a trace cannot probe any other private address on the cabinet's network.
   const trace = await call("POST", `/api/cabinets/${satellite}/commands`, { operation: "network.trace", params: { target: "sync_cabinet", syncAddress: "10.20.0.77" } }, cookie);
   assert.equal(trace.status, 202, JSON.stringify(trace.body));

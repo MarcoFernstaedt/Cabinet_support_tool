@@ -54,7 +54,7 @@ docs/spec/07-upgrade-channel.md. Code in `src/Cabinet.Agent.Core/Upgrades`, with
   7. The network service reports the outcome after the restart.
 - **Interrupted upgrades.** Every step is journaled first. If power is lost mid-upgrade, the broker restarts the updater at start-up to finish or undo it.
 - **Self-check.** At start-up and daily, the network service checks the Authenticode signature of every binary in its program folder against the pinned publisher, and sends a `self_check` security event for any mismatch. A build with no publisher compiled in (a developer build) says it cannot check itself.
-- **Making a release:** `install/Publish-CabinetAgent.ps1 -Version x.y.z`, sign the binaries, then `install/New-AgentRelease.ps1` (signs through AWS KMS or Azure Key Vault). `install/New-UpgradeTrust.ps1` writes the trust folder.
+- **Making a release:** `install/Publish-CabinetAgent.ps1 -Version x.y.z`, sign the binaries, then sign the manifest with the offline release key (`install/new-agent-release.py`, docs/platform/agent-release-signing.md; D143). `install/New-AgentRelease.ps1` can sign through AWS KMS or Azure Key Vault instead. `install/New-UpgradeTrust.ps1` writes the trust folder.
 
 ## Background monitors
 

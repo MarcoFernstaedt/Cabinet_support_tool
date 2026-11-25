@@ -25,7 +25,7 @@ import { consumeStepUpToken } from "../auth/stepup.js";
 import { configHash, type Item } from "./config-canonical.js";
 import { ROLE_RANK, type Role } from "./roles.js";
 import { Refused } from "./errors.js";
-import { canonicalRoot, joinWithinRoot, keyProblem } from "./filefacts-path.js";
+import { canonicalRoot, joinWithinRoot, keyProblem } from "./program-path.js";
 import { parseJson, removeSetting, upsertSetting } from "./settings.js";
 import { commonDefs, type ApprovedListSignature } from "../contracts.js";
 import { listDocumentBytes, openSignedList, type ListSigningKeys } from "./approved-list-signing.js";

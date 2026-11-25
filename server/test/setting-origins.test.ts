@@ -16,7 +16,6 @@ import { NotificationFeed } from "../src/db/notifications.js";
 import { developmentIssuingKey } from "../src/pki/issuing.js";
 import { APPS_SET_ACTION, setApprovedApps } from "../src/services/approved-apps.js";
 import { createBootstrapToken, submitEnrollment } from "../src/services/enrollment.js";
-import { ALLOWLIST_SET_ACTION, normalizeEntries as fileEntries, setAllowlist } from "../src/services/filefacts-allowlist.js";
 import { ORIGIN_SETTINGS } from "../src/services/setting-origins.js";
 import { ConsoleHarness, ORIGIN, type Account } from "./console-harness.js";
 import { createTestDatabase, type TestDatabase } from "./database.js";
@@ -44,7 +43,6 @@ test.before(async () => {
 test.after(async () => { await reevaluationsSettled(); await app.close(); await stream.stop(); feed.stop(); await db.drop(); });
 
 const APP = { key: "app:dispenser", kind: "application", name: "Dispenser", path: "C:\\Program Files\\Dispenser\\dispenser.exe" };
-const FILE = { key: "app:dispenser", root: "C:\\Program Files\\Dispenser", name: "dispenser.exe", includeSha256: false };
 const USB = { identityKey: { kind: "device", value: "UNIT-1", confidence: "high" }, enabled: true, absentForMinutes: 5, reconnect: { count: 3, windowMinutes: 10 },
   quietHours: null, severity: {}, autoRestart: false };
 const admin = () => ({ userId: ada.id, role: "admin" });
@@ -93,10 +91,6 @@ test("a cabinet approved after its site, client and the fleet have settings foll
   // The site: its network baseline, scanner IDs and the file paths it may read.
   await db.app.query("UPDATE sites SET network_baseline = $2, scanner_hardware_ids = $3 WHERE id = $1",
     [s.siteId, JSON.stringify({ addressing: "dhcp", prefixLength: 24, gateway: "10.40.0.1", dnsServers: ["10.40.0.2"] }), JSON.stringify(["USB\\VID_3333&PID_4444"])]);
-  const files = fileEntries([FILE]);
-  assert.ok(files.ok);
-  await setAllowlist(db.app, admin(), "site", s.siteId, [FILE],
-    await issueStepUpToken(db.app, ada.id, ALLOWLIST_SET_ACTION.site, s.siteId.toLowerCase(), paramsHash({ level: "site", id: s.siteId.toLowerCase(), entries: files.entries })));
 
   const cabinetId = await approvedCabinet(s, "New 1");
   const o = await origins(cabinetId);
@@ -108,12 +102,11 @@ test("a cabinet approved after its site, client and the fleet have settings foll
   assert.deepEqual(brief(o.scannerIds!), ["site", ["site", "fleet"], [], 1]);
   assert.deepEqual(brief(o.watchedServices!), ["client", ["client", "role"], [], 1], "the role's list is the last resort (D34)");
   assert.deepEqual(brief(o.approvedApps!), ["client", ["client"], [], 1]);
-  assert.deepEqual(brief(o.fileFactsPaths!), ["site", ["site"], [], 1]);
   assert.deepEqual(brief(o.usbWatch!), ["fleet", ["fleet"], [], 1]);
   assert.deepEqual(brief(o.configBaseline!), ["none", [], [], null], "no approved baseline anywhere yet");
   // Nothing was copied onto the cabinet: every value it follows is read from the level above it.
-  const own = (await db.app.query<Record<string, unknown>>("SELECT scanner_hardware_ids, watched_services, approved_apps, filefacts_paths FROM cabinets WHERE id = $1", [cabinetId])).rows[0]!;
-  assert.deepEqual(Object.values(own), [null, null, null, null]);
+  const own = (await db.app.query<Record<string, unknown>>("SELECT scanner_hardware_ids, watched_services, approved_apps FROM cabinets WHERE id = $1", [cabinetId])).rows[0]!;
+  assert.deepEqual(Object.values(own), [null, null, null]);
 });
 
 test("a cabinet's own value wins over the levels above it; a damaged level is named as rejected, not passed over", async () => {
@@ -146,7 +139,7 @@ test("the read is for a signed-in person, for a cabinet that exists; a removed c
 
 test("every setting a client or site can hold is one the origins read covers (a new column fails here until it is added)", async () => {
   const SETTING: Record<string, string> = { scanner_hardware_ids: "scannerIds", sync_ports: "syncPorts", firewall_policy: "firewallPolicy", watched_services: "watchedServices",
-    time_zone: "timeZone", clock_tolerance_seconds: "clockTolerance", network_baseline: "networkBaseline", approved_apps: "approvedApps", filefacts_paths: "fileFactsPaths", fingerprint_scanner: "scannerUse",
+    time_zone: "timeZone", clock_tolerance_seconds: "clockTolerance", network_baseline: "networkBaseline", approved_apps: "approvedApps", fingerprint_scanner: "scannerUse",
     scanner_service: "scannerUse" };
   // What a client or site is, not a setting its cabinets follow.
   const NOT_SETTINGS = new Set(["id", "name", "client_id", "created_at", "removed_at", "demo", "write_paused", "write_pause_reason"]);

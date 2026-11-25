@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/usb/usb-watch-policy.schema.json",
   "title": "usb-watch-policy",
-  "description": "The USB watch policy one scope sets: which identity to watch, how long an absence must last before it is an incident, how many reconnects in how long count as flapping, the hours in which a minor alert waits until the morning, the severity of each of the three rules, and whether the platform may start a stopped dependency again (off unless set). Stored per scope (fleet, client, site, cabinet, most specific wins) and answered to a cabinet with a version; a cabinet that cannot reach the server keeps the last policy it was given that validated. Proposals and bounds per field: docs/platform/research/2026-10/usb-design-research.md (section 4).",
+  "description": "The USB watch policy one scope sets: which identity to watch, how long an absence must last before it is an incident, how many reconnects in how long count as flapping, the hours in which a minor alert waits until the morning, the severity of each of the three rules, and whether the platform may start a stopped dependency again (off unless set). Stored per scope (fleet, client, site, cabinet, most specific wins) and answered to a cabinet with a version; a cabinet that cannot reach the server keeps the last policy it was given that validated. Proposals and bounds per field: docs/spec/18-built-designs.md §5.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {

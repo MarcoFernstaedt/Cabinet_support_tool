@@ -1,4 +1,4 @@
-// Incident records as the console shows them (docs/platform/archive/diagnostic-engine-execution.md, item 6): plain words for each state and
+// Incident records as the console shows them (docs/spec/18-built-designs.md §2, item 6): plain words for each state and
 // step, and one line saying where an incident stands.
 
 export type IncidentState = "open" | "awaiting_approval" | "approved" | "repairing" | "resolved" | "unresolved";

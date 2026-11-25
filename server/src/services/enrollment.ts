@@ -252,7 +252,7 @@ export async function approveEnrollment(pool: Pool, key: IssuingKey, requestId: 
     const inserted = await insertCabinet(c, { id: cabinetId, siteId: site.id, name: approval.cabinetName, role: approval.role,
       hostname: request.fingerprints.hostname, serialNumber: request.fingerprints.serialNumber, agentVersion: request.fingerprints.agentVersion,
       architecture: request.fingerprints.architecture ?? null, syncCabinetId, replacesCabinetId: old?.id ?? null,
-      scannerHardwareIds: old?.scannerHardwareIds ?? null, watchedServices: old?.watchedServices ?? null, filefactsPaths: old?.filefactsPaths ?? null,
+      scannerHardwareIds: old?.scannerHardwareIds ?? null, watchedServices: old?.watchedServices ?? null,
       inOffice: old?.inOffice ? true : false, syncAddress: keepAddress ? old!.syncAddress : null, syncAddressSource: keepAddress ? "admin" : null });
     if (!inserted) throw new Refused("name_taken", 409, "a cabinet with that name already exists at that site");
     // The old cabinet's place, its own settings, and the old cabinet retired (its satellites follow it before any are linked below).
