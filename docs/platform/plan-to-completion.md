@@ -54,6 +54,7 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 | 1.5 | `same-error-elsewhere.test.ts` test 927 fails one CI run in some PRs with "database is in transition" (#340, #342). Not reproduced locally; needs the full error text, then a fix a test proves | the failure's cause named and fixed |
 | 1.6 | `scale.test.ts`'s lock case fails on a fast SQL Server: the held lock gave up at 4.4 s against a 4.5 s floor (the owner's machine, `main` too). Passes in CI and here | the floor measured, or the cause named |
 | 1.7 | Sign-in under contention in `ConsoleHarness.account` (`troubleshooting.test.ts` 8 failures in one run at concurrency 2), and the suite's 19 minutes on CI: find the slow files | a cause for each |
+| 1.8 | Agent `ConnectivityTests.A_reset_of_a_held_connection_waits_a_random_short_time_not_the_backoff` failed once on Windows CI (#346, run 45582207846), at 2.0021 s against a 2 s bound. The test sets a 200 ms reset jitter, and 2 s is `Backoff`'s default first step (`Connectivity.cs:13`), so the reset may sometimes take the backoff path | the cause named, with a test that fails without the fix |
 
 ## 2. Server work that can be built now (about 30 to 40 PRs, 1.5 to 2.5 weeks)
 
