@@ -49,7 +49,7 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 |---|---|---|
 | 1.1 | **Done** (#340, D145). Bring the demo suite's race fix (`a01e71e` on the development branch) to `main` | `demo.test.js` green three runs running |
 | 1.2 | **Done** (#339, D146). Remove the "on hold for billing" claim from `main`'s live documents | no live document says Actions are on hold |
-| 1.3 | In #342 (D148). Write down the local environment the suite needs (Chromium, git `safe.directory`) where a run finds it | a local run with 0 failures and every skip named |
+| 1.3 | **Done** (#342, D148). Write down the local environment the suite needs (Chromium, git `safe.directory`) where a run finds it | a local run with 0 failures and every skip named |
 | 1.4 | Ten consecutive green runs on `main` (4 so far) | `gh run list --branch main` |
 | 1.5 | `same-error-elsewhere.test.ts` test 927 fails one CI run in some PRs with "database is in transition" (#340, #342). Not reproduced locally; needs the full error text, then a fix a test proves | the failure's cause named and fixed |
 | 1.6 | `scale.test.ts`'s lock case fails on a fast SQL Server: the held lock gave up at 4.4 s against a 4.5 s floor (the owner's machine, `main` too). Passes in CI and here | the floor measured, or the cause named |

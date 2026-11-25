@@ -200,3 +200,27 @@ On the cabinet, in an elevated PowerShell:
 The end-to-end test runs the real agent connection code against the server when `TEST_AGENT_DLL` points at the built `agent/tests/Cabinet.Agent.TestAgent`, as CI does.
 
 It also drives the agent's background monitors through the test agent, which reads simulated devices and event-log entries from `<stateDir>/simulate`. A forced scanner disconnect must raise Fingerprint scanner problem, and an unrecognized error, once mapped and approved, must raise its issue the next time. `test/console-alerts-e2e.test.ts` does the same in real browsers: one Tier 2 user maps the error, an Admin approves it, and three consoles race to claim the major alert it raises.
+
+### Full server suite in a local Linux container
+
+Run these from the repository root after installing the server dependencies and making SQL Server available:
+
+```sh
+# As root in a container with a bind-mounted checkout, trust this repository for Git-based tests.
+if [ "$(id -u)" -eq 0 ]; then git config --global --add safe.directory "$(pwd -P)"; fi
+
+cd server
+npx playwright install --with-deps chromium
+npm test
+```
+
+Playwright's install step fetches Chromium and its system dependencies, as CI does. A bare `node:22`
+image needs this step before the console browser tests.
+
+Without these, the suite still passes and names what it skipped:
+
+- **`TEST_AGENT_DLL` unset:** the 10 tests that run the real agent code. Seven are server tests: enrolment end to end,
+  upgrades, the monitors, watched services, writes and the signed approved list. Three are console walk-throughs.
+- **No PowerShell 7 (`pwsh`):** the 8 tests that parse or run the install, uninstall and signing scripts.
+
+Each skip's reason is printed after `# SKIP`. CI sets both, so it runs all of them.
