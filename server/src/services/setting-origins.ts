@@ -8,7 +8,6 @@ import { appLevels } from "./approved-apps.js";
 import { approvedFor, cabinetScopes } from "./baselines.js";
 import { scannerLevels, syncPortsForSite } from "./device-settings.js";
 import { Refused } from "./errors.js";
-import { allowlistLevels } from "./filefacts-allowlist.js";
 import { sitePolicy } from "./firewall-policy.js";
 import { siteClockTolerance, siteTimeZone } from "./time.js";
 import { checkStoredUsbPolicy } from "./usb-policy.js";
@@ -21,7 +20,7 @@ export type OriginSource = OriginLevel | "default" | "automatic" | "none";
 
 /** The settings with a parent scope, in the order the console lists them. A setting added with a parent scope belongs here. */
 export const ORIGIN_SETTINGS = ["firewallPolicy", "networkBaseline", "timeZone", "clockTolerance", "syncPorts", "scannerUse", "scannerIds", "watchedServices", "approvedApps",
-  "fileFactsPaths", "usbWatch", "configBaseline"] as const;
+  "usbWatch", "configBaseline"] as const;
 export type OriginSetting = (typeof ORIGIN_SETTINGS)[number];
 
 export interface SettingOrigin {
@@ -87,9 +86,6 @@ export async function settingOrigins(db: Queryable, cabinetId: string): Promise<
   out.push({ setting: "approvedApps", source: apps.source, setAt: inOrder(FOUR, [...present({ cabinet: apps.cabinet, site: apps.site, client: apps.client, fleet: apps.fleet }), ...apps.rejected]),
     rejected: inOrder(FOUR, apps.rejected), count: apps.effective?.entries.length ?? null });
 
-  const files = await allowlistLevels(db, cabinetId);
-  out.push({ setting: "fileFactsPaths", source: files.source, setAt: inOrder(FOUR, [...present({ cabinet: files.cabinet, site: files.site, client: files.client, fleet: files.fleet }), ...files.rejected]),
-    rejected: inOrder(FOUR, files.rejected), count: files.effective?.entries.length ?? null });
 
   // A USB watch policy names one device or slot, so several levels can each watch their own: every valid level is in force for what it
   // names, and the most specific one wins where two name the same thing. The source is the most specific valid level.

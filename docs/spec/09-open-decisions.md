@@ -484,7 +484,7 @@ Owner: Tier 1 and Tier 2 can change a service's start type. Built as `service.se
 
 ### Which standards need an authenticator code (decided)
 
-The cabinet's **Standards** tab lists every setting a cabinet is held to (firewall policy, network baseline, time zone, sync cabinet, scanner IDs, watched services, configuration baseline, and since F6.R5 approved programs, file-facts paths and USB watch) with the standard, the level it comes from, and what the cabinet reports; a line opens a window with every level and the editors.
+The cabinet's **Standards** tab lists every setting a cabinet is held to (firewall policy, network baseline, time zone, sync cabinet, scanner IDs, watched services, configuration baseline, and since F6.R5 approved programs and USB watch) with the standard, the level it comes from, and what the cabinet reports; a line opens a window with every level and the editors.
 
 A code on an edit helps only against one threat: someone using a signed-in browser session that is not theirs (a stolen cookie, an unlocked workstation). It does not help against a compromised server, which can write the database and issue commands without any console code; what limits that is on the agent: the fixed operation catalog, schema checks on every input, private-address-only sync targets, signed packages and upgrades, and the safety net that undoes a change that cuts a cabinet off. So a code is kept only where a hijacked session could do harm that reaches cabinets or traffic, and dropped where the setting changes no cabinet and any later change to a cabinet has its own confirmation:
 
@@ -648,7 +648,7 @@ Removing a cabinet revokes its certificate (02-security-model.md) and takes it o
 
 ## Approved applications: who approves, and what an empty list means (October 2026)
 
-The control half of milestone 10 (`docs/spec/13-roadmap.md`: `process.end` and `app.restart` "with a per-client allowlist") needs a list of exact programs per scope. `contracts/schemas/console/approved-apps.schema.json`, migration `0006_approved_apps.sql` and `server/src/services/approved-apps.ts` build it as a scope setting beside the watched services and the file-facts paths: one JSON column per level, the fleet default as one settings row, the most specific level with a list winning whole.
+The control half of milestone 10 (`docs/spec/13-roadmap.md`: `process.end` and `app.restart` "with a per-client allowlist") needs a list of exact programs per scope. `contracts/schemas/console/approved-apps.schema.json`, migration `0006_approved_apps.sql` and `server/src/services/approved-apps.ts` build it as a scope setting beside the watched services: one JSON column per level, the fleet default as one settings row, the most specific level with a list winning whole.
 
 - **Server administrators only**, not Tier 2 and up, although the spec's milestone 10 wording is "an admin". Everywhere else, changing a client's, site's or cabinet's own list is a Tier 2 action with a confirmation click; the fleet default is Admin only. A program the platform may start, stop or restart is an owner's decision, and the list is the thing a lost Tier 2 session would most want to widen. Say if a Tier 2 account should be able to propose a list that an Admin approves.
 - **An empty list is a level of its own**: it approves nothing at that level and still wins over the level above. `entries null` instead removes the level's list, so the level above applies. The spec does not distinguish the two, and the console's editor needs to show them differently.
@@ -815,7 +815,7 @@ This answers "Open: the approved list on the cabinet is written by the network p
 
 - **Missing database objects (findings S7 and F2).** Migration `0010_missing_objects.sql` adds what the code already used:
   - The `audit_head` procedure. The audit check can now see when the newest entries were deleted.
-  - The `filefacts_paths` column on clients, sites and cabinets, with the same 32-entry check as the approved programs.
+  - The `filefacts_paths` column on clients, sites and cabinets, with the same 32-entry check as the approved programs (dropped by 0039, D150).
   - The issue types `app_version`, `usb_flap` and `usb_dependency`, so those alerts can open.
 - **Error messages (finding F3).**
   - "Someone else claimed this alert" no longer reads "Cabinet already set up".
@@ -828,7 +828,7 @@ This answers "Open: the approved list on the cabinet is written by the network p
 - **Accepted limits** (from the review of #94):
   - **The test-build mark is advisory.** It shows what an agent says about itself. An agent that leaves the field out, including one an attacker controls, shows nothing. The protection is that production builds cannot install unsigned programs at all; the mark only helps spot a development build left in the field.
   - **No anchor is not a failure.** A database with no `audit_chain_head` row reads as "no anchor" rather than as a failed check. Every migrated database has the row (0001 seeds it), and the audit check records `anchored: false` in its own entry when it is missing.
-  - **The column checks only count entries.** The `entries[32]` check on `approved_apps` and `filefacts_paths` passes a value whose `entries` is not a list at all. The contract and the services reject that; the column check is a size cap, not a shape check.
+  - **The column checks only count entries.** The `entries[32]` check on `approved_apps` (and `filefacts_paths` until 0039) passes a value whose `entries` is not a list at all. The contract and the services reject that; the column check is a size cap, not a shape check.
 
 ## Open: the confirmation level for firewall rule changes (2026-10-27)
 
@@ -921,7 +921,7 @@ Noted (the owner's words): when cabinets are off, the client must turn the sync 
 
 ## Diagnostic modules and clients (2026-10-29)
 
-The execution plan listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and the decision to use one organization with no per-client split points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
+The execution plan (docs/spec/18-built-designs.md §2, item 1) listed clients among a module's applicability fields. The module contract as built (`contracts/schemas/diagnostics/module.schema.json`) leaves them out: modules live in the repository, where client IDs do not belong, and decision 5 there (one organization, no per-client split) points the same way. Applicability narrows by role, architecture, Windows build, manufacturer and whether a scanner is required.
 
 Answered by the owner (2026-10-29): no. Every module applies to every client's cabinets, narrowed only by the module's own applicability. Nothing per client is built.
 

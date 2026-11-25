@@ -74,7 +74,7 @@ COPY agent/ ./agent/
 # The archive README is copied in as a real build input: a cp inside a RUN cannot reach a file the stage never copied.
 COPY deploy/agent-README.txt /agent-readme/README.txt
 # The same publish as agent/install/Publish-CabinetAgent.ps1: four programs, self-contained single files, for each Windows
-# architecture the agent is built for. Windows cannot run a 64-bit program on 32-bit
+# architecture the agent is built for (docs/spec/18-built-designs.md section 1). Windows cannot run a 64-bit program on 32-bit
 # Windows, so both builds come out of this one source and ship as their own archive, named for the architecture.
 # The restore is locked (packages.lock.json, which now pins the runtime packs of both architectures) and agent/nuget.config
 # allows nuget.org only and requires every package to be signed by nuget.org, so the shipped broker and network service are

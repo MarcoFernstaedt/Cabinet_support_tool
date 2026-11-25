@@ -42,7 +42,7 @@ A red-team review of the agent, installer, deployment, server, console, contract
 
 | # | Severity | Finding | Status |
 |---|---|---|---|
-| C1 | Medium | The agent zip is unsigned and its hash comes from the same channel. | Partly fixed. The installer checks Authenticode; the CA hash is checked. Signing the zip needs a code-signing certificate. |
+| C1 | Medium | The agent zip is unsigned and its hash comes from the same channel. | Partly fixed. The installer checks Authenticode; the CA hash is checked. Signing the zip uses our own publisher root (D143), not a bought certificate. |
 | C2 | Medium | The Dockerfile's publish step ignores the NuGet lock files. | Open. Needs `RuntimeIdentifiers` in the projects and locked restore. |
 | C3 | Low-Medium | No HSTS. | Fixed in Caddy. |
 | C4 | Low | CI had no permissions block; actions are pinned by tag. | Partly fixed. `contents: read`; pinning by SHA is open. |

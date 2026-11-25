@@ -157,7 +157,7 @@ describe("release package upload", () => {
   });
 
   // The architecture a release was added under is a declaration by the pipeline; the programs inside the package are what it
-  // really is. They have to agree, or a cabinet would be handed a package it cannot run.
+  // really is. They have to agree, or a cabinet would be handed a package it cannot run (docs/spec/18-built-designs.md §1).
   it("refuses a package whose programs are built for the other Windows architecture, and stores nothing", async () => {
     const s = await storeIn();
     const db = new FakeDb();

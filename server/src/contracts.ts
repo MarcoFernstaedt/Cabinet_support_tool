@@ -1,6 +1,6 @@
 // Runtime validation against the shared JSON Schema contracts.
 // Every agent and console input passes through one of these validators before
-// any other code touches it (docs/spec/STANDING-INSTRUCTIONS.md).
+// any other code touches it (CLAUDE.md).
 import { createAjv, readCatalog, ref } from "@mashura/cabinet-contracts/load";
 import type {
   OpaqueSessionTransportFrame as SessionFrame,
@@ -202,7 +202,7 @@ export const approvedListFiles = {
   keys: validator<ApprovedListKeys>("approved-list-keys", ref("agent/approved-list-keys.schema.json")),
 } as const;
 
-/** Diagnostic modules: server data, checked again by server/src/diagnose/module.ts. */
+/** Diagnostic modules (docs/spec/18-built-designs.md §2): server data, checked again by server/src/diagnose/module.ts. */
 export const diagnosticFiles = {
   module: validator<DiagnosticModule>("diagnostic module", ref("diagnostics/module.schema.json")),
   registry: validator<CapabilityRegistry>("capability registry", ref("diagnostics/registry.schema.json")),

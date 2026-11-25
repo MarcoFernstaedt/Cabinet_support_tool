@@ -1,4 +1,4 @@
-// The network diagnosis as a diagnostic module. The
+// The network diagnosis as a diagnostic module (docs/spec/18-built-designs.md §2, item 4). The
 // diagnosis now runs the module's rule step instead of calling networkFindings by hand; its behaviour is unchanged, which the existing
 // network tests prove (they are not edited). These tests keep the module honest against the code: the same reads the diagnosis plans,
 // every finding the checks can raise declared as a cause (a check that only ever reports "ok" is not a cause), and every fix button

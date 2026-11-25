@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/rollout-start.schema.json",
   "title": "rollout-start",
-  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture, so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.",
+  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/spec/18-built-designs.md §1), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.",
   "type": "object",
   "additionalProperties": false,
   "properties": {

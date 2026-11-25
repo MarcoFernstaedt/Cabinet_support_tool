@@ -1,4 +1,4 @@
-// The route's own half of Session 1: POST /api/cabinets/:id/app-control over a real
+// The route's own half of Session 1 (docs/spec/18-built-designs.md §6): POST /api/cabinets/:id/app-control over a real
 // database. The decision itself is app-control.test.ts; what this file adds is what only a real run can show - the 202 and
 // its body, the queued command row, the audit row each outcome leaves, and that a token bought for another entry or another
 // action never reaches the command. A Tier 1 user and a body the contract refuses never reach the service at all.

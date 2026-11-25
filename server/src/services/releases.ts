@@ -1,4 +1,4 @@
-// The update store (docs/spec/07-upgrade-channel.md "Signing flow" step 3): signed agent
+// The update store (docs/spec/07-upgrade-channel.md "Signing flow" step 3; docs/spec/18-built-designs.md §1): signed agent
 // releases, each a manifest exactly as the build pipeline had it signed, its detached signature, and the package zip. The
 // server checks the signature against the release keys it knows of and the zip against the manifest, so a broken or forged
 // release is refused at the door, but none of this is the protection: the server never holds the signing key, and every

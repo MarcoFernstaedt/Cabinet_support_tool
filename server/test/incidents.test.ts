@@ -1,4 +1,4 @@
-// The unified incident record (migration 0017):
+// The unified incident record (docs/spec/18-built-designs.md §2, items 2 and 5; migration 0017):
 // one incident followed from its symptom to a verified repair, each step appended in order and audited, a person's approval required
 // before a repair runs, links only to the incident's own cabinet, hostile input refused, steps that cannot be changed, and retention.
 import test from "node:test";

@@ -481,7 +481,7 @@ export function fromNetwork(f: NetworkFinding): BundleFinding | null {
     ...(f.causedBy ? { causedBy: `net-${f.causedBy}`.slice(0, 60) } : {}) };
 }
 
-// ---- The checks as modules -------------------------------------------------------
+// ---- The checks as modules (docs/spec/18-built-designs.md §2, item 4) -------------------------------------------------------
 
 /** What a rule sees besides the evidence: the findings of the modules that ran before it in this diagnosis. */
 export interface RuleContext { findings: readonly BundleFinding[] }

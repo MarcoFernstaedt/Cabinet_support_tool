@@ -62,7 +62,7 @@ Build in this order. Each milestone ends with something that runs. Milestones 1 
 
 ## Milestone 7: signed upgrades
 
-- Set up the KMS key and pipeline signing, the updater, and staged rollouts.
+- Set up the release signing key (offline, D143), the updater, and staged rollouts.
 - Done when: a signed upgrade rolls out to a test batch, a tampered package is refused, and a failed upgrade restores the old version on its own.
 
 ## Milestones 8 to 12

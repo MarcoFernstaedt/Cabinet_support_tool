@@ -1,4 +1,4 @@
-// The derivation the update store trusts instead of a name: the architecture of a
+// The derivation the update store trusts instead of a name (docs/spec/18-built-designs.md §1): the architecture of a
 // release package is the machine of the programs inside it, read out of the zip the pipeline published. These are
 // specifications: what the platform derives, and the exact refusal every other package gets instead of a guess.
 import test from "node:test";

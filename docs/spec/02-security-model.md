@@ -60,7 +60,7 @@ console shell is retired. See the [server API and acceptance procedure](05-serve
 - Fingerprints can be spoofed by someone who knows them, so they inform the admin's judgment rather than replace it.
 - Agent certificates last 90 days and renew automatically using the current certificate.
 - Removing a cabinet revokes its certificate. The server checks every connecting certificate's serial against the cabinet record, so a revoked agent is refused immediately.
-- The key that signs agent certificates lives in the KMS, not on the server disk.
+- The key that signs agent certificates is the production issuing CA's: a file outside the repository, readable only by the server's account, issued from an offline root that never touches the server (D143). Not built yet; the development issuing key is refused in production.
 
 ## Control 5: replay protection
 

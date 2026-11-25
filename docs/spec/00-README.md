@@ -6,7 +6,7 @@ These files are the build specification for the cabinet diagnostics platform. Th
 
 Read them in number order. Files 01 and 02 give the shape and the security rules everything else follows; 03 through 07 are the component specs; 08 is the build order; 09 lists choices to confirm; 11 is the summary for your head of development. 12 and 13 are the later milestone specifications, and 14, 15 and 16 cover work specified after them.
 
-The platform as it actually is — what is proven, what is left, and how it runs — is documented separately, starting at [../platform/README.md](../platform/README.md). **The phase count lives in [../platform/remaining-phases.md](../platform/remaining-phases.md).**
+The platform as it actually is — what is proven, what is left, and how it runs — is documented separately, starting at [../platform/README.md](../platform/README.md). **What is left lives in [../platform/plan-to-completion.md](../platform/plan-to-completion.md).**
 
 ## Files
 
@@ -25,6 +25,8 @@ The platform as it actually is — what is proven, what is left, and how it runs
 - 14-emergency-access.md: the local console on the cabinet for when it cannot reach the platform, and the short single-use authorization that unlocks it (milestone 14, not built yet)
 - 15-baselines-and-config.md: configuration baselines and snapshots, and how a cabinet's settings are compared against them
 - 16-network-troubleshooting.md: finding a network problem on one cabinet, several, or a whole site, and fixing it
+- 17-phase-7-and-beyond.md: fleet correlation, known errors and self-healing, proposed and not approved
+- 18-built-designs.md: the built designs code cites for its reasons: the 32-bit build, the diagnostic engine, network targets, the USB watch, the server side of a control request
 
 ## Stack
 

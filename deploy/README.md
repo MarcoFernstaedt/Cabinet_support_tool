@@ -179,7 +179,7 @@ To also change the names or secrets, delete `deploy/.env` before step 2.
 
 ## Security notes
 
-- **Demo CA only.** The server issues agent certificates with a development CA, whose private key lives in the `pki` volume on the VPS. Production uses a CA key held in a KMS, and a real TLS certificate for the agent API (`AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE`). The server refuses the development CA when `NODE_ENV=production`, so this image does not set it.
+- **Demo CA only.** The server issues agent certificates with a development CA, whose private key lives in the `pki` volume on the VPS. Production uses an issuing CA from our own offline root, its key a file outside the repository (D143), and a TLS certificate from it for the agent API (`AGENT_TLS_CERT_FILE`, `AGENT_TLS_KEY_FILE`). The server refuses the development CA when `NODE_ENV=production`, so this image does not set it.
 - **Ports.** Only 80, 443 and 8443 are published. Never publish Microsoft SQL Server (1433). It sits on an internal Docker network with no route out.
 - **The console** is meant to sit on an internal network or VPN. Set `CONSOLE_ALLOW_FROM` in `.env` to your office and VPN ranges (CIDR, space-separated) and run `docker compose up -d`: everyone else gets 403. The default allows everyone, for a first demo only. HTTPS is enforced with HSTS on a domain.
 - **Sign-in limits** count each browser's address, which Caddy passes to the server. A proxy in front of Caddy must be listed in `CONSOLE_TRUSTED_PROXIES` (see `deploy/examples/tailnet/`), or everyone behind it shares one address. Past the address limit, a browser that has fully signed in to that account before (password and authenticator code) can still sign in.

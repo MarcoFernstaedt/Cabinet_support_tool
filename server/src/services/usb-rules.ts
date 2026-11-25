@@ -1,6 +1,6 @@
 // The USB alert rules: what a validated report and a resolved policy add up to.
 //
-// The three rules:
+// The three rules, and where each bound comes from (docs/spec/18-built-designs.md §5):
 //   * usb-absent: a unit that has been known is gone, continuously, for `absentForMinutes`. The absence is timed from
 //     the first evidence of it (firstAbsentAt, or the last time the unit was seen present, which can only make the
 //     wait longer, never shorter) — never from a missing field;

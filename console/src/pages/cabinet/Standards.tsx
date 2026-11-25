@@ -1,5 +1,5 @@
 // A cabinet's standards: every setting that says what "right" looks like for it (firewall policy, network baseline, time zone, sync cabinet, scanner,
-// watched services, approved programs, file-facts paths, USB watch), with what it is meant to be, where that comes from (cabinet, site, client, the fleet default or
+// watched services, approved programs, USB watch), with what it is meant to be, where that comes from (cabinet, site, client, the fleet default or
 // the role's) and what the cabinet reports. Where each setting comes from is the server's own resolution (F6.R5, /setting-origins), the one each is enforced with.
 // Click a line to open it: the standard at every level, the cabinet's own value, and the editor for each level the signed-in person may change.
 import { useEffect, useRef, useState, type ReactNode } from "react";
@@ -163,15 +163,6 @@ export function Standards({ cabinet, onChanged }: { cabinet: CabinetDetail; onCh
       <p>The programs and services this cabinet may be asked to start, stop or keep running. The most specific list applies: cabinet, site, client, then the fleet default.</p>
       {levelsText(apps)}
       <p><Link to="/admin/approved-apps">Approved programs</Link> (an Admin changes them with an authenticator code)</p></>,
-  });
-  const files = origin("fileFactsPaths");
-  if (files) lines.push({
-    key: "files", label: "File-facts paths", source: SOURCE[files.source] ?? files.source,
-    standard: files.count === null ? "None" : files.rejected.includes(files.source) ? "None (the list in force was refused)" : `${files.count} file${files.count === 1 ? "" : "s"}`,
-    actual: "Read on request", state: files.rejected.length ? "differs" : files.count ? "unknown" : "unset",
-    detail: <>
-      <p>The files whose version, size and date this cabinet may be asked to read. The most specific list applies: cabinet, site, client, then the fleet default.</p>
-      {levelsText(files)}</>,
   });
   const usb = origin("usbWatch");
   if (usb) lines.push({

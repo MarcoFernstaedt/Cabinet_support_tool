@@ -1,4 +1,4 @@
-// A cabinet's architecture, as the console says it.
+// A cabinet's architecture, as the console says it (docs/spec/18-built-designs.md §1).
 //
 // The value on the wire is what the agent reports about its own programs: "windows-x64" or "windows-x86"
 // (contracts/schemas/common.schema.json#/$defs/architecture). The console says it in the words an operator uses, and it

@@ -1,5 +1,6 @@
 // The USB alert rules on the server: device absent, reconnect flap and dependency detached, with the severity each
-// carries, the automatic resolution when the unit returns, quiet hours and the rate limit on repeats.
+// carries, the automatic resolution when the unit returns, quiet hours and the rate limit on repeats
+// (docs/spec/18-built-designs.md §5).
 //
 // Includes hostile input: a report that fails the contract, a unit the cabinet has never seen, an absence with no
 // evidence of when it began, a reconnect count the cabinet cannot vouch for, telemetry that went missing, and a report

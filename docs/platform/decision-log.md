@@ -6,20 +6,121 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D150. The repository consolidated and pruned (2026-11-25)
+
+**Asked:** the owner asked for the repository, its documents and READMEs to be consolidated and pruned before more building:
+"everything", in several commits if needed, with finished and historical documents deleted (git history keeps them).
+
+**1. The designs code cites move into the spec.** Five working plans were still cited by code, tests and contract descriptions
+for why things are shaped as they are. Their decisions and reasons are condensed into `docs/spec/18-built-designs.md`:
+- §1 the 32-bit build;
+- §2 the diagnostic engine;
+- §3 sync-path health;
+- §4 the file-facts read;
+- §5 the USB watch;
+- §6 the server side of a control request.
+
+Every citation now points there, and the contract types are regenerated. The exception is three applied migrations (`0007`,
+`0008`, `0017`). Their header comments name the plans by their first paths, and an applied migration is never edited;
+`docs/platform/README.md` says how to read them.
+
+**2. Finished documents deleted.**
+- `docs/codex-tasks/`: 14 build briefs, all built or dispatched.
+- `docs/platform/archive/`: 7 plans and reports, overtaken.
+- `docs/platform/research/2026-10/`: 5 audits and designs, now built or in spec 18.
+- `docs/build-program-2026-11-14.md`: replaced by the plan to completion.
+- `docs/spec/STANDING-INSTRUCTIONS.md`: word for word the first part of `CLAUDE.md`, which is now the one copy.
+
+Every reference to them was removed or repointed first.
+
+**3. One page for what is left.** `remaining-phases.md` (670 lines) was the history of the count; since 2026-11-23 it deferred to
+`plan-to-completion.md`. Its open items move into the plan:
+- three test problems still open (1.5 to 1.7);
+- the writes not yet run on hardware (6.8);
+- the test host's backup (6.9);
+- the Windows closed-port timing (6.10);
+- a new section 8 for the findings of the 2026-11-07 brief that the owner's 2026-11-15 order left out. That is F5, F7 and F9,
+  F10 to F16, F18.R3, F19.R1 to R6, F20's update source and F21.R2's boundary validation. They are recorded as unscheduled,
+  not dropped, with the brief's ordering rules.
+
+The engine-phase mapping the capability registry's `phase` field cites moves to spec 18 §2. Every link is repointed, and one
+stale claim is corrected on the way (`windows-coverage-review.md` said crash and boot reads did not exist; `crash.list` and
+`boot.history` do).
+
+**4. The READMEs and the spec agree with D143.** The spec and the docs still said release signing ran in a cloud KMS, that the
+issuing key lived in one, that a code-signing certificate was a yearly cost, and that an independent penetration test was a gate.
+D143 decided all four the other way, so the text now says:
+- offline release keys and our own publisher root;
+- a production issuing CA from an offline root, not built yet;
+- no purchase;
+- the security review brief worked through by us.
+
+The files: spec 02, 05, 07, 08, 11, 17, the root, server, agent, deploy and contracts READMEs, `supply-chain.md`, `cost.md` and
+`security-review.md`. `New-AgentRelease.ps1` keeps its optional KMS switches, and the docs say so.
+
+The contracts README no longer calls the upgrade trust list empty: it holds the operator's release key. The platform index lists
+`agent-release-signing.md`, and every relative Markdown link in the repository resolves.
+
+**5. Dead code, and what the owner no longer wants.**
+- **Unused symbols.** A scan for TypeScript exports that nothing references found four in modules the server runs:
+  `SITE_SYNC_PORTS_MAX`, `FACTS_ACTION`, `rejectionText` and `usbPolicyMemory`. They are removed. The other 403 exports used only
+  inside their own file are left exported, which changes no behaviour.
+- **The sync-path sampler.** The scan also found server code that the running server never reaches, only its tests. The sync-path
+  sampler is the first case (`pathhealth-targets`, `-analysis`, `-correlation`, `-contracts`, their two tests and two schemas).
+  The owner removed it: "as long as firewalls are disabled, it should all be fine". The on-demand network diagnosis stays.
+  Spec 18 §3 records the decision and keeps the target rules the on-demand tests rely on.
+- **The file-facts read.** The owner: viewing files on the machine is not beneficial any more. Its agent operation was never built;
+  the server held an allowlist per scope (read only, no route wrote it), a planned read, an ingest and an `app_version` alert.
+  - **Removed:** `filefacts-allowlist`, `-ingest`, `-request` with their four tests and two schemas, the four `*.filefacts`
+    step-up actions, the setting on the Standards tab and in setting origins, and the copy on cabinet replacement.
+  - **Migration `0039_remove_filefacts.sql`** drops the three columns and their checks, the fleet row, and the `app_version`
+    issue type when nothing refers to it. The 0010 test now proves they are gone.
+  - **Kept:** the path rules the approved-programs list uses, renamed `program-path.ts`. The read's caps, handle cross-checks
+    and version check are pruned from it.
+
+**6. The plan follows the owner's answers.**
+- **Dropped:** background sync-path sampling; the file-facts read and F11 file staleness; more driver work (4.9, 4.12, F19, F5);
+  SMART beyond free space (4.10, and 2.4's crash-to-drive link). The built package library stays. Scanner troubleshooting is
+  service control and the USB watch.
+- **Next PR:** removing SMART and drive risk (2.4). It changes the agent's catalog and the wire, so older agents' SMART events
+  and answers stay accepted and are ignored until the fleet is upgraded.
+
+
+---
+
+## D148. The server README says what a local Linux run of the suite needs (2026-11-25)
+
+**Asked:** item 1.3 of docs/platform/plan-to-completion.md. The local failures counted on 2026-11-23 came from this environment, not
+the code. Chromium was missing, and Git refused the checkout as root (`safe.directory`).
+
+**The change (`server/README.md` only).**
+- The "Full server suite in a local Linux container" section from the development branch (`a01e71e`): trust the checkout for
+  Git as root, install Chromium with Playwright, then run the suite.
+- Added for `main`: what is skipped without `TEST_AGENT_DLL` (10 tests) or PowerShell 7 (8 tests), and that each reason is
+  printed after `# SKIP`.
+
+**Proven:** a local run on `main` at `e8cd887`, without PowerShell 7 and with the console built, skipped 18: 15 in the
+non-browser run, 3 in the browser run. Each was read from its `# SKIP` line: 10 for `TEST_AGENT_DLL` (7 and 3) and 8 for
+PowerShell. There were 0 failures. Where PowerShell 7 is present, the same commit skips only the 10 `TEST_AGENT_DLL` ones, as the
+owner's run showed. So the total is 10 or 18 depending on the box. Earlier PR descriptions (#340, #341) said 13 and 5; the split
+was wrong.
+
+---
+
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
 
 **Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and
 `main` is green on it. Two live sentences on `main` still said it could not run.
 
 **The change.**
-- `remaining-phases.md`: the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
+- `remaining-phases.md` (since folded into the plan, D150): the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
   Windows", job 136864014813, at `e8cd887`. The item stays open, because one run is not a measured bound.
 - D19's note on the Kernel-Power fields now reads as the development branch has it (`a01e71e`).
 - D1's last line names the same Windows run.
 - Spec 09, on checking the CI SQL Server installer: the CI run that item waits on can be had now. D2's own reasons are left as
   written, as the record of that day.
 
-The archived reports in `docs/platform/archive/` are left as written: they record what was true then.
+The archived reports in `docs/platform/archive/` were left as written; they were removed on 2026-11-25 (D150).
 
 **Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
 dated and left as written.
@@ -3065,7 +3166,8 @@ that read each client database in turn. Whether and when a client moves is the o
 databases").
 
 **Alternatives:** a `client_id` on every table and row-level security in one database. That isolates reads but not storage, size or
-backups, and changes every query. Who may see which client is a separate question, already decided as one organization. Separate databases per module rather than per client: that is F21.R2's direction, and does not help a client that needs
+backups, and changes every query. Who may see which client is a separate question, already decided as one organization
+(spec 18 §2, decision 5). Separate databases per module rather than per client: that is F21.R2's direction, and does not help a client that needs
 its data apart.
 
 **Proven by:** `client-data.test.ts`. It reads the foreign keys and columns of a freshly migrated database, as its owner, and fails on
@@ -4645,7 +4747,7 @@ driver's 10 s limit (`ETIMEOUT`) on the first run: the cabinets of one site wait
 reworking the locking on the heartbeat and alert paths, which is not worth it for a demo seed, so the change was reverted.
 
 **Cost.** An Admin waits about 20–25 s behind "Confirming…" when turning demo mode on. Speeding the seed up (for example by writing
-the history and snapshots in fewer statements) is listed under the open fixes in remaining-phases.md.
+the history and snapshots in fewer statements) was listed under the open fixes in remaining-phases.md (since folded into the plan, D150).
 
 ---
 
@@ -4670,7 +4772,7 @@ it" and "both").
 - Finding titles come from cabinet data, so they are made one line and cut to the record's limits, never refused.
 
 **Why.** Every incident then has evidence behind it, nobody has to remember to open one, and "fixed" is shown by a later run rather
-than asserted, which is what the incident record was for.
+than asserted, which is what the incident record was for (spec 18 §2).
 
 **Costs and limits.**
 - Two diagnoses of the same kind on one cabinet finishing at the same moment could open two incidents. Both diagnosis kinds already
@@ -4763,7 +4865,8 @@ Making the close a no-op, or adding `audit_chain` to the closable kinds, fails t
 
 ## D13. The SQL connectivity check: how it is built (2026-11-02)
 
-The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed. These are the choices made while building it.
+The engine plan already decided *that* this check exists and that a login-free TDS pre-login is allowed
+(spec 18 §2, decision 7). These are the choices made while building it.
 
 **1. It runs in the network service, not the broker.** The plan says "implemented in the agent's broker". CLAUDE.md says the
 broker never opens a network connection, and that rule does not bend. The check needs no rights, so the unprivileged network
@@ -5112,7 +5215,7 @@ proven on CI; first item when Actions resumes.
   failures that come from the test setup, not from the product.
 
 **Cost.** The two tests that are not yet root-caused (the troubleshooting burst and the console-setup confirm) can fail a
-run until they are fixed. Both now report their cause when they fail ([remaining-phases.md](remaining-phases.md)).
+run until they are fixed. Both now report their cause when they fail (remaining-phases.md, since folded into the plan, D150).
 
 ---
 

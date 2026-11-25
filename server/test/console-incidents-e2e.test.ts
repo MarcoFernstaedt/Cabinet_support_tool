@@ -1,4 +1,4 @@
-// Incident records on a cabinet's History tab, in a real browser: the incident is
+// Incident records on a cabinet's History tab, in a real browser (docs/spec/18-built-designs.md §2, item 6): the incident is
 // listed with its state and symptom, opens to its steps in order with who took each, and a cabinet with none says so. Runs when the
 // console is built.
 import test from "node:test";

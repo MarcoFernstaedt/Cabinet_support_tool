@@ -1,4 +1,4 @@
-// Diagnostic modules: the schema refuses a
+// Diagnostic modules (docs/spec/18-built-designs.md §2, items 1 and 5): the schema refuses a
 // malformed or hostile module, and the server refuses what a schema cannot see: an operation of the wrong kind, a read whose parameters
 // its operation refuses, a reference that resolves to nothing, a rule the server does not have. Pure: no database.
 import test from "node:test";

@@ -10,7 +10,8 @@
 // level or a new field needs no migration; the version is the server's, not the console's, and it only ever goes up.
 //
 // The contract is contracts/schemas/usb/usb-watch-policy.schema.json and it is checked before any other code here runs
-// (docs/spec/STANDING-INSTRUCTIONS.md).
+// (CLAUDE.md). The field-by-field design and its bounds are in
+// docs/spec/18-built-designs.md §5.
 //
 // Nothing here touches the database or the SQL driver: the data layer (usb-store.ts) reads the rows and calls in, so
 // every rule below is exercised by test/usb-policy.test.ts without a live server.
@@ -200,17 +201,6 @@ export function withUsbDefaults(policy: UsbPolicy): UsbPolicy {
 // ---- Stored documents ------------------------------------------------------------------
 
 export type UsbStoreRejection = "empty" | "not_json" | "not_an_object" | "no_version" | "bad_version" | "unknown_field" | "policy_invalid";
-
-/** A reason a level's row was not used, in words, for a log line. */
-export const rejectionText = (reason: UsbStoreRejection): string => ({
-  empty: "nothing is set at this level",
-  not_json: "the stored value is not JSON",
-  not_an_object: "the stored value is not an object",
-  no_version: "the stored value carries no version",
-  bad_version: "the stored version is not a whole number of at least 1",
-  unknown_field: "the stored value carries a field this version does not know",
-  policy_invalid: "the stored policy does not meet the contract",
-})[reason];
 
 export type UsbStoredCheck = { ok: true; stored: UsbStoredPolicy } | { ok: false; reason: UsbStoreRejection; issues?: UsbValidationIssue[] };
 

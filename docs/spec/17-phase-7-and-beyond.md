@@ -161,7 +161,7 @@ do.
    without an approval.
 5. **Production is proven, not asserted** — service levels measured, error budget enforced, a 100+ cabinet scale test
    passed, agent upgrades in canary rings with automatic halt, MTTR and MTBF tracked, and a restore actually rehearsed.
-6. **The six gates are closed** — production signing in a KMS, TPM-held agent keys, an independent penetration test,
+6. **The six gates are closed** — production signing with our own offline keys, TPM-held agent keys, the security review brief worked through (D143),
    one writable test on real hardware, a real 32-bit cabinet, and a real clinic network.
 
 **What it is not, and will not become:** a shell on a cabinet, a general file transfer, unattended full autonomy, a

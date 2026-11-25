@@ -1,5 +1,5 @@
 // The USB watch policy on the server: what a scope watches, which level wins, and how a change is validated, versioned
-// and audited.
+// and audited (docs/spec/18-built-designs.md §5).
 //
 // Includes hostile input: a prototype key, an oversized identity key, numbers and types outside the contract, a wall of
 // unknown fields, and stored documents that have gone wrong (truncated JSON, missing version, an envelope a future

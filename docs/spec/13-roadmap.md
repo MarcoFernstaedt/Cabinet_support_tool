@@ -4,10 +4,10 @@ In October 2026 the product owner listed modules 1 to 47, plus the fleet time zo
 
 Decisions taken with the owner are in [09-open-decisions.md](09-open-decisions.md), under "Demo and the module list".
 
-This file is the plan, not the status: several modules it lists as to build have since been built (the trace, scheduled tasks, the route and ARP tables, volume health). [What the code has](../platform/remaining-phases.md#what-the-code-has-checked-on-2026-11-14) is checked against the source.
+This file is the plan, not the status: several modules it lists as to build have since been built (the trace, scheduled tasks, the route and ARP tables, volume health). What is left is the [plan to completion](../platform/plan-to-completion.md), checked against the source.
 
-**Five phases are left — items 2 to 6 below.** The one place that count lives, with everything in each phase and the
-reason it is five rather than six, is [../platform/remaining-phases.md](../platform/remaining-phases.md).
+**Five phases are left — items 2 to 6 below.** What is left of them, item by item, is
+[../platform/plan-to-completion.md](../platform/plan-to-completion.md); why five and not six is in spec 18 §2.
 
 Order, as chosen by the owner:
 

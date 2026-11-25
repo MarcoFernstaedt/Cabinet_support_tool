@@ -68,7 +68,7 @@ Tests also read `TEST_DATABASE_ADMIN_URL`, `TEST_AGENT_DLL` and `PLAYWRIGHT_CHRO
   - The entry is written in the same transaction as the action.
   - The table refuses UPDATE, DELETE and TRUNCATE, even from its owner.
   - `platform-admin audit-verify` finds the first changed entry.
-- **The development issuing key** refuses to run when `NODE_ENV=production`. The KMS key replaces the one function in `src/runtime.ts`.
+- **The development issuing key** refuses to run when `NODE_ENV=production`. The production issuing key (plan item 3.1, D143) replaces the one function in `src/runtime.ts`.
 
 ## Alerts engine
 
@@ -216,3 +216,11 @@ npm test
 
 Playwright's install step fetches Chromium and its system dependencies, as CI does. A bare `node:22`
 image needs this step before the console browser tests.
+
+Without these, the suite still passes and names what it skipped:
+
+- **`TEST_AGENT_DLL` unset:** the 10 tests that run the real agent code. Seven are server tests: enrolment end to end,
+  upgrades, the monitors, watched services, writes and the signed approved list. Three are console walk-throughs.
+- **No PowerShell 7 (`pwsh`):** the 8 tests that parse or run the install, uninstall and signing scripts.
+
+Each skip's reason is printed after `# SKIP`. CI sets both, so it runs all of them.

@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/usb/usb-device-report.schema.json",
   "title": "usb-device-report",
-  "description": "One reconciled USB snapshot from a cabinet: for each physical unit it watches, the identity it was given, where Windows sees it attached, its state, when it was first and last seen, how many times it has come back, and the state of the services, processes and probes that depend on it. The server draws alert conclusions from this and can start nothing; a report says how complete its own evidence is (settled, eventHistoryComplete, cyclesAreLowerBound) instead of presenting a guess as a count. The unitKey and portKey here are the same key space as usb-watch-policy's identityKey, so a report cannot address a unit or slot the policy does not name.",
+  "description": "One reconciled USB snapshot from a cabinet: for each physical unit it watches, the identity it was given, where Windows sees it attached, its state, when it was first and last seen, how many times it has come back, and the state of the services, processes and probes that depend on it. The server draws alert conclusions from this and can start nothing; a report says how complete its own evidence is (settled, eventHistoryComplete, cyclesAreLowerBound) instead of presenting a guess as a count. The unitKey and portKey here are the same key space as usb-watch-policy's identityKey, so a report cannot address a unit or slot the policy does not name. Design input: docs/spec/18-built-designs.md §5.",
   "type": "object",
   "additionalProperties": false,
   "$defs": {
