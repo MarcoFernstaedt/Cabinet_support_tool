@@ -42,7 +42,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "disk", why: "A drive that is failing makes everything slow long before it fails outright." },
       { check: "storage-log", why: "Disk errors and retries in the System log back up a slow drive." },
       { check: "scm-log", why: "Services timing out or restarting over and over can be the load itself." },
-    ], next: [{ to: "processes", label: "Processes" }, { to: "drives", label: "Drive health" }] },
+    ], next: [{ to: "processes", label: "Processes" }, { to: "events", label: "Event logs" }] },
   { id: "restart", symptom: "Random restarts or blue screens",
     steps: [
       { check: "critical-log", why: "Kernel-Power 41 means the machine lost power or froze without shutting down. BugCheck 1001 means a blue screen with a code." },
@@ -50,7 +50,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "devices", why: "A device with a problem code can be the driver that is crashing the machine." },
       { check: "updates", why: "If the first crash came soon after an update or driver install, that is the change to look at first." },
       { check: "perf", why: "Memory almost full, or a drive nearly full, can both end in crashes." },
-    ], next: [{ to: "crashes", label: "Crashes and restarts" }, { to: "drives", label: "Drive health" }] },
+    ], next: [{ to: "crashes", label: "Crashes and restarts" }, { to: "events", label: "Event logs" }] },
   { id: "update", symptom: "A Windows update fails, or something stopped working after an update",
     steps: [
       { check: "updates", why: "Failed installs with their error codes, and what is still waiting. Compare the install dates with when the problem began." },
@@ -63,7 +63,7 @@ const PLAYBOOKS: Playbook[] = [
       { check: "disk", why: "Health, reallocated and pending sectors and uncorrectable errors. Healthy here is not a guarantee." },
       { check: "storage-log", why: "Disk and controller errors in the log are the second opinion." },
       { check: "perf", why: "A drive that is busy all the time with a long queue is struggling." },
-    ], next: [{ to: "drives", label: "Drive health" }] },
+    ], next: [{ to: "events", label: "Event logs" }] },
   { id: "service", symptom: "A service keeps stopping",
     steps: [
       { check: "services", why: "State, start type, the account it runs as and the program it launches. Restart it once and watch; repeated restarts hide the cause." },

@@ -37,7 +37,6 @@ const TABS: Record<SectionId, { body: string[]; needs?: string; quick?: boolean 
   processes: { body: ["Running processes with CPU, memory, handles and owner."], needs: "End process: Tier 2, approved programs only, with an authenticator code. System processes are refused." },
   files: { body: ["Folder listings on C: with sizes and dates. No file contents are read or transferred."] },
   devices: { body: ["Devices with their problem codes and the driver bound to each (version, date, provider, signer). Drivers come only from the approved software library."], needs: "Uninstall a driver: Tier 2, with an authenticator code." },
-  drives: { quick: true, body: ["SMART and NVMe health per drive, with the trend over weeks: reallocated sectors, wear, temperature. Degrading drives are also listed on the Fleet page."] },
   updates: { body: ["Update history and pending updates with decoded error codes and pending restarts."], needs: "Uninstall an update: Tier 2, with an authenticator code." },
   time: { body: ["Time zone and clock offset against the site and the server. Set the zone and resynchronise the clock."], needs: "Tier 1." },
   network: { quick: true, body: ["Adapters, addresses, routes, ARP, loss, jitter and path to the gateway, DNS, sync cabinet and server. Diagnose network checks each layer in order and stops at the first fault. Includes the drawer check."], needs: "Renew lease: Tier 1. Address or DNS change: Tier 2, with a code; reverted automatically if the cabinet loses contact." },

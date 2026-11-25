@@ -75,8 +75,6 @@ export const TABLE_OWNERS: Readonly<Record<string, Ownership>> = {
   config_versions: { owner: "services/config-ingest.ts", also: [] },
   diagnoses: { owner: "diagnose/diagnoses.ts", also: [], accepted: ["demo/demo.ts"] },
   diagnosis_batches: { owner: "diagnose/network.ts", also: [], accepted: ["demo/demo.ts"] },
-  drive_samples: { owner: "services/drives.ts", also: [], accepted: ["demo/demo.ts"] },
-  drive_status: { owner: "services/drives.ts", also: [] },
   enrollment_baselines: { owner: "services/baselines.ts", also: [] },
   enrollment_requests: { owner: "services/enrollment.ts", also: [] },
   error_daily: { owner: "services/error-trends.ts", also: [], accepted: ["demo/demo.ts", "demo/troubleshooting.ts"] },

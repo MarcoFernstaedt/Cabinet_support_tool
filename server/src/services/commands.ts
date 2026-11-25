@@ -32,6 +32,15 @@ export interface WriteAuthority {
 }
 
 /**
+ * Reads the platform no longer asks for (decision-log D151): the owner removed SMART. They stay in the catalog until the agent drops them,
+ * so a cabinet on an older agent still answers one already queued; nothing issues a new one.
+ */
+export const RETIRED_OPERATIONS: ReadonlySet<string> = new Set(["disk.smart", "storage.health"]);
+const refuseRetired = (operation: string): void => {
+  if (RETIRED_OPERATIONS.has(operation)) throw new Refused("unknown_operation", 400, "the platform no longer reads drive health (SMART)");
+};
+
+/**
  * Records a command and its audit entry together (docs/spec/05-server-spec.md "Issuing a command").
  * A write also needs its authority (a step-up token for this operation on this cabinet, or the operator
  * CLI), and passes the fleet safety controls in the same transaction.
@@ -39,6 +48,7 @@ export interface WriteAuthority {
 export async function issueCommand(pool: Pool, userId: string, cabinetId: string, operation: string, params: unknown, auditAction = "command.issue",
   write?: WriteAuthority): Promise<Command> {
   if (!isOperationName(operation)) throw new Refused("unknown_operation", 400, "not a catalog operation");
+  refuseRetired(operation);
   const entry = catalog.get(operation)!;
   // Confirmation levels (docs/spec/12-milestones-8-to-12.md): a code-level write needs a step-up token bound to its
   // parameters; a click-level write is confirmed in the console and takes no token; reads take none.

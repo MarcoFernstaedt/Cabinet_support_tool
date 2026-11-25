@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { cabinetFindings, clean, rank, safeKey, type CabinetEvidence, type BundleFinding } from "../src/diagnose/cabinet-findings.js";
+import { bundleReads } from "../src/diagnose/cabinet.js";
 import { classifyTrend } from "../src/services/error-trends.js";
 import { triageScore } from "../src/services/triage.js";
 
@@ -14,21 +15,22 @@ const fail = (failure: string) => ({ ok: false as const, failure });
 const ids = (e: CabinetEvidence, n?: Parameters<typeof cabinetFindings>[1]) => cabinetFindings(e, n).findings.map(f => f.id);
 const find = (e: CabinetEvidence, id: string) => cabinetFindings(e).findings.find(f => f.id === id);
 
-test("a failing drive is the top problem, with the issue type and the fix", () => {
-  const e = { ...base(), smart: ok({ drives: [{ model: "NVMe 256GB", serialNumber: null, health: "failing" as const, predictFailure: true, temperatureCelsius: 41, powerOnHours: 1, reallocatedSectors: 12, pendingSectors: 3, uncorrectableErrors: 0, wearPercent: 20 }] }),
-    time: ok({ timeZoneId: "Eastern Standard Time", timeZoneName: "Eastern", utcOffsetMinutes: -300, daylightSavingNow: true, localTime: "2026-10-19T08:00:00", utcTime: "2026-10-19T12:00:00Z", timeService: "stopped" as const, sync: { state: "synced" as const, source: null, lastSuccessfulSync: null }, policyManaged: false }) };
+test("disk errors in the System log are an event log problem, with the drive issue and the event logs to open; no drive health is read", () => {
+  const entry = (source: string, eventId: number, firstLine = "x") => ({ recordId: 1, time: "2026-10-19T10:00:00Z", level: "error" as const, source, eventId, firstLine });
+  const e: CabinetEvidence = { ...base(), systemLog: ok({ log: "System", entries: [entry("disk", 7, "bad block"), entry("disk", 153, "retried")], nextBeforeRecordId: null, truncated: false } as never) };
   const r = cabinetFindings(e);
-  assert.equal(r.findings[0]!.key, "drive-health");
-  assert.equal(r.findings[0]!.severity, "problem");
-  assert.equal(r.findings[0]!.certainty, "confirmed");
-  assert.equal(r.findings[0]!.issueTypeId, "00000000-0000-4000-8000-000000000102");
-  assert.equal(r.findings[0]!.rank, 1);
-  assert.match(r.headline, /^2 problems|^1 problem/);
-  assert.equal(r.areas.find(a => a.area === "storage")!.state, "problem");
+  const disk = r.findings.find(f => f.key === "log-disk-errors")!;
+  assert.equal(disk.severity, "problem");
+  assert.equal(disk.issueTypeId, "00000000-0000-4000-8000-000000000102");
+  assert.deepEqual(disk.action?.kind === "open" ? disk.action.section : null, "events", "the Drive health section is gone (D151)");
+  assert.equal(r.areas.find(a => a.area === "logs")!.state, "problem");
+  assert.ok(!r.areas.some(a => (a.area as string) === "storage"), "no drive health area");
+  assert.ok(!r.findings.some(f => f.key === "drive-health" || f.id.startsWith("drive-")), "nothing from SMART");
+  assert.ok(!bundleReads().some(b => b.operation === "disk.smart" || b.operation === "storage.health"), "the diagnosis does not ask for drive health");
 });
 
 test("reads that failed are 'could not check', never healthy", () => {
-  const e = { ...base(), smart: fail("no answer"), performance: fail("timeout"), services: fail("x") };
+  const e = { ...base(), systemLog: fail("no answer"), performance: fail("timeout"), services: fail("x") };
   const r = cabinetFindings(e);
   assert.ok(r.findings.every(f => f.certainty === "not_checked" && f.severity === "info"));
   for (const a of r.areas) assert.equal(a.state, "unknown", a.area);
@@ -110,7 +112,7 @@ test("hostile text from a cabinet is cleaned, cut and never trusted as a key", (
 
 test("garbage shapes do not throw", () => {
   const junk = { drives: null, services: null, devices: null, entries: null, volumes: null, installed: null, pending: null, byCpu: null, checks: null } as never;
-  const e: CabinetEvidence = { ...base(), smart: ok(junk), services: ok(junk), devices: ok(junk), systemLog: ok(junk), performance: ok({ cpu: {}, memory: {}, ...(junk as object) } as never), updates: ok(junk), peripheral: ok({ configured: true, connected: true, checks: null, hardwareIds: [] } as never), usb: ok(junk) };
+  const e: CabinetEvidence = { ...base(), services: ok(junk), devices: ok(junk), systemLog: ok(junk), performance: ok({ cpu: {}, memory: {}, ...(junk as object) } as never), updates: ok(junk), peripheral: ok({ configured: true, connected: true, checks: null, hardwareIds: [] } as never), usb: ok(junk) };
   assert.doesNotThrow(() => cabinetFindings(e));
 });
 

@@ -57,9 +57,6 @@ const checkList: Check[] = [
   { id: "listeners", label: "Ports listening and connections in use", operation: "network.listeners", params: {},
     summarize: o => { const l = arr(o.listeners), c = o.counts as Out; const ports = l.slice(0, 8).map(x => `${n(x.port)}${x.process ? ` (${String(x.process)})` : ""}`).join(", ");
       return { ok: l.length > 0, text: `${n(c.listening)} listening${ports ? `: ${ports}${l.length > 8 ? ", …" : ""}` : ""}; ${n(c.established)} connected, ${n(c.timeWait)} closing${o.truncated ? " (list cut short)" : ""}` }; } },
-  { id: "disk", label: "Drive health (SMART)", operation: "disk.smart", params: {},
-    summarize: o => { const d = arr(o.drives); const bad = d.filter(x => x.health !== "healthy" || x.predictFailure === true || n(x.pendingSectors) > 0 || n(x.uncorrectableErrors) > 0);
-      return { ok: d.length > 0 && bad.length === 0, text: d.length === 0 ? "No drive reported health data." : `${d.length} ${d.length === 1 ? "drive" : "drives"}: ${d.map(x => `${String(x.model ?? "drive")} ${String(x.health)}${x.reallocatedSectors ? `, ${n(x.reallocatedSectors)} reallocated sectors` : ""}`).join("; ")}. A healthy reading is not a guarantee: check the storage events too.` }; } },
   { id: "storage-log", label: "Disk errors in the System log", operation: "eventlog.query", params: { log: "System", levels: ["error", "critical"], source: "disk" },
     summarize: o => ({ ok: arr(o.entries).length === 0, text: newest(o) ?? "No errors from the disk driver in what the log returned." }) },
   { id: "scm-log", label: "Service Control Manager events", operation: "eventlog.query", params: { log: "System", levels: ["error", "warning"], source: "Service Control Manager" },

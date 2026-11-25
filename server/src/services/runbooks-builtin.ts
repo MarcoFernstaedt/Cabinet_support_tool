@@ -26,9 +26,8 @@ const scanner: RunbookBody = { title: "Fingerprint scanner problem", links: [], 
 ] };
 
 const drive: RunbookBody = { title: "Drive failing", links: [], steps: [
-  { title: "Read the drive's health", detail: "Failing, pending or uncorrectable sectors and a prediction of failure all mean the drive is on its way out. A healthy reading is not a guarantee.", check: { operation: "disk.smart", params: {} } },
   { title: "Back up what matters", detail: "Before anything else: make sure the cabinet's data is safe. Do not run disk repairs on a drive that is failing; they stress it." },
-  { title: "Look for the disk errors", detail: "Disk errors in the System log, close together, confirm the drive or its cable.", check: { operation: "eventlog.query", params: { log: "System", levels: ["error", "critical"], source: "disk" } } },
+  { title: "Look for the disk errors", detail: "Disk errors in the System log, close together, point at the drive or its cable.", check: { operation: "eventlog.query", params: { log: "System", levels: ["error", "critical"], source: "disk" } } },
   { title: "Plan the replacement", detail: "Book the swap with the site now and note it on the cabinet. Do not wait for the drive to fail completely." },
 ] };
 
@@ -85,7 +84,6 @@ const crash: RunbookBody = { title: "System crash (blue screen)", links: [], ste
   { title: "Open Crashes and restarts", detail: "It names the stop code, what changed in the three days before the first crash (updates, drivers, software) and puts them on a timeline." },
   { title: "Check for critical events", check: { operation: "eventlog.query", params: { log: "System", levels: ["critical"] } } },
   { title: "Is it one cabinet or many?", detail: "Open Incidents: if cabinets with the same update or driver are crashing and the others are not, that change is the suspect." },
-  { title: "Check the drive", check: { operation: "disk.smart", params: {} } },
 ] };
 
 const shutdown: RunbookBody = { title: "Unexpected shutdown or power loss", links: [], steps: [
@@ -110,7 +108,6 @@ export const BUILT_IN_RUNBOOKS: { target: RunbookTarget; body: RunbookBody }[] =
   { target: { kind: "issue", issueTypeId: ISSUE_IDS.scanner }, body: scanner },
   { target: { kind: "finding", key: "scanner-missing" }, body: scanner },
   { target: { kind: "issue", issueTypeId: ISSUE_IDS.drive }, body: drive },
-  { target: { kind: "finding", key: "drive-health" }, body: drive },
   { target: { kind: "issue", issueTypeId: ISSUE_IDS.diskSpace }, body: diskSpace },
   { target: { kind: "finding", key: "disk-space" }, body: diskSpace },
   { target: { kind: "issue", issueTypeId: ISSUE_IDS.clock }, body: clock },

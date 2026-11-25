@@ -91,25 +91,25 @@ test("Diagnose this cabinet: the scanner that is not detected comes first, with 
   assert.equal((await call("GET", `/api/cabinets/${k}/diagnose`, undefined, t1)).body.latest.id, started.body.diagnosisId);
   // The reads it issued are audited as the person's own, and nothing but reads went out.
   const ops = (await db.app.query<{ operation: string }>("SELECT DISTINCT operation FROM commands WHERE cabinet_id = $1 AND issued_by = $2", [k, t1.id])).rows.map(r => r.operation);
-  for (const op of ops) assert.ok(["system.info", "disk.smart", "system.performance", "peripheral.status", "usb.ports", "devices.list", "services.list", "updates.status", "time.status", "eventlog.query", "network.config", "firewall.state", "network.test", "network.trace", "database.connectivity"].includes(op), op);
+  for (const op of ops) assert.ok(["system.info", "system.performance", "peripheral.status", "usb.ports", "devices.list", "services.list", "updates.status", "time.status", "eventlog.query", "network.config", "firewall.state", "network.test", "network.trace", "database.connectivity"].includes(op), op);
   const audited = await db.app.query("SELECT 1 FROM audit_log WHERE action = 'diagnosis.start' AND actor_id = $1", [t1.id]);
   assert.equal(audited.rowCount, 1);
 });
 
-test("a drive that is failing and a clock that is wrong are found on the cabinets that have them", async () => {
+test("a drive that is failing (from Windows' own disk errors) and a clock that is wrong are found on the cabinets that have them", async () => {
   const t1 = await account("tier1");
   const pharmacy = (await cab("Pharmacy")).id;
   const s = await call("POST", `/api/cabinets/${pharmacy}/diagnose`, {}, t1);
   const d = await finished(`/api/cabinet-diagnoses/${s.body.diagnosisId}`, t1);
-  const drive = d.findings.find((f: { key: string }) => f.key === "drive-health");
-  assert.equal(drive?.severity, "problem");
-  assert.equal(d.findings[0].key, "drive-health", "a failing drive outranks everything else on it");
+  const drive = d.findings.find((f: { key: string }) => f.key === "log-disk-errors");
+  assert.equal(drive?.severity, "problem", JSON.stringify(d.findings.map((f: { key: string; severity: string }) => [f.key, f.severity])));
+  assert.ok(!d.findings.some((f: { key: string }) => f.key === "drive-health"), "no SMART finding (D151)");
   // The failing drive opened the cabinet's storage incident, linked to this run, by the platform (D16). It is recorded just after the run is stored.
   let storage: { symptom: string; opened_by_kind: string } | undefined;
   for (const end = Date.now() + 15_000; !storage && Date.now() < end; await new Promise(r => setTimeout(r, 200)))
     storage = (await db.app.query<{ symptom: string; opened_by_kind: string }>(
       `SELECT i.symptom, i.opened_by_kind FROM incidents i JOIN incident_links l ON l.incident_id = i.id AND l.kind = 'diagnosis' AND l.ref_id = $2
-        WHERE i.cabinet_id = $1 AND i.module_id = 'cabinet-storage' AND i.state = 'open'`, [pharmacy, s.body.diagnosisId])).rows[0];
+        WHERE i.cabinet_id = $1 AND i.module_id = 'cabinet-logs' AND i.state = 'open'`, [pharmacy, s.body.diagnosisId])).rows[0];
   assert.ok(storage, "no open storage incident linked to the diagnosis");
   assert.equal(storage.opened_by_kind, "system");
   const icu = (await cab("ICU")).id;

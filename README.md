@@ -2,8 +2,8 @@
 
 A remote diagnostics and monitoring platform for Mashura's medication cabinets (about 8,000 Windows cabinets in the field). It has two jobs:
 
-- **Diagnose without manual searching.** A support person opens a cabinet in the browser console and runs fixed, typed diagnostics: event logs, the fingerprint scanner checklist, devices and drivers, drive health, Windows updates, network tests and the firewall. Results come back in seconds, with no remote desktop.
-- **Be proactive.** Each cabinet's agent watches for errors, scanner problems, failing-drive warnings and firewall changes. It sends them to the server, which files them under issue types, raises major and minor alerts, and keeps every unrecognized error so the team can categorize it.
+- **Diagnose without manual searching.** A support person opens a cabinet in the browser console and runs fixed, typed diagnostics: event logs, the fingerprint scanner checklist, devices and drivers, Windows updates, network tests and the firewall. Results come back in seconds, with no remote desktop.
+- **Be proactive.** Each cabinet's agent watches for errors, scanner problems and firewall changes, and reports its free disk space. It sends them to the server, which files them under issue types, raises major and minor alerts, and keeps every unrecognized error so the team can categorize it.
 
 Changes to a cabinet are limited to a small, audited catalog of operations: network settings, firewall, approved driver and software packages, and signed agent upgrades. Each needs the right role and an authenticator code. Network and firewall changes are undone automatically if the cabinet loses the server.
 

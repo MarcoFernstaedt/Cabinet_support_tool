@@ -18,7 +18,7 @@ import { pruneOldConfigChanges } from "./config-ingest.js";
 import { pruneOldDiagnoses } from "../diagnose/diagnoses.js";
 import { pruneOldHealthTransitions } from "./cabinet-health.js";
 import { pruneClosedIncidents } from "./incidents.js";
-import { pruneOldDriveSamples } from "./drives.js";
+import { forecastFleet } from "./disk-forecast.js";
 import { dropRolledUpHealthSamples } from "./cabinets.js";
 
 /** On a check a person asks for, stop after this many entries: the whole log is the weekly, off-peak check's job. */
@@ -101,8 +101,6 @@ export async function pruneNotifications(db: Queryable, o: BatchOptions = RETENT
 export const HEALTH_RAW_HOURS = 48;
 /** Load samples are for trend charts only, so two weeks is all they are kept. */
 export const HEALTH_DAYS = 14;
-/** A drive's history is kept for 400 days: long enough to see a year of wear. */
-export const DRIVE_DAYS = 400;
 /** Cabinets handled together by the per-cabinet steps (40 cabinets × 96 samples a day stays under one batch). */
 const CABINET_CHUNK = 40;
 
@@ -111,15 +109,15 @@ const daysAgo = (n: number, now: number) => new Date(now - n * DAY);
 
 /**
  * Rolls load samples older than HEALTH_RAW_HOURS up into hourly rows (min, average, max) and removes them, then removes hourly rows past
- * HEALTH_DAYS and drive samples past DRIVE_DAYS. Done per group of cabinets, by the tables' primary keys (cabinet first), one short
+ * HEALTH_DAYS. Done per group of cabinets, by the tables' primary keys (cabinet first), one short
  * transaction per group. Returns the raw samples rolled up.
  */
-export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH): Promise<{ rolledUp: number; driveSamples: number }> {
+export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: BatchOptions = RETENTION_BATCH): Promise<{ rolledUp: number }> {
   // Whole hours only: the hour that holds the cut-off stays raw until the next run.
   const cut = new Date(Math.floor((now - HEALTH_RAW_HOURS * 3_600_000) / 3_600_000) * 3_600_000);
-  const healthCut = daysAgo(HEALTH_DAYS, now), driveCut = daysAgo(DRIVE_DAYS, now);
+  const healthCut = daysAgo(HEALTH_DAYS, now);
   const ids = (await pool.query<{ id: string }>("SELECT id FROM cabinets ORDER BY id")).rows.map(r => r.id);
-  let rolledUp = 0, driveSamples = 0;
+  let rolledUp = 0;
   for (let i = 0; i < ids.length; i += CABINET_CHUNK) {
     const part = ids.slice(i, i + CABINET_CHUNK), chunk = JSON.stringify(part);
     rolledUp += await transaction(pool, async c => {
@@ -139,17 +137,16 @@ export async function rollUpAndTrimSamples(pool: Pool, now = Date.now(), o: Batc
     });
     await inBatches(pool, "DELETE TOP ($1) FROM health_hourly WHERE cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($2)) AND [hour] < $3", [chunk, healthCut], o,
       { table: "health_hourly", cutoff: healthCut });
-    driveSamples += await pruneOldDriveSamples(pool, part, driveCut, o);
     await sleep(o.pauseMs);
   }
-  return { rolledUp, driveSamples };
+  return { rolledUp };
 }
 
 // Event retention, the clearing of old events' detail included, is events.ts's own (D75); re-exported for the callers that import it here.
 export { clearOldEventDetail, EVENT_DETAIL_DAYS } from "./events.js";
 
 export interface RetentionRun { events: number; eventsCleared: number; opsCounters: number; commandResults: number; alerts: number; firewallChanges: number; sessions: number; stepUpTokens: number;
-  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; driveSamples: number; notifications: number; configChanges: number; healthTransitions: number; incidents: number }
+  diagnoses: number; boots: number; jobs: number; healthRolledUp: number; notifications: number; configChanges: number; healthTransitions: number; incidents: number }
 
 /**
  * Removes events, resolved alerts, firewall history, diagnoses, boot records and finished fleet jobs past their retention, and clears old command results
@@ -189,7 +186,7 @@ export async function runRetention(pool: Pool, o: BatchOptions = RETENTION_BATCH
   // A closed incident is kept as long as a resolved alert (its steps and links go with it); an open one is never removed (incidents.ts, D74).
   const incidents = await pruneClosedIncidents(pool, cut(r.alertsDays), o);
   const run = { events, eventsCleared, opsCounters, commandResults, alerts, firewallChanges, sessions, stepUpTokens, diagnoses, boots, jobs, healthRolledUp: samples.rolledUp,
-    driveSamples: samples.driveSamples, notifications, configChanges, healthTransitions, incidents };
+    notifications, configChanges, healthTransitions, incidents };
   await transaction(pool, c => audit(c, { actorKind: "system", actorId: "retention", action: "retention.run", outcome: "succeeded", details: { ...run, retention: r } }));
   // Counts for the System health page: that it ran, and how many rows it removed or cleared per table (numbers only).
   opsMeter.count("retention", "ok");
@@ -234,6 +231,8 @@ export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, op
     await runRetention(pool).catch(() => { opsMeter.count("retention", "failed"); log("Retention failed to run."); });
     await closeStaleSecurityAlerts(pool).then(n => { if (n > 0) log(`Closed ${n} security alert(s) not seen again for 14 days.`); },
       () => log("Closing stale security alerts failed to run."));
+    // The free-space forecast for each reporting cabinet (D151): it used to follow the daily SMART report, which is gone.
+    await forecastFleet(pool, id => log(`The free-space forecast failed for cabinet ${id}.`)).catch(() => log("The free-space forecast failed to run."));
   };
   const plan = () => {
     const delay = Math.max(1_000, nextRunAt(at).getTime() - Date.now());

@@ -171,9 +171,9 @@ test("a forced scanner disconnect raises Fingerprint scanner problem, repeats fo
   assert.notEqual((next.outcomes[0] as { alertId: string }).alertId, o.alertId);
 });
 
-test("SMART warnings raise Drive failing; outside firewall changes raise Unexpected firewall change; platform ones do not", async () => {
+test("a SMART warning from an older agent is accepted and raises nothing (D151); outside firewall changes raise Unexpected firewall change; platform ones do not", async () => {
   const smart = await send(cab.b, { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(), severityHint: "minor", detail: { message: "Reallocated sectors." } });
-  assert.equal((smart.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.drive);
+  assert.deepEqual([smart.stored, smart.outcomes], [0, []]);
   const outside = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "major", detail: { message: "1 removed" } });
   assert.equal((outside.outcomes[0] as { issueTypeId: string }).issueTypeId, ISSUE.firewall);
   // A change only counts as the platform's when it names a firewall write this cabinet was sent; a made-up command ID is an outside change.
@@ -199,12 +199,14 @@ test("an unrecognized error is a minor alert keyed by log, source and event ID; 
 });
 
 test("the same issue on two cabinets at one site within the hour is a site-wide pattern; another site is not", async () => {
-  const smartA = await send(cab.a, { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(), severityHint: "minor", detail: {} });
+  const disk = () => errorEvent({ source: "disk", eventId: 7, message: "The device, \\Device\\Harddisk0\\DR0, has a bad block." });
+  await send(cab.b, disk());
+  const smartA = await send(cab.a, disk());
   const id = (o: { outcomes: unknown[] }) => (o.outcomes[0] as { alertId: string }).alertId;
   const flags = async () => (await db.app.query<{ cabinet_id: string; site_pattern: boolean }>(
     "SELECT cabinet_id, site_pattern FROM alerts WHERE issue_type_id = $1 AND state <> 'resolved'", [ISSUE.drive])).rows;
   assert.ok((await flags()).filter(f => f.cabinet_id === cab.a || f.cabinet_id === cab.b).every(f => f.site_pattern), "a and b are both at North");
-  await send(cab.far, { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(), severityHint: "minor", detail: {} });
+  await send(cab.far, disk());
   assert.equal((await flags()).find(f => f.cabinet_id === cab.far)!.site_pattern, false);
   assert.ok(id(smartA));
 });

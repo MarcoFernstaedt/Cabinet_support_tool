@@ -587,7 +587,8 @@ test("shutdown ends every held poll with a spread-out reconnectAfterMs, then clo
 
 test("gzip event batches are accepted; past 1 MB after decompression they get 413; other encodings 415", async () => {
   const cab = await enrolledCabinet();
-  const ev = () => ({ eventId: randomUUID(), kind: "smart_warning", occurredAt: "2026-10-06T12:00:00Z", severityHint: "minor", detail: { message: "Drive warning." } });
+  let rec = 9100;
+  const ev = () => ({ eventId: randomUUID(), kind: "error", occurredAt: "2026-10-06T12:00:00Z", severityHint: "minor", source: { log: "System", source: "Weird", eventId: 9, level: "error", recordId: rec++ }, detail: { message: "x" } });
   const batch = { events: [ev(), ev()] };
   const gz = (v: unknown) => gzipSync(Buffer.from(typeof v === "string" ? v : JSON.stringify(v)));
   const ok = await call("POST", "/agent/v1/events", undefined, cab, { data: gz(batch), headers: { "content-encoding": "gzip" } });

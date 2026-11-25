@@ -46,7 +46,7 @@
 
   Each figure comes from the latest stored read (`system.hardware`, `system.info`, `system.performance`) or the latest heartbeat load sample, with how long ago it was read. "Read now" asks the cabinet again. `GET /api/cabinets/:id/summary`, Tier 1 and up. Meters turn amber at 85% used and red at 95% (92% for a drive).
 - A jump control opens any cabinet at another site or another client without going back up the hierarchy.
-- Sections: overview, alerts, event logs, devices and drivers, fingerprint scanner, Windows updates, drive health, network, firewall, software, files, command history.
+- Sections: overview, alerts, event logs, devices and drivers, fingerprint scanner, Windows updates, network, firewall, software, files, command history.
 - Write actions appear only for Tier 2 and Admin, and are hidden on read-only cabinets. Each one opens a confirmation that states exactly what will change on which cabinet, then asks for the authenticator code.
 - Opening a cabinet view is recorded in the audit log.
 

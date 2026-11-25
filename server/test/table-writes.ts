@@ -27,11 +27,12 @@ export function statementRest(text: string, from: number): string {
   return text.slice(from, end);
 }
 
-/** The tables the migrations create. */
+/** The tables the migrations leave: each created one, unless a later migration drops it (0040 dropped the drive tables, D151). */
 export function migrationTables(migrationsDir: string): Set<string> {
   const out = new Set<string>();
-  for (const f of readdirSync(migrationsDir).filter(n => n.endsWith(".sql")))
-    for (const m of readFileSync(join(migrationsDir, f), "utf8").matchAll(/CREATE TABLE \[?([a-z_0-9]+)\]?/gi)) out.add(m[1]!.toLowerCase());
+  for (const f of readdirSync(migrationsDir).filter(n => n.endsWith(".sql")).sort())
+    for (const m of readFileSync(join(migrationsDir, f), "utf8").matchAll(/(CREATE|DROP) TABLE \[?([a-z_0-9]+)\]?/gi))
+      if (m[1]!.toUpperCase() === "CREATE") out.add(m[2]!.toLowerCase()); else out.delete(m[2]!.toLowerCase());
   return out;
 }
 

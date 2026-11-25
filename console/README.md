@@ -15,7 +15,6 @@ The support console from docs/spec/06-console-spec.md: React 19 and TypeScript, 
   - **Fingerprint scanner:** the automated troubleshooting checklist, and likely scanners with "Use as this cabinet's scanner".
   - **Devices and drivers**
   - **Windows updates**
-  - **Drive health**
   - **Network:** adapter settings, with one-button tests to the gateway, DNS servers, the sync cabinet and the platform server. Edit IP settings and Edit DNS (Tier 2 and Admin).
   - **Firewall:** profiles with a countdown while one is temporarily off, and every rule with filters. Tier 2 and Admin can turn a profile off for a set time, turn it on, and add, edit, enable, disable or delete rules with a structured form. Snapshots can be restored, and the firewall history shows every change: through the platform (and by whom) or from outside.
   - **Software:** approved packages that match the cabinet's hardware, with Install (Tier 2 and Admin). The answer names the exact check that failed, if one did.

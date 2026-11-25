@@ -6,6 +6,52 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D151. SMART and drive risk are removed; free space is kept (2026-11-25)
+
+**Asked:** the owner keeps free space only: "all we can get from the hard drive is the amount of space left". SMART cannot be read on
+every drive. NVMe drives answer only through their own log, drives behind a USB bridge or a RAID controller often answer nothing, and
+no SMART read had been recorded on a real cabinet. So the risk class built on it was not worth keeping.
+
+**Removed from the server and console.**
+- **Data:** the drive history and per-drive status (`drives.ts`, tables `drive_samples` and `drive_status`, dropped by migration
+  `0040_remove_drive_health.sql`).
+- **Risk rules:** the risk class and its rules (`trends.ts` keeps only the slope arithmetic), and the Admin thresholds (settings,
+  their contract, Admin › Safety).
+- **Views and the diagnosis:** the cabinet's Drive health section, the fleet's drives-at-risk list, the cabinet diagnosis's SMART
+  step and its module, the runbook's SMART steps, the SMART check, the crash view's SMART lines and the demo's SMART data.
+- **Requests:** the server refuses to issue `disk.smart` or `storage.health` (`RETIRED_OPERATIONS` in `commands.ts`), so nothing
+  asks for them again.
+
+**Kept.**
+- **The free-space forecast** moves to `disk-forecast.ts`. It used to run only when a cabinet's daily SMART report arrived, so
+  removing SMART would have stopped it. It now runs from the daily job for each cabinet that sent a load sample in the last two
+  days.
+- **Windows' own disk and file-system errors** from the System log stay a storage problem. They now open the event logs.
+- **The drive issue type** stays, for the alerts it already raised.
+
+**Older agents.** Agent 0.3.1 still reads SMART once a day, sends the report on a heartbeat and queues a `smart_warning` when a drive
+predicts failure. The contracts still accept both, so no cabinet's heartbeat or events are refused. The server keeps neither: the
+report is not stored, the event is dropped at ingest, and the built-in rule that mapped it to Drive failing is disabled with its
+history row (0040).
+
+**Not in this change: the agent.** Removing the agent's two operations, its daily check and the heartbeat field needs the agent to
+compile. This container cannot restore its packages: NuGet cannot reach the certificate revocation lists through the proxy, and
+relaxing that check is not done. It is plan item 4.16, and the contract entries go when no agent before it remains.
+
+**Proven:** `server/test/disk-forecast.test.ts` (4 tests).
+- The daily job raises the forecast alert for a filling drive, keeps it one alert on a second run, and resolves it once the drive
+  stops filling, audited as automatic.
+- A cabinet silent for two days, or removed, is not forecast.
+- An old agent's SMART report and `smart_warning` are accepted, stored nowhere, and open no alert.
+- Both SMART reads are refused.
+- 0040 dropped both tables, disabled rule 202 and removed the thresholds.
+
+A drive-thresholds body to the settings route is refused by the contract (`invalid/drives-removed.json`). The cabinet findings test
+checks that disk errors from the log still make the storage problem, and that the diagnosis no longer asks for drive health. The full
+local gate is in the PR.
+
+---
+
 ## D150. The repository consolidated and pruned (2026-11-25)
 
 **Asked:** the owner asked for the repository, its documents and READMEs to be consolidated and pruned before more building:
