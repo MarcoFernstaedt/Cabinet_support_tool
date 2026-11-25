@@ -8,7 +8,7 @@ import { Badge, StepUpDialog } from "../../components/ui";
 import { useLoad } from "../../lib/useLoad";
 import { fullTime } from "../../lib/time";
 import type { KnownClient } from "./Admin";
-import { documentBytes, entryKey, entryProblem, readSignatureFile, toEntry, type AppEntry, type AppList } from "../../lib/approved-apps";
+import { documentBytes, entryKey, entryProblem, entryWarning, readSignatureFile, toEntry, type AppEntry, type AppList, type EntryCheck } from "../../lib/approved-apps";
 import { useEverySiteCabinet } from "../../lib/useEverySiteCabinet";
 import type { SitePage } from "../../lib/site-cabinets";
 type Level = "fleet" | "client" | "site" | "cabinet";
@@ -76,7 +76,7 @@ export function ApprovedApps() {
 
 function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Level; scopeId: string | null }) {
   const data = useLoad<{ own?: AppList | null; ownRejected?: boolean; ownPending?: AppList | null; fleet: AppList | null; fleetRejected?: boolean;
-    fleetPending?: AppList | null; signing?: { enabled: boolean } }>(endpoint);
+    fleetPending?: AppList | null; signing?: { enabled: boolean }; checks?: EntryCheck[] }>(endpoint);
   const live = level === "fleet" ? data.data?.fleet ?? null : data.data?.own ?? null;
   const pendingList = (level === "fleet" ? data.data?.fleetPending : data.data?.ownPending) ?? null;
   const signingOn = data.data?.signing?.enabled === true;
@@ -114,7 +114,11 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
           <thead><tr><th scope="col">Name</th><th scope="col">Kind</th><th scope="col">Program</th><th scope="col"><span className="sr-only">Remove</span></th></tr></thead>
           <tbody>{list.map(e => (
             <tr key={e.key}><th scope="row">{e.name}</th><td>{e.kind === "service" ? <>Service <code>{e.serviceName}</code></> : "Application"}</td>
-              <td><code className="wrap">{e.path}</code></td>
+              <td><code className="wrap">{e.path}</code>
+                {/* The server checked the saved entry; an unsaved edit of it is not what it checked, so it gets no warning until saved. */}
+                {e.kind === "service" && own?.entries.map(toEntry).some(x => JSON.stringify(x) === JSON.stringify(e)) && (() => {
+                  const w = entryWarning(data.data?.checks?.find(c => c.key === e.key), e.serviceName ?? "");
+                  return w && <p className="notice warn small" role="note">{w}</p>; })()}</td>
               <td><button className="btn small ghost" onClick={() => setEntries(list.filter(x => x.key !== e.key))}>Remove</button></td></tr>))}
           </tbody></table></div>)}
       <form className="stack" onSubmit={ev => { ev.preventDefault(); if (draftProblem === null && draft.name) { setEntries([...list, candidate]); setDraft({ key: "", kind: "application", name: "", path: "" }); } }}>
@@ -126,6 +130,7 @@ function ListEditor({ endpoint, level, scopeId }: { endpoint: string; level: Lev
               <option value="application">Application</option><option value="service">Windows service</option></select></label>
           {draft.kind === "service" && <label className="field"><span>Service key name</span><input value={draft.serviceName ?? ""} maxLength={80} onChange={e => setDraft({ ...draft, serviceName: e.target.value })} placeholder="BioScanSvc" /></label>}
         </div>
+        {draft.kind === "service" && <p className="muted small">A cabinet uses a service entry only when it has a service with this key name (not the display name) and that service runs the program at this path.</p>}
         <label className="field"><span>Full path to the program (.exe)</span><input value={draft.path} maxLength={260} onChange={e => setDraft({ ...draft, path: e.target.value })} placeholder="C:\Program Files\Vendor\scanner.exe" /></label>
         <div className="row gap wrap"><button className="btn" disabled={!draft.name || draftProblem !== null}>Add to the list</button>
           {draftProblem && <span className="error">{draftProblem}</span>}</div>
