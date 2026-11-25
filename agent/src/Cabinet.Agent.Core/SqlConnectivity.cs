@@ -15,7 +15,7 @@ namespace Cabinet.Agent.Core;
 /// database.connectivity: does a SQL Server answer on the sync cabinet? Step by step: a TCP connection, a TDS pre-login (the first
 /// message any SQL client sends, before any login), and the TLS handshake that SQL Server runs inside TDS, to read the certificate it
 /// presents. That is where it stops. No credential is sent, no login is made, no query runs, and nothing is written over the TLS
-/// session (docs/spec/18-built-designs.md §2, decision 7). It runs in the unprivileged network service: the broker never
+/// session (docs/spec/18-built-designs.md section 2, decision 7). It runs in the unprivileged network service: the broker never
 /// opens a network connection.
 ///
 /// The server at the other end is treated as hostile input: every packet's length is checked against a fixed cap, every option's
