@@ -61,6 +61,16 @@ The files: spec 02, 05, 07, 08, 11, 17, the root, server, agent, deploy and cont
 The contracts README no longer calls the upgrade trust list empty: it holds the operator's release key. The platform index lists
 `agent-release-signing.md`, and every relative Markdown link in the repository resolves.
 
+**5. Dead code, and what the owner no longer wants.**
+- **Unused symbols.** A scan for TypeScript exports that nothing references found four in modules the server runs:
+  `SITE_SYNC_PORTS_MAX`, `FACTS_ACTION`, `rejectionText` and `usbPolicyMemory`. They are removed. The other 403 exports used only
+  inside their own file are left exported, which changes no behaviour.
+- **The sync-path sampler.** The scan also found server code that the running server never reaches, only its tests. The sync-path
+  sampler is the first case (`pathhealth-targets`, `-analysis`, `-correlation`, `-contracts`, their two tests and two schemas).
+  The owner removed it: "as long as firewalls are disabled, it should all be fine". The on-demand network diagnosis stays.
+  Spec 18 §3 records the decision and keeps the target rules the on-demand tests rely on.
+
+
 ---
 
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)

@@ -32,9 +32,6 @@ import {
 /** The last policy that validated at each level, for the life of the process (usb-policy.ts explains what it is for). */
 const memory = new UsbPolicyMemory();
 
-/** The server's memory of validated policies. Exported for the heartbeat path, which resolves per unit. */
-export const usbPolicyMemory = (): UsbPolicyMemory => memory;
-
 /**
  * The four rows for a cabinet in one read, which is what runs on every heartbeat: the cabinet's own policy, its site's,
  * its client's and the fleet's, ids lowered to match the keys written below.

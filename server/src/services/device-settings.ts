@@ -71,9 +71,6 @@ export async function syncPortsForSite(db: Queryable, siteId: string): Promise<S
   return { site: r.s, client: r.c, fleet, effective: pick[0] as number[], source: pick[1] as PortsSource };
 }
 
-/** The most sync ports a site may be given: the same limit pathhealth-targets.ts and the agent's own validator use. */
-export const SITE_SYNC_PORTS_MAX = 4;
-
 /** What a cabinet's sync tests use: a satellite's live sync cabinet's address (none for any other role), and its site's ports. */
 export async function syncForCabinet(db: Queryable, cabinetId: string): Promise<SyncLevels | null> {
   const site = (await db.query<{ site_id: string }>("SELECT site_id FROM cabinets WHERE id = $1", [cabinetId])).rows[0]?.site_id;

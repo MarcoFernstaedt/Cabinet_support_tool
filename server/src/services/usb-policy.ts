@@ -202,17 +202,6 @@ export function withUsbDefaults(policy: UsbPolicy): UsbPolicy {
 
 export type UsbStoreRejection = "empty" | "not_json" | "not_an_object" | "no_version" | "bad_version" | "unknown_field" | "policy_invalid";
 
-/** A reason a level's row was not used, in words, for a log line. */
-export const rejectionText = (reason: UsbStoreRejection): string => ({
-  empty: "nothing is set at this level",
-  not_json: "the stored value is not JSON",
-  not_an_object: "the stored value is not an object",
-  no_version: "the stored value carries no version",
-  bad_version: "the stored version is not a whole number of at least 1",
-  unknown_field: "the stored value carries a field this version does not know",
-  policy_invalid: "the stored policy does not meet the contract",
-})[reason];
-
 export type UsbStoredCheck = { ok: true; stored: UsbStoredPolicy } | { ok: false; reason: UsbStoreRejection; issues?: UsbValidationIssue[] };
 
 /**

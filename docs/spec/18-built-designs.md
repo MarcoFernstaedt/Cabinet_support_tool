@@ -85,37 +85,24 @@ The engine's six phases are the roadmap's phases split a second way, not extra p
 | 5. Extended | 5 |
 | 6. Intelligence | 6 |
 
-## §3 Sync-path health
+## §3 Network targets, and no background sampling
 
-**The gap.** Ping and TCP loss were measured on demand only, so a diagnosis after an outage showed the path now. It could not
-say whether loss happened during the lost-sync window, or separate ICMP filtering from a failing application path.
+**Decided 2026-11-25 (D150): no periodic sampling.** A server half was built for a satellite to sample loss to its sync cabinet
+and the platform on a schedule. The owner removed it: with the cabinet firewalls off, a sync failure is not worth a standing
+probe. The network diagnosis stays on demand (docs/spec/16-network-troubleshooting.md). A person runs it when something is wrong.
 
-- **Bounded periodic samples** from each satellite to its approved same-site sync endpoint and to the platform: an ICMP echo
-  series where policy permits, paired with TCP connects to the known sync port and the platform's HTTPS port. Stored per
-  sample: time, endpoint, attempts, successes, timeouts, refusals, RTT min/avg/max and jitter, and the cabinet's heartbeat
-  and sync state at that time.
-- **Reading the samples.**
-  - ICMP silence with TCP succeeding is inconclusive (filtering), never "loss".
-  - A TCP connect failure ratio is not IP packet loss.
-  - No replies means jitter and RTT are null, not zero.
+What stays from the design, because the on-demand tests rely on it:
 - **Never a scanner.**
   - Only the four existing target kinds.
   - The server fills the sync address and ports from the site setting, never the browser.
-  - No arbitrary hosts or ports; a durable per-cabinet probe budget; jittered cadence; no privileged capture.
+  - No arbitrary hosts or ports, and no privileged capture.
   - Two holes this closed: `network.trace` took a browser-supplied LAN target where `network.test` refilled it on the
-    server; and a fallback sync or platform *name* resolved through the system resolver without the resolved address
-    being checked again.
-- **Diagnosis.** Findings on the path model (link, address, gateway, DNS, platform, sync cabinet, firewall):
-  - loss above a threshold during the sync-failure window;
-  - a sync port refused with clean ICMP (the listener or the application, not the network);
-  - a clean path with failing sync;
-  - asymmetric satellite-to-sync against sync-to-platform.
-
-  Each says what was seen and what it often means, with confidence, never a verdict.
-- **Data-lite mode shrinks payload and frequency, never the alerting contract.** It keeps heartbeat, identity and version,
-  command flow, critical security events, health transitions, incident-triggering events, and the reboot, crash and disk
-  thresholds. Inventories and lists go only on change, on incident, or on request, with dropped counts recorded so a
-  missing sample is never read as health. Sync-path samples are tiny and stay in both modes.
+    server; and a fallback sync or platform *name* resolved through the system resolver without the resolved address being
+    checked again.
+- **Reading a test.**
+  - ICMP silence with TCP succeeding is inconclusive (filtering), never "loss".
+  - A TCP connect failure ratio is not IP packet loss.
+  - No replies means jitter and RTT are null, not zero.
 - **Peers** are suggested by the server only, from topology it already holds. The agent does no discovery scanning.
 
 ## §4 The file-facts read

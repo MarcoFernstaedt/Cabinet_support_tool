@@ -22,7 +22,6 @@ export type AllowlistLevel = "fleet" | "client" | "site" | "cabinet";
 export const ALLOWLIST_LEVELS: readonly AllowlistLevel[] = ["cabinet", "site", "client", "fleet"];
 export const ALLOWLIST_ACTION = "filefacts.allowlist";
 export const READ_ACTION = "filefacts.read";
-export const FACTS_ACTION = "filefacts.path";
 /** The settings row that holds the fleet's list, next to the other fleet defaults. */
 export const ALLOWLIST_SETTING_KEY = "filefacts.paths";
 /** The column each scope carries its own list in. */
