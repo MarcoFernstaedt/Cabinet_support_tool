@@ -1,4 +1,4 @@
-// The read request and its budgets (docs/platform/archive/improvement-plan.md section 5): how a list becomes a fixed plan of named paths,
+// The read request and its budgets (docs/spec/18-built-designs.md §4): how a list becomes a fixed plan of named paths,
 // and the caps a cabinet is held to. Pure, no database.
 import test from "node:test";
 import assert from "node:assert/strict";

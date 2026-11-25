@@ -1,4 +1,4 @@
-// The path allowlist itself (docs/platform/archive/improvement-plan.md section 5): what may be stored, what a stored value has to prove
+// The path allowlist itself (docs/spec/18-built-designs.md §4): what may be stored, what a stored value has to prove
 // before it is used, and which level wins for a cabinet. Pure: no database here, so the statements the storage layer runs are not
 // exercised against a real SQL Server by this file.
 import test from "node:test";

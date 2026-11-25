@@ -1,4 +1,4 @@
-// Incident records (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 6): read only, Tier 1 and up, always
+// Incident records (docs/spec/18-built-designs.md §2, item 6): read only, Tier 1 and up, always
 // within one cabinet so a record is never reached through another cabinet's page. Every query string is checked against its contract
 // first. A person named in a record is shown by name; one no longer in the platform shows as "a removed account".
 import type { FastifyInstance } from "fastify";

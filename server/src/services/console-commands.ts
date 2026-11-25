@@ -61,7 +61,7 @@ export async function issueFromConsole(pool: Pool, user: { userId: string; role:
   if (operation === "network.test" || operation === "network.trace" || operation === "database.connectivity") {
     // Only the console's settings may name the sync cabinet (the site's address; the site's, else the client's, else the fleet's ports);
     // anything the browser sent is replaced. The database check always aims at the sync cabinet. A trace takes the address only: left to
-    // the browser it would be a reachability probe of any private address on the cabinet's network (audit-network.md item 7).
+    // the browser it would be a reachability probe of any private address on the cabinet's network (spec 18 §3).
     delete filled.syncAddress;
     delete filled.syncPorts;
     if (operation === "database.connectivity" || filled.target === "sync_cabinet") {

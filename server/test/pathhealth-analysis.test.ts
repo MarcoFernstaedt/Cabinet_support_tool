@@ -1,4 +1,4 @@
-// Sync-path target selection, retention, aggregation and correlation (docs/platform/archive/improvement-plan.md §4 B2–B4).
+// Sync-path target selection, retention, aggregation and correlation (docs/spec/18-built-designs.md §3).
 // Pure functions: no database, no network, no clock of their own (the time is passed in, so every expectation below is exact).
 //
 // The tests that matter most are the negative ones: a name is never a sync target, a resolved address that is not the approved one is

@@ -1,5 +1,5 @@
 // The correlation the console actually asks for: "was there loss or a timeout while the sync was failing?"
-// (docs/platform/archive/improvement-plan.md §4 B3/B4; docs/platform/research/2026-10/audit-network.md §10).
+// (docs/spec/18-built-designs.md §3).
 //
 // The rule that matters most here is a negative one: ICMP silence is not loss. If a TCP connect to the same address succeeded, the
 // address is reachable, so the silence is packet filtering and saying "loss" would send a technician to replace a working cable.

@@ -1,5 +1,5 @@
 // Which destinations the platform is allowed to sample, and the re-validation of anything that had to be resolved
-// (docs/platform/archive/improvement-plan.md §4 B2; docs/platform/research/2026-10/audit-network.md findings 7 and 8).
+// (docs/spec/18-built-designs.md §3).
 //
 // Two rules hold this file together:
 //   1. A target is built by the server from settings only. There is no parameter here that names a host or a port, so neither the

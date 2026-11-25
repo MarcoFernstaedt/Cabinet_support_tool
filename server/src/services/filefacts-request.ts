@@ -1,5 +1,5 @@
-// The read request the platform builds from a cabinet's allowlist, and the budgets it is held to (docs/platform/archive/improvement-plan.md
-// section 5). The cabinet is never asked to find a file: the platform resolves the list into a fixed plan of named paths, caps how
+// The read request the platform builds from a cabinet's allowlist, and the budgets it is held to (docs/spec/18-built-designs.md
+// §4). The cabinet is never asked to find a file: the platform resolves the list into a fixed plan of named paths, caps how
 // many files, how many bytes and how long the read may take, and rate-limits how often one cabinet may be asked at all.
 //
 // The three caps are here rather than in the contract on purpose. The JSON Schema carries the envelope's hard ceiling, which is
