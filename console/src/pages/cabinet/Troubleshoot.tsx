@@ -39,7 +39,6 @@ const PLAYBOOKS: Playbook[] = [
   { id: "slow", symptom: "The computer is slow, or the application freezes",
     steps: [
       { check: "perf", why: "One sample of processor, memory, free space and drive busy time, with the busiest programs. Read it twice, a few seconds apart, before deciding." },
-      { check: "disk", why: "A drive that is failing makes everything slow long before it fails outright." },
       { check: "storage-log", why: "Disk errors and retries in the System log back up a slow drive." },
       { check: "scm-log", why: "Services timing out or restarting over and over can be the load itself." },
     ], next: [{ to: "processes", label: "Processes" }, { to: "events", label: "Event logs" }] },
@@ -60,7 +59,6 @@ const PLAYBOOKS: Playbook[] = [
     ], next: [{ to: "updates", label: "Windows updates" }, { to: "devices", label: "Devices and drivers" }] },
   { id: "disk", symptom: "The hard drive may be failing",
     steps: [
-      { check: "disk", why: "Health, reallocated and pending sectors and uncorrectable errors. Healthy here is not a guarantee." },
       { check: "storage-log", why: "Disk and controller errors in the log are the second opinion." },
       { check: "perf", why: "A drive that is busy all the time with a long queue is struggling." },
     ], next: [{ to: "events", label: "Event logs" }] },
