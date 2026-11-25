@@ -928,7 +928,7 @@ Answered by the owner (2026-10-29): no. Every module applies to every client's c
 
 ## Checking the CI SQL Server Express installer (2026-11-01)
 
-Open, not built. The owner agreed the Windows CI job should check the SQL Server Express installer before running it as administrator: a valid Authenticode signature from Microsoft, and a SHA-256 pinned in the repository. It waits on two things: the real file's hash (download.microsoft.com and community.chocolatey.org are not reachable from the build container), and a CI run to prove the changed install, with GitHub Actions on hold. Reasoning in docs/platform/decision-log.md, D2.
+Open, not built. The owner agreed the Windows CI job should check the SQL Server Express installer before running it as administrator: a valid Authenticode signature from Microsoft, and a SHA-256 pinned in the repository. It waits on two things: the real file's hash (download.microsoft.com and community.chocolatey.org are not reachable from the build container), and a CI run to prove the changed install, which Actions can now give. Reasoning in docs/platform/decision-log.md, D2.
 
 
 ## What opens an incident (2026-11-03)

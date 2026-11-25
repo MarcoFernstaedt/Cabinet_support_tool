@@ -604,9 +604,9 @@ order they are being fixed.
   back in time and sometimes not; how long Windows takes has not been measured. Changed, not proven (decision D1 in
   [decision-log.md](decision-log.md)): each connection now gets the single test's 5 seconds, a refusal ends the series, and two
   tries in a row with no answer end it, as does an 80-second budget; `statistics.sent` is the connections actually tried. The test is strict again on every
-  platform and asserts one try for a refused port. **Not yet proven on Windows:** GitHub Actions is on hold, so the strict test
-  has run only on Linux, where a refusal comes back at once. 5 seconds is more room, not a measured bound: if the delay can
-  run past it, the strict test fails on Windows again.
+  platform and asserts one try for a refused port. **On Windows** the strict test passed in "Core tests on Windows" at `e8cd887`
+  (job 136864014813). 5 seconds is more room, not a measured bound: if the delay can run past it, the strict test fails on
+  Windows again.
 - [x] **A network diagnosis against a sync cabinet that answers nothing runs past its one-minute limit.** Fixed (D11): the
   limit is two minutes, and the plan never asks for more than the agent's 10 network tests a minute. Worked out from the
   limits, not measured: a 10-request ping series with no replies takes 20.9 s and four silent port series 41.2 s (44.8 s

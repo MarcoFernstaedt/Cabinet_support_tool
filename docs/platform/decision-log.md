@@ -6,6 +6,50 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D146. No live document says GitHub Actions is on hold (2026-11-23)
+
+**Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and
+`main` is green on it. Two live sentences on `main` still said it could not run.
+
+**The change.**
+- `remaining-phases.md`: the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
+  Windows", job 136864014813, at `e8cd887`. The item stays open, because one run is not a measured bound.
+- D19's note on the Kernel-Power fields now reads as the development branch has it (`a01e71e`).
+- D1's last line names the same Windows run.
+- Spec 09, on checking the CI SQL Server installer: the CI run that item waits on can be had now. D2's own reasons are left as
+  written, as the record of that day.
+
+The archived reports in `docs/platform/archive/` are left as written: they record what was true then.
+
+**Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
+dated and left as written.
+
+---
+
+## D145. The demo suite answers its time commands itself and waits for the simulator to stop (2026-11-23)
+
+**Asked:** item 1.1 of docs/platform/plan-to-completion.md. The fix was made on the development branch in `a01e71e`, together with
+document changes and a sweep runner. Only the test change comes to `main` here.
+
+**What was wrong.** The time test let the simulator answer its commands. The simulator's heartbeat sweep reads a cabinet's time zone
+and clock, then writes them. A sweep that read them before the test's fix wrote the old zone back afterwards. The zone alert then
+reopened, or never closed, and the test timed out waiting for it. Other demo tests stopped the simulator without waiting for a
+sweep in progress, so its writes could land in the next test.
+
+**The change (`server/test/demo.test.ts` only).**
+- The time test takes each command from the queue itself, has `answer` run it to the end, and checks the stored result. No sweep
+  runs beside it.
+- Each test that starts the simulator awaits `settled()` after `stop()`.
+
+No product code changes.
+
+**Proven:**
+- A heartbeat changed for the proof only waits until the cabinet's zone or clock changes and then writes what it read. With it,
+  the old test failed 1 of 3 runs with "timed out waiting for the zone alert to close", and the new test passed 3 of 3.
+- The full local gate is in the PR.
+
+---
+
 ## D144. The remaining open choices, taken as recommended (2026-11-23)
 
 **Asked:** the owner said to take the best choice on every question still open, keep the documents current, and plan the rest
@@ -4990,7 +5034,7 @@ early and still returns the tries it made. Nothing in the product asks for more 
   the budget's edge and that it stays under the operation limit; both budget mutants were caught. That the loop consults
   the budget is not covered by a test: it would need a real series of more than 80 seconds.
 - Agent Core suite: 791 passed on Linux.
-- **Not proven on Windows yet.** GitHub Actions is on hold; the next Windows run is the proof.
+- **On Windows:** the strict test passed in "Core tests on Windows" at `e8cd887` (job 136864014813). One run, not a bound.
 
 ---
 
