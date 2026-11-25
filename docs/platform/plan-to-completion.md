@@ -62,7 +62,7 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 | 2.1 | F21.R4: measure the fleet views not yet measured at 10,000 cabinets and fix any that scan raw rows | `server/test/fleet-views-at-scale.bench.ts` | the bench, and a plan or reads test per fix | 2 to 3 |
 | 2.2 | F7: process and task expectations as role baseline items (D142) | `baselines`, the Differences view | a seeded cabinet whose stored answer misses an item shows the difference; the test fails without the judge | 2 to 3 |
 | 2.3 | Fleet incident correlation (the owner's top ask): one incident with its sites and cabinets, the attributes they share, the errors that come with it, what it is tied to | on `crashes.ts`, `crash-clusters.ts`, `fleet-patterns.ts` | a seeded fleet sharing exactly one attribute; a test that fails without the shared-attribute step | 3 to 5 |
-| 2.4 | Drives: crashes linked to degrading drives | `trends.ts`, `drives.ts` | a test over seeded readings | 1 to 2 |
+| 2.4 | **Changed by the owner** (D150): remove SMART and drive risk; keep free space, its low-space alert and its forecast. Older agents' SMART events and answers stay accepted and are ignored until the fleet is upgraded | agent, contracts, server, console | a 0.3.1 event batch carrying a SMART warning is still accepted; nothing raises a drive-risk alert | 2 |
 | 2.5 | Fleet update compliance: which cabinets are behind, which lack a named update | `readings.ts`, `compare.ts` | a seeded fleet view test | 2 |
 | 2.6 | Site readiness: the per-site assembly of the checklist, a verdict, a schedule; unknown never ready | `checks.ts`, `cabinet-health.ts` | a site with one unknown check is not ready | 2 to 3 |
 | 2.7 | **Built** (D149, branch `feat/approved-entry-matches`). Approved programs: flag an entry no cabinet can match where it is written, and say the rule (key name and the running program) | console approved-programs editor | an unmatched entry is flagged | 1 to 2 |
@@ -96,10 +96,7 @@ TypeScript in one PR.
 | 4.6 | Packet capture, Admin only, 60 s, one host or port | 2 |
 | 4.7 | AMT / vPro detection | 1 |
 | 4.8 | Agent restart by an operator, the agent half (through the broker) | 1 |
-| 4.9 | Drivers and packages: repair (`msiexec /f`), uninstall a program, staged rollouts for packages | 3 |
-| 4.10 | NVMe counters, with their storage cost per cabinet per day stated | 1 |
 | 4.11 | `updates.install` for approved updates, staged per site, restarting only in the window (D144) | 2 to 3 |
-| 4.12 | Per-model scanner profiles. First collect the real models and ports from the fleet; no guessed list | 2 |
 | 4.13 | TPM-held agent keys through Windows' platform key provider (D143) | 2 |
 | 4.14 | On-demand ETW tracing, last | 2 |
 | 4.15 | Split `AgentConnection.cs` | 1 |
@@ -134,6 +131,13 @@ TypeScript in one PR.
 | Motherboard re-imaging | needs its own spec first |
 | An independent penetration test | reopened only if a client requires one (D143) |
 
+**Dropped by the owner on 2026-11-25** (D150), so not built:
+- background sampling of the path to the sync cabinet (the on-demand network diagnosis stays);
+- reading file details on a cabinet: the file-facts read, and F11 file staleness;
+- more driver work: driver rollout, rollback and repair, per-model scanner profiles, publishers per vendor (were 4.9, 4.12, F19,
+  F5). The built package library stays, and scanner troubleshooting is service control and the USB watch;
+- SMART beyond free space: NVMe counters, and crashes linked to degrading drives (were 4.10 and 2.4).
+
 ## 8. Findings outside the owner's order (not scheduled)
 
 The owner's brief of 2026-11-07 set findings F1 to F23. On 2026-11-15 the owner reordered the work by what the fleet needs, and the
@@ -142,15 +146,13 @@ dropped. Done parts are in the decision log (D31 to D60).
 
 | Finding | Open part | Note |
 |---|---|---|
-| F5 | Publishers per vendor | a publisher entry needs a real cabinet's signer |
 | F7, F9 | Expected drivers; scheduled-task results | process and task expectations are 2.2 (D142); F9 is agent work |
-| F10, F11, F12 | The workload's progress signal, file staleness, declared ports (F12.R3 is done) | mostly agent-side samplers |
+| F10, F12 | The workload's progress signal, declared ports (F12.R3 is done) | mostly agent-side samplers |
 | F13 | Process history: trends, leak and wedge, tree, holder | |
 | F14 | R1 dependencies in stored configuration, R2 the blocking dependency named | read only (D144); R2 is an agent build |
 | F15 | The chain under the workload: database, its error log, the monitoring agent | never the cabinet application's database |
 | F16 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | |
 | F18 | R3 the watchdog | agent |
-| F19 | R1 to R6: driver store against bound, matching, rollout, verification, version rollback | overlaps 4.9 |
 | F20 | The update source (an agent operation) | the smoke test per build family is 6.3 |
 | F21 | R2 boundary validation and idempotent writers | R4 is 2.1; R5 is closed (D141) |
 
@@ -162,5 +164,5 @@ The ordering rules from the brief still hold:
 ## How long
 
 At the pace since 2026-11-20 (about 5 merged PRs a day, larger features one to two days each with a review round), sections 1 to
-5 are 60 to 80 PRs: **3 to 5 weeks**. Section 6 runs beside them as far as lab time allows and sets the end: **4 to 6 weeks** to a
+5 are 55 to 75 PRs: **3 to 5 weeks**. Section 6 runs beside them as far as lab time allows and sets the end: **4 to 6 weeks** to a
 platform that is built, deployed to a real site and proven on hardware. Nothing on this list needs a purchase.

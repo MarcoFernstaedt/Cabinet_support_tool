@@ -78,6 +78,13 @@ The contracts README no longer calls the upgrade trust list empty: it holds the 
   - **Kept:** the path rules the approved-programs list uses, renamed `program-path.ts`. The read's caps, handle cross-checks
     and version check are pruned from it.
 
+**6. The plan follows the owner's answers.**
+- **Dropped:** background sync-path sampling; the file-facts read and F11 file staleness; more driver work (4.9, 4.12, F19, F5);
+  SMART beyond free space (4.10, and 2.4's crash-to-drive link). The built package library stays. Scanner troubleshooting is
+  service control and the USB watch.
+- **Next PR:** removing SMART and drive risk (2.4). It changes the agent's catalog and the wire, so older agents' SMART events
+  and answers stay accepted and are ignored until the fleet is upgraded.
+
 
 ---
 
