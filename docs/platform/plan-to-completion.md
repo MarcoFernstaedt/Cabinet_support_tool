@@ -31,7 +31,8 @@ The rules stay the repository's own (CONTRIBUTING.md, CLAUDE.md):
 - **One nit, not a defect:** a cabinet ID sent in upper case is refused as "does not exist" (`fleet-jobs.ts:92`), because IDs are
   compared in lower case. The console always sends lower case.
 
-**The full local gate** (`main` and the development branch) is in the PR that adds this file.
+**The full local gate** (`main` and the development branch) is in the PR that added this file (#338). The history of the count
+before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150); git history keeps it.
 
 **Already closed, so not listed below:**
 - F21.R2 (the debt is 0, D129).
@@ -46,10 +47,13 @@ The rules stay the repository's own (CONTRIBUTING.md, CLAUDE.md):
 
 | # | Work | Proves it |
 |---|---|---|
-| 1.1 | Bring the demo suite's race fix (`a01e71e` on the development branch) to `main` | `demo.test.js` green three runs running |
-| 1.2 | Remove the "on hold for billing" claim from `main`'s live documents, as the development branch already did | no live document says Actions are on hold |
-| 1.3 | Write down the local environment the suite needs (Chromium, git `safe.directory`) where a run finds it | a local run with 0 failures and every skip named |
+| 1.1 | **Done** (#340, D145). Bring the demo suite's race fix (`a01e71e` on the development branch) to `main` | `demo.test.js` green three runs running |
+| 1.2 | **Done** (#339, D146). Remove the "on hold for billing" claim from `main`'s live documents | no live document says Actions are on hold |
+| 1.3 | In #342 (D148). Write down the local environment the suite needs (Chromium, git `safe.directory`) where a run finds it | a local run with 0 failures and every skip named |
 | 1.4 | Ten consecutive green runs on `main` (4 so far) | `gh run list --branch main` |
+| 1.5 | `same-error-elsewhere.test.ts` test 927 fails one CI run in some PRs with "database is in transition" (#340, #342). Not reproduced locally; needs the full error text, then a fix a test proves | the failure's cause named and fixed |
+| 1.6 | `scale.test.ts`'s lock case fails on a fast SQL Server: the held lock gave up at 4.4 s against a 4.5 s floor (the owner's machine, `main` too). Passes in CI and here | the floor measured, or the cause named |
+| 1.7 | Sign-in under contention in `ConsoleHarness.account` (`troubleshooting.test.ts` 8 failures in one run at concurrency 2), and the suite's 19 minutes on CI: find the slow files | a cause for each |
 
 ## 2. Server work that can be built now (about 30 to 40 PRs, 1.5 to 2.5 weeks)
 
@@ -61,7 +65,7 @@ The rules stay the repository's own (CONTRIBUTING.md, CLAUDE.md):
 | 2.4 | Drives: crashes linked to degrading drives | `trends.ts`, `drives.ts` | a test over seeded readings | 1 to 2 |
 | 2.5 | Fleet update compliance: which cabinets are behind, which lack a named update | `readings.ts`, `compare.ts` | a seeded fleet view test | 2 |
 | 2.6 | Site readiness: the per-site assembly of the checklist, a verdict, a schedule; unknown never ready | `checks.ts`, `cabinet-health.ts` | a site with one unknown check is not ready | 2 to 3 |
-| 2.7 | Approved programs: flag an entry no cabinet can match where it is written, and say the rule (key name and the running program) | console approved-programs editor | an unmatched entry is flagged | 1 to 2 |
+| 2.7 | **Built** (D149, branch `feat/approved-entry-matches`). Approved programs: flag an entry no cabinet can match where it is written, and say the rule (key name and the running program) | console approved-programs editor | an unmatched entry is flagged | 1 to 2 |
 | 2.8 | Split the largest files when they are next touched: `alerts.ts`, `demo.ts`, `agent-api/server.ts`, `cabinet-findings.ts` (and `AgentConnection.cs` in 4) | — | the gate unchanged | 4 to 5 |
 | 2.9 | Open issues: #297 load shed hides the heartbeat; #291 guided demo unreliable in the gate; #289 `replacesCabinetId` in the CLI approval; #288 test the enrollment chain check; #56 re-approval after reactivation; #41 retire cabinet-to-cabinet ping. #39 is re-read first: the 2026-11-23 deployment may have closed it | per issue | a test per fix | 6 to 7 |
 | 2.10 | Agent restart by an operator (D144): the server, contract and console side | `catalog.json`, console | the operation refused below Tier 2 and without its code | 1 |
@@ -118,6 +122,9 @@ TypeScript in one PR.
 | 6.5 | Generate the approved-list signing keys and build their public half into the agent (an operator step), then re-run the nine control checks on 0.3.1 | the operator |
 | 6.6 | Prove each item of 4 on the cabinet, and mark its Windows-only tests verified | the HP cabinet |
 | 6.7 | Work through the security review brief (`docs/spec/11-security-review-brief.md`) and record the findings, in place of a bought test (D143) | — |
+| 6.8 | The writes not yet run on hardware: static `network.setIp`, lease release, restart and shutdown, update and driver uninstall, package install, `firewall.restore`, service and process control (needs an approved list) | the HP cabinet |
+| 6.9 | Install the nightly backup on the test host (`/etc/cron.d/cabinet-backup`) and run one backup. A host task, not code | the VPS |
+| 6.10 | How long Windows takes to refuse a closed TCP port in a test series. Each try gets 5 s (D1); the strict test passed once on Windows CI (job 136864014813), which is not a measured bound | the HP cabinet, or CI runs |
 
 ## 7. Not started without the owner
 
@@ -126,6 +133,31 @@ TypeScript in one PR.
 | BIOS and firmware flashing | skipped by the owner: detect, alert, hand to a human |
 | Motherboard re-imaging | needs its own spec first |
 | An independent penetration test | reopened only if a client requires one (D143) |
+
+## 8. Findings outside the owner's order (not scheduled)
+
+The owner's brief of 2026-11-07 set findings F1 to F23. On 2026-11-15 the owner reordered the work by what the fleet needs, and the
+sections above follow that order. These open parts of the brief are outside it. Each waits for the owner to order it; none is
+dropped. Done parts are in the decision log (D31 to D60).
+
+| Finding | Open part | Note |
+|---|---|---|
+| F5 | Publishers per vendor | a publisher entry needs a real cabinet's signer |
+| F7, F9 | Expected drivers; scheduled-task results | process and task expectations are 2.2 (D142); F9 is agent work |
+| F10, F11, F12 | The workload's progress signal, file staleness, declared ports (F12.R3 is done) | mostly agent-side samplers |
+| F13 | Process history: trends, leak and wedge, tree, holder | |
+| F14 | R1 dependencies in stored configuration, R2 the blocking dependency named | read only (D144); R2 is an agent build |
+| F15 | The chain under the workload: database, its error log, the monitoring agent | never the cabinet application's database |
+| F16 | Scheduled, change-gated sampling for the remaining reads, inside the capacity budget | |
+| F18 | R3 the watchdog | agent |
+| F19 | R1 to R6: driver store against bound, matching, rollout, verification, version rollback | overlaps 4.9 |
+| F20 | The update source (an agent operation) | the smoke test per build family is 6.3 |
+| F21 | R2 boundary validation and idempotent writers | R4 is 2.1; R5 is closed (D141) |
+
+The ordering rules from the brief still hold:
+- Nothing that changes a cabinet ships before F1 and F2.
+- Templates (F7) come before anything that needs a declared expectation.
+- No new sampler ships before its rows per cabinet per day, retention and rollup are counted against the capacity budget.
 
 ## How long
 

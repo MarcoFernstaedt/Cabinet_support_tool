@@ -73,6 +73,18 @@ Module data and one incident record answer all three.
 6. **Console**: incidents where a person already looks. The cabinet's History tab, Triage's open incidents, and the crash
    incident page (D21). Read only, Tier 1 and up.
 
+**The engine's phases against the roadmap's.** The registry's `phase` field is the engine phase that builds a capability.
+The engine's six phases are the roadmap's phases split a second way, not extra phases:
+
+| Engine phase | Roadmap phase |
+|---|---|
+| 1. Foundation (module contract, incident record, capability registry, findings as modules) | the first slice of 2 |
+| 2. Drivers and services | 2, with its phase 3 device work |
+| 3. Network and application | 3 |
+| 4. Controlled remediation | 4 |
+| 5. Extended | 5 |
+| 6. Intelligence | 6 |
+
 ## §3 Sync-path health
 
 **The gap.** Ping and TCP loss were measured on demand only, so a diagnosis after an outage showed the path now. It could not

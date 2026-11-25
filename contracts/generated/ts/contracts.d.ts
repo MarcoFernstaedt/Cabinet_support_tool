@@ -2863,7 +2863,7 @@ export interface CapabilityRegistry {
      */
     moduleVersion?: number;
     /**
-     * The engine phase that builds it (docs/platform/remaining-phases.md maps these onto the roadmap's phases).
+     * The engine phase that builds it (docs/spec/18-built-designs.md §2 maps these onto the roadmap's phases).
      */
     phase: number;
     title: string;

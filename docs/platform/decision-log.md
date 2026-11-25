@@ -33,6 +33,20 @@ Every citation now points there, and the contract types are regenerated. The exc
 
 Every reference to them was removed or repointed first.
 
+**3. One page for what is left.** `remaining-phases.md` (670 lines) was the history of the count; since 2026-11-23 it deferred to
+`plan-to-completion.md`. Its open items move into the plan:
+- three test problems still open (1.5 to 1.7);
+- the writes not yet run on hardware (6.8);
+- the test host's backup (6.9);
+- the Windows closed-port timing (6.10);
+- a new section 8 for the findings of the 2026-11-07 brief that the owner's 2026-11-15 order left out. That is F5, F7 and F9,
+  F10 to F16, F18.R3, F19.R1 to R6, F20's update source and F21.R2's boundary validation. They are recorded as unscheduled,
+  not dropped, with the brief's ordering rules.
+
+The engine-phase mapping the capability registry's `phase` field cites moves to spec 18 §2. Every link is repointed, and one
+stale claim is corrected on the way (`windows-coverage-review.md` said crash and boot reads did not exist; `crash.list` and
+`boot.history` do).
+
 ---
 
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
@@ -41,7 +55,7 @@ Every reference to them was removed or repointed first.
 `main` is green on it. Two live sentences on `main` still said it could not run.
 
 **The change.**
-- `remaining-phases.md`: the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
+- `remaining-phases.md` (since folded into the plan, D150): the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
   Windows", job 136864014813, at `e8cd887`. The item stays open, because one run is not a measured bound.
 - D19's note on the Kernel-Power fields now reads as the development branch has it (`a01e71e`).
 - D1's last line names the same Windows run.
@@ -4675,7 +4689,7 @@ driver's 10 s limit (`ETIMEOUT`) on the first run: the cabinets of one site wait
 reworking the locking on the heartbeat and alert paths, which is not worth it for a demo seed, so the change was reverted.
 
 **Cost.** An Admin waits about 20–25 s behind "Confirming…" when turning demo mode on. Speeding the seed up (for example by writing
-the history and snapshots in fewer statements) is listed under the open fixes in remaining-phases.md.
+the history and snapshots in fewer statements) was listed under the open fixes in remaining-phases.md (since folded into the plan, D150).
 
 ---
 
@@ -5143,7 +5157,7 @@ proven on CI; first item when Actions resumes.
   failures that come from the test setup, not from the product.
 
 **Cost.** The two tests that are not yet root-caused (the troubleshooting burst and the console-setup confirm) can fail a
-run until they are fixed. Both now report their cause when they fail ([remaining-phases.md](remaining-phases.md)).
+run until they are fixed. Both now report their cause when they fail (remaining-phases.md, since folded into the plan, D150).
 
 ---
 

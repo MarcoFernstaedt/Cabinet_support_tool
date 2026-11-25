@@ -6,7 +6,7 @@ These files are the build specification for the Mashura cabinet diagnostics plat
 
 Read them in number order. Files 01 and 02 give the shape and the security rules everything else follows; 03 through 07 are the component specs; 08 is the build order; 09 lists choices to confirm; 11 is the summary for your head of development. 12 and 13 are the later milestone specifications, and 14, 15 and 16 cover work specified after them.
 
-The platform as it actually is — what is proven, what is left, and how it runs — is documented separately, starting at [../platform/README.md](../platform/README.md). **The phase count lives in [../platform/remaining-phases.md](../platform/remaining-phases.md).**
+The platform as it actually is — what is proven, what is left, and how it runs — is documented separately, starting at [../platform/README.md](../platform/README.md). **What is left lives in [../platform/plan-to-completion.md](../platform/plan-to-completion.md).**
 
 ## Files
 

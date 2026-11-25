@@ -5,9 +5,8 @@ how it is run, what was decided, and what is left.
 
 ## Read these first
 
-- [remaining-phases.md](remaining-phases.md): **what is left, counted.** The top of the page has the current count: what is done,
-  what can still be built here, and what is blocked and on what. This is the one place the count lives. The spec's
-  [roadmap](../spec/13-roadmap.md) is the plan, not the status: read the code or this page before taking a "to build" there as unbuilt.
+- [plan-to-completion.md](plan-to-completion.md): **what is left**, item by item, with what proves each and its size. The one
+  place the remaining work is counted. The spec's [roadmap](../spec/13-roadmap.md) is the plan, not the status.
 - [decision-log.md](decision-log.md): every choice made while building, with why, the alternatives and the cost. Newest first, for
   the end-of-project review.
 - [fleet-install.md](fleet-install.md): installing the agent on a site's cabinets from a remote management tool.
@@ -37,8 +36,6 @@ that code still cites are in [`../spec/18-built-designs.md`](../spec/18-built-de
 (`0007_architecture.sql`, `0008_release_architecture.sql`, `0017_incidents.sql`) still name them in a comment. A migration's
 text is checksummed when it is applied, so it is never edited: read those names as spec 18 §1 and §2.
 
-Retired earlier (removed, not archived):
-- `hardening-and-roadmap.md` was replaced by [security-review.md](security-review.md) (the findings) and
-  [remaining-phases.md](remaining-phases.md) (the phases).
-- `14-network-troubleshooting.md` is now [`../spec/16-network-troubleshooting.md`](../spec/16-network-troubleshooting.md).
-  Two files were numbered 14, and 14 is the emergency-access milestone.
+Retired earlier: `hardening-and-roadmap.md` (now [security-review.md](security-review.md) and the plan), `remaining-phases.md`
+(folded into the plan, D150) and `14-network-troubleshooting.md` (now
+[`../spec/16-network-troubleshooting.md`](../spec/16-network-troubleshooting.md)).
