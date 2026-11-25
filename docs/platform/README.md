@@ -19,6 +19,7 @@ how it is run, what was decided, and what is left.
 - [threat-model.md](threat-model.md): what the platform can and cannot do to a cabinet, and the worst cases.
 - [security-review.md](security-review.md): the red-team review and the state of every finding.
 - [encryption.md](encryption.md), [supply-chain.md](supply-chain.md), [data-classification.md](data-classification.md).
+- [agent-release-signing.md](agent-release-signing.md): cutting a signed agent release with our own publisher root and the offline release key (D143).
 
 ## How it is built and run
 

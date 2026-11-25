@@ -47,6 +47,20 @@ The engine-phase mapping the capability registry's `phase` field cites moves to 
 stale claim is corrected on the way (`windows-coverage-review.md` said crash and boot reads did not exist; `crash.list` and
 `boot.history` do).
 
+**4. The READMEs and the spec agree with D143.** The spec and the docs still said release signing ran in a cloud KMS, that the
+issuing key lived in one, that a code-signing certificate was a yearly cost, and that an independent penetration test was a gate.
+D143 decided all four the other way, so the text now says:
+- offline release keys and our own publisher root;
+- a production issuing CA from an offline root, not built yet;
+- no purchase;
+- the security review brief worked through by us.
+
+The files: spec 02, 05, 07, 08, 11, 17, the root, server, agent, deploy and contracts READMEs, `supply-chain.md`, `cost.md` and
+`security-review.md`. `New-AgentRelease.ps1` keeps its optional KMS switches, and the docs say so.
+
+The contracts README no longer calls the upgrade trust list empty: it holds the operator's release key. The platform index lists
+`agent-release-signing.md`, and every relative Markdown link in the repository resolves.
+
 ---
 
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
