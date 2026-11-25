@@ -6,6 +6,46 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D153. The fleet crash incident reads its events through events_error_key (2026-11-25)
+
+**What the code did** (at `b52bdea`; F21.R4, plan item 2.1): `fleetCrashIncident` in `server/src/services/crashes.ts` read two
+things from `events`, both by opening each event's JSON source.
+- **The crashes:** a `JSON_VALUE` comparison per crash key, with the cabinets passed as a JSON list.
+- **The changes it compares** (`compareChanges`): a lower-cased `source|eventId` string built per event, with the cabinet ids and
+  each affected cabinet's span read from JSON inside the statement. The plan parsed that JSON list of 10,000 ids again for every
+  event.
+
+At 10,000 cabinets and 300,050 events the view went past the pools' 10 s statement limit. One cold run with a 10-minute limit
+took 68,169 ms: 8,526 ms for the crashes and 58,634 ms for the comparison.
+
+**The decision** (the approach is mine): both statements match on `err_source` and `err_event_id`, the indexed columns migration
+0038 added for D138. Each one starts from its list of keys and seeks `events_error_key` once per key, through a forced loop join
+and the index hint D138 also needed.
+- **The crashes:** the population is applied in code. A cabinet filter in the statement is what turned the seek into a scan
+  before (D61).
+- **The comparison:** the cabinet ids and spans go into two keyed table variables first, and the statement joins them.
+
+No migration: the index and its columns exist already.
+
+**Considered:** a stored, persisted key column was not needed, because the computed columns are indexed already. Filtering the
+comparison's cabinets in code was also considered. It would let the statement's 100,000-row cap fill with other clients'
+changes, so the table variable keeps the cap on the cabinets asked about.
+
+**What it costs:** two query hints, which hold the plan to the index even where a scan might be cheaper. That would be a fleet
+where almost every event is a crash or a compared change, and there the seeks still read only the matching rows.
+
+**Proven:**
+- `fleet-views-at-scale.bench.js` gives 266 ms median (222 to 336) for the crash incident, measured on the machine in
+  `performance.md`. Ten more views are now measured in it.
+- `crash-incident-index.test.ts`:
+  - the answer is unchanged: a crash is matched whatever the case of its source, only in its client, and changes are still
+    compared;
+  - the cached plan of each statement seeks `events_error_key` and scans neither it nor `events`. That check fails on `b52bdea`'s
+    `crashes.ts`.
+- The existing crash, pattern, cluster and notification tests pass unchanged.
+
+---
+
 ## D152. SMART and drive risk are removed; free space is kept (2026-11-25)
 
 **Asked:** the owner keeps free space only: "all we can get from the hard drive is the amount of space left". SMART cannot be read on
