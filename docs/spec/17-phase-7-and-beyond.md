@@ -282,7 +282,7 @@ How it earns the right to run unattended, and how I want to prove it:
 
 - **Asset spine:** model, serial, firmware, OS build, drive type per cabinet — the table every correlation quietly
   needs, and the basis for "this model, this firmware" failures.
-- **Predictive failure** (dropped by the owner on 2026-11-25, D151): SMART and NVMe wear trends turned into "replace this drive before it fails", not just
+- **Predictive failure** (dropped by the owner on 2026-11-25, D152): SMART and NVMe wear trends turned into "replace this drive before it fails", not just
   "this drive is unhealthy". Phase 2 and phase 5 already lay the data down.
 - **Observability of the platform itself:** the server and agent health as first-class data, so a silent fleet is not
   mistaken for a healthy fleet.
@@ -326,7 +326,7 @@ new privilege on a cabinet, which is why none of them needs a new phase.
 
 8. **Self-healing at L3, two policies to start** — restart a service the cabinet profile says must run, and restart the
    agent (already built) — each only after a shadow-mode period with a measured false-action rate.
-9. ~~**Predictive drive failure** from the SMART and NVMe trends~~: dropped by the owner on 2026-11-25 (D151); the platform keeps free space only.
+9. ~~**Predictive drive failure** from the SMART and NVMe trends~~: dropped by the owner on 2026-11-25 (D152); the platform keeps free space only.
 10. **A clinic-facing report export** — cheap, and it is what a clinic manager actually reads.
 11. **The fault-injection harness** — the only honest way to claim self-healing, so it is the prerequisite for 8.
 

@@ -1,5 +1,5 @@
-// Free space only (decision-log D151): the system drive's free-space forecast runs from the daily job and raises, then resolves, its alert;
-// SMART is gone. An agent before D151 still sends its drives' SMART report on a heartbeat and a smart_warning event: both are accepted and
+// Free space only (decision-log D152): the system drive's free-space forecast runs from the daily job and raises, then resolves, its alert;
+// SMART is gone. An agent before D152 still sends its drives' SMART report on a heartbeat and a smart_warning event: both are accepted and
 // neither is kept or alerted on, and nothing issues the two SMART reads again. Migration 0040 dropped the drive history.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -71,7 +71,7 @@ test("a cabinet that has not reported for two days, or was removed, is not forec
   assert.deepEqual([await forecast(silent), await forecast(gone)], [[], []]);
 });
 
-test("an agent before D151: its heartbeat's SMART report and its smart_warning event are accepted, and nothing is kept or alerted on", async () => {
+test("an agent before D152: its heartbeat's SMART report and its smart_warning event are accepted, and nothing is kept or alerted on", async () => {
   const k = await cabinet();
   const drive = { model: "WD Blue 1TB", serialNumber: "WD-1", health: "failing", predictFailure: true, temperatureCelsius: 36, powerOnHours: 12000,
     reallocatedSectors: 40, pendingSectors: 3, uncorrectableErrors: 1, wearPercent: null };

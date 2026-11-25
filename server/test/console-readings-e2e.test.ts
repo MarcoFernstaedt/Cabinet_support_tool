@@ -77,7 +77,7 @@ test("the fleet search, last-known readings on an offline cabinet, and load char
     await trends.getByRole("img", { name: /^Memory: \d+%/ }).waitFor();
     await trends.getByLabel("Range").selectOption("168");
     await trends.getByRole("img", { name: /^System drive: \d+%/ }).waitFor();
-    // The Fleet page lists no drives at risk any more: SMART is removed (D151).
+    // The Fleet page lists no drives at risk any more: SMART is removed (D152).
     await page.getByRole("link", { name: "Fleet", exact: true }).click();
     await page.getByRole("heading", { name: "Fleet" }).first().waitFor();
     assert.equal(await page.getByRole("heading", { name: "Drives to look at" }).count(), 0);

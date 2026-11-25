@@ -246,7 +246,7 @@ test("administration in the console: accounts, who opened a cabinet, pausing wri
     await ada.getByRole("button", { name: "Resolved" }).click();
     await ada.getByText(/Closed by Ada Admin .*Sam mistyped after the reset/).waitFor();
 
-    // The settings page has no drive risk thresholds any more (D151).
+    // The settings page has no drive risk thresholds any more (D152).
     await ada.goto(`${origin}/admin/settings`);
     await ada.getByRole("button", { name: "Save settings" }).waitFor();
     assert.equal(await ada.getByRole("heading", { name: "Drive risk" }).count(), 0);

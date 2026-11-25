@@ -1,5 +1,5 @@
 // The last cross-module write in the retention run, moved behind its owner (F21.R2, decision-log D77): raw health samples already rolled
-// up are removed by cabinets.ts, inside the run's own transaction. (Drive samples went with SMART, D151.)
+// up are removed by cabinets.ts, inside the run's own transaction. (Drive samples went with SMART, D152.)
 // Only the cabinets named and only rows older than the time given go; the ids, the time and the options are checked before the database is touched.
 import test from "node:test";
 import assert from "node:assert/strict";

@@ -103,7 +103,7 @@ test("a drive that is failing (from Windows' own disk errors) and a clock that i
   const d = await finished(`/api/cabinet-diagnoses/${s.body.diagnosisId}`, t1);
   const drive = d.findings.find((f: { key: string }) => f.key === "log-disk-errors");
   assert.equal(drive?.severity, "problem", JSON.stringify(d.findings.map((f: { key: string; severity: string }) => [f.key, f.severity])));
-  assert.ok(!d.findings.some((f: { key: string }) => f.key === "drive-health"), "no SMART finding (D151)");
+  assert.ok(!d.findings.some((f: { key: string }) => f.key === "drive-health"), "no SMART finding (D152)");
   // The failing drive opened the cabinet's storage incident, linked to this run, by the platform (D16). It is recorded just after the run is stored.
   let storage: { symptom: string; opened_by_kind: string } | undefined;
   for (const end = Date.now() + 15_000; !storage && Date.now() < end; await new Promise(r => setTimeout(r, 200)))

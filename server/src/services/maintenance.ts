@@ -231,7 +231,7 @@ export function scheduleDailyJobs(pool: Pool, log: (message: string) => void, op
     await runRetention(pool).catch(() => { opsMeter.count("retention", "failed"); log("Retention failed to run."); });
     await closeStaleSecurityAlerts(pool).then(n => { if (n > 0) log(`Closed ${n} security alert(s) not seen again for 14 days.`); },
       () => log("Closing stale security alerts failed to run."));
-    // The free-space forecast for each reporting cabinet (D151): it used to follow the daily SMART report, which is gone.
+    // The free-space forecast for each reporting cabinet (D152): it used to follow the daily SMART report, which is gone.
     await forecastFleet(pool, id => log(`The free-space forecast failed for cabinet ${id}.`)).catch(() => log("The free-space forecast failed to run."));
   };
   const plan = () => {

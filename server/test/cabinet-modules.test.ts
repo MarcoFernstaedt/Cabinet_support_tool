@@ -42,7 +42,7 @@ function keysOf(rule: string): Set<string> {
 
 test("every cabinet module is checked, runs in the registry's order, and every rule it names is a rule the server has", () => {
   const modules = cabinetModules();
-  assert.equal(modules.length, 8, "cabinet-storage went with SMART (D151)");
+  assert.equal(modules.length, 8, "cabinet-storage went with SMART (D152)");
   assert.deepEqual(new Set(modules.flatMap(m => m.procedure.filter(p => p.kind === "rule").map(p => p.rule))), new Set(Object.keys(CABINET_RULES)));
   const registry = loadRegistry(new Map([...modules, networkModule(), sqlLadderModule(), crashModule()].map(m => [m.id, m])));
   // A module runs after everything it depends on.

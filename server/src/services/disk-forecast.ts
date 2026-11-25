@@ -1,5 +1,5 @@
 // Free space on the system drive, projected forward from the heartbeat's own samples, so a drive that is filling up is flagged weeks
-// before it is full (decision-log D151). It used to run when a cabinet's daily SMART report arrived; SMART is removed, so the daily job
+// before it is full (decision-log D152). It used to run when a cabinet's daily SMART report arrived; SMART is removed, so the daily job
 // runs it for every cabinet that sent a load sample in the last two days, one cabinet at a time.
 import type { Pool, Queryable } from "../db/db.js";
 import { closeSignatureAlert, upsertAlert } from "./alerts.js";

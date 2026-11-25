@@ -171,7 +171,7 @@ test("a forced scanner disconnect raises Fingerprint scanner problem, repeats fo
   assert.notEqual((next.outcomes[0] as { alertId: string }).alertId, o.alertId);
 });
 
-test("a SMART warning from an older agent is accepted and raises nothing (D151); outside firewall changes raise Unexpected firewall change; platform ones do not", async () => {
+test("a SMART warning from an older agent is accepted and raises nothing (D152); outside firewall changes raise Unexpected firewall change; platform ones do not", async () => {
   const smart = await send(cab.b, { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(), severityHint: "minor", detail: { message: "Reallocated sectors." } });
   assert.deepEqual([smart.stored, smart.outcomes], [0, []]);
   const outside = await send(cab.b, { eventId: randomUUID(), kind: "firewall_changed", occurredAt: at(), severityHint: "major", detail: { message: "1 removed" } });

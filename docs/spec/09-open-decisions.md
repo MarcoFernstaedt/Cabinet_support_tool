@@ -534,7 +534,7 @@ Nine new read-only checks (`system.security`, `software.list`, `startup.list`, `
 
 ### Drive failure prediction, October 2026 (built, thresholds to tune on real drives)
 
-**Removed 2026-11-25 (D151).** The owner keeps free space only: the platform no longer reads drive health (SMART), keeps no drive history, raises no drive-risk alert and has no drive thresholds. The free-space forecast stays and runs from the daily job. An agent before D151 still sends its SMART report and `smart_warning`; both are accepted and ignored until the agent drops them (plan item 4.16). What follows is the record of what was built.
+**Removed 2026-11-25 (D152).** The owner keeps free space only: the platform no longer reads drive health (SMART), keeps no drive history, raises no drive-risk alert and has no drive thresholds. The free-space forecast stays and runs from the daily job. An agent before D152 still sends its SMART report and `smart_warning`; both are accepted and ignored until the agent drops them (plan item 4.16). What follows is the record of what was built.
 
 The agent already checked each drive's own health report once a day (`disk.smart`: Windows' verdict, the drive's failure prediction, reallocated and pending sectors, uncorrectable errors, wear, heat) and raised an event for a drive in trouble. What was missing was **history**: a drive whose reallocated sectors go 0, 3, 11, 26 over a month looks the same, one day at a time, as one that has had 26 for years.
 
@@ -939,7 +939,7 @@ that finds a problem opens it; later runs add to it and a clean run closes it. B
 
 ## Drive risk classes: what is configurable (2026-11-03)
 
-**Removed 2026-11-25 (D151).** The owner keeps free space only: the platform no longer reads drive health (SMART), keeps no drive history, raises no drive-risk alert and has no drive thresholds. The free-space forecast stays and runs from the daily job. An agent before D151 still sends its SMART report and `smart_warning`; both are accepted and ignored until the agent drops them (plan item 4.16). What follows is the record of what was built.
+**Removed 2026-11-25 (D152).** The owner keeps free space only: the platform no longer reads drive health (SMART), keeps no drive history, raises no drive-risk alert and has no drive thresholds. The free-space forecast stays and runs from the daily job. An agent before D152 still sends its SMART report and `smart_warning`; both are accepted and ignored until the agent drops them (plan item 4.16). What follows is the record of what was built.
 
 The roadmap asks for Healthy, Attention, High risk, Critical and Unknown "from configurable rules" without saying what is configurable. Answered by the owner (2026-11-03): an Admin sets the thresholds, with defaults that follow the common drive-maker and field-study metrics. Built; details in docs/platform/decision-log.md, D18.
 

@@ -27,7 +27,7 @@ export function statementRest(text: string, from: number): string {
   return text.slice(from, end);
 }
 
-/** The tables the migrations leave: each created one, unless a later migration drops it (0040 dropped the drive tables, D151). */
+/** The tables the migrations leave: each created one, unless a later migration drops it (0040 dropped the drive tables, D152). */
 export function migrationTables(migrationsDir: string): Set<string> {
   const out = new Set<string>();
   for (const f of readdirSync(migrationsDir).filter(n => n.endsWith(".sql")).sort())

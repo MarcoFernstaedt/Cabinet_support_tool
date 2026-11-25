@@ -194,7 +194,7 @@ test("the console end to end: install, approve, find a cabinet, browse logs, run
     await page.getByText(/from the fleet default/).waitFor();
     await shot("4-fingerprint-scanner");
 
-    assert.equal(await page.getByRole("link", { name: "Drive health" }).count(), 0, "no Drive health section (D151)");
+    assert.equal(await page.getByRole("link", { name: "Drive health" }).count(), 0, "no Drive health section (D152)");
 
     await page.getByRole("link", { name: "Network" }).click();
     await page.getByRole("button", { name: "Trace and ping" }).click();

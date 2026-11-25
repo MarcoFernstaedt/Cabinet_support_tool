@@ -22,7 +22,7 @@ test("disk errors in the System log are an event log problem, with the drive iss
   const disk = r.findings.find(f => f.key === "log-disk-errors")!;
   assert.equal(disk.severity, "problem");
   assert.equal(disk.issueTypeId, "00000000-0000-4000-8000-000000000102");
-  assert.deepEqual(disk.action?.kind === "open" ? disk.action.section : null, "events", "the Drive health section is gone (D151)");
+  assert.deepEqual(disk.action?.kind === "open" ? disk.action.section : null, "events", "the Drive health section is gone (D152)");
   assert.equal(r.areas.find(a => a.area === "logs")!.state, "problem");
   assert.ok(!r.areas.some(a => (a.area as string) === "storage"), "no drive health area");
   assert.ok(!r.findings.some(f => f.key === "drive-health" || f.id.startsWith("drive-")), "nothing from SMART");

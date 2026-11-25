@@ -259,7 +259,7 @@ test("background checks do not count as activity, so an unattended console still
   assert.equal((await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 1, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, "out of range");
 });
 
-test("the settings carry no drive thresholds any more (D151): none is read back, and a body that sends them is refused", async () => {
+test("the settings carry no drive thresholds any more (D152): none is read back, and a body that sends them is refused", async () => {
   const now = (await call("GET", "/api/admin/settings", undefined, bossCookie)).body;
   assert.equal(now.drives, undefined);
   for (const drives of [{ wearAttentionPct: 75 }, {}])

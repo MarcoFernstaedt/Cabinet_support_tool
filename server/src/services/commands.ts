@@ -32,7 +32,7 @@ export interface WriteAuthority {
 }
 
 /**
- * Reads the platform no longer asks for (decision-log D151): the owner removed SMART. They stay in the catalog until the agent drops them,
+ * Reads the platform no longer asks for (decision-log D152): the owner removed SMART. They stay in the catalog until the agent drops them,
  * so a cabinet on an older agent still answers one already queued; nothing issues a new one.
  */
 export const RETIRED_OPERATIONS: ReadonlySet<string> = new Set(["disk.smart", "storage.health"]);

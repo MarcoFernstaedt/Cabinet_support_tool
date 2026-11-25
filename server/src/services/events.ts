@@ -37,7 +37,7 @@ export async function storeEvents(pool: Pool, cabinetId: string, batch: EventBat
     if (!unique.has(e.eventId.toLowerCase())) unique.set(e.eventId.toLowerCase(), e);
   }
   const result = await transaction(pool, async c => {
-    // A SMART warning from an agent before D151 is accepted and not kept: the platform no longer reads drive health.
+    // A SMART warning from an agent before D152 is accepted and not kept: the platform no longer reads drive health.
     let events = [...unique.values()].filter(e => e.kind !== "smart_warning");
     // A firewall change claims a platform command: it must be a firewall write this cabinet was sent; otherwise it is unexplained.
     const claimed = events.filter(e => e.kind === "firewall_changed" && e.commandId).map(e => e.commandId!.toLowerCase());

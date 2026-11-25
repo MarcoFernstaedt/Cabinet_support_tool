@@ -174,7 +174,7 @@ const MESSAGE_KEYS = Object.entries(MAP).filter(([, m]) => m && CHANGE_CATEGORIE
 interface Row { kind: string; source: { log: string; source: string; eventId: number } | null; message: string; fields: Record<string, string> | null }
 
 export function categorize(r: Row): { category: Category; label: string } | null {
-  // A SMART warning from an agent before D151 is not shown: the platform no longer reads drive health.
+  // A SMART warning from an agent before D152 is not shown: the platform no longer reads drive health.
   if (r.kind === "smart_warning") return null;
   if (r.kind === "scanner") return { category: "scanner", label: "Fingerprint scanner" };
   if (r.kind === "service") return { category: "service", label: `Watched service ${r.fields?.change ?? "changed"}` };

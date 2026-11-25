@@ -1,6 +1,6 @@
--- SMART and drive risk are removed (decision-log D151): the owner keeps free space only. The platform no longer reads drive health, so
+-- SMART and drive risk are removed (decision-log D152): the owner keeps free space only. The platform no longer reads drive health, so
 -- the drive history and its per-drive status go, with the risk thresholds. The built-in rule that mapped an agent's smart_warning to the
--- drive issue is disabled, with its history row, so an agent before D151 opens no alert; the issue type stays, for the alerts it raised.
+-- drive issue is disabled, with its history row, so an agent before D152 opens no alert; the issue type stays, for the alerts it raised.
 DROP TABLE drive_status;
 DROP TABLE drive_samples;
 GO
