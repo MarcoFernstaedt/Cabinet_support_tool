@@ -25,6 +25,30 @@ The archived reports in `docs/platform/archive/` are left as written: they recor
 
 ---
 
+## D145. The demo suite answers its time commands itself and waits for the simulator to stop (2026-11-23)
+
+**Asked:** item 1.1 of docs/platform/plan-to-completion.md. The fix was made on the development branch in `a01e71e`, together with
+document changes and a sweep runner. Only the test change comes to `main` here.
+
+**What was wrong.** The time test let the simulator answer its commands. The simulator's heartbeat sweep reads a cabinet's time zone
+and clock, then writes them. A sweep that read them before the test's fix wrote the old zone back afterwards. The zone alert then
+reopened, or never closed, and the test timed out waiting for it. Other demo tests stopped the simulator without waiting for a
+sweep in progress, so its writes could land in the next test.
+
+**The change (`server/test/demo.test.ts` only).**
+- The time test takes each command from the queue itself, has `answer` run it to the end, and checks the stored result. No sweep
+  runs beside it.
+- Each test that starts the simulator awaits `settled()` after `stop()`.
+
+No product code changes.
+
+**Proven:**
+- A heartbeat changed for the proof only waits until the cabinet's zone or clock changes and then writes what it read. With it,
+  the old test failed 1 of 3 runs with "timed out waiting for the zone alert to close", and the new test passed 3 of 3.
+- The full local gate is in the PR.
+
+---
+
 ## D144. The remaining open choices, taken as recommended (2026-11-23)
 
 **Asked:** the owner said to take the best choice on every question still open, keep the documents current, and plan the rest
