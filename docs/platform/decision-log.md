@@ -6,6 +6,40 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D151. An applied migration file may never change, even its comments (2026-11-25)
+
+**Asked:** nothing — D150 did it, and the deployment of that merge took the platform down.
+
+**Found:** D150's pruning rewrote one comment in `server/migrations/0010_missing_objects.sql`, a file every existing
+database has already applied. `migrate.ts` records each file's sha256 in `schema_migrations` and refuses to start when a
+recorded version's bytes differ, so the swap to revision `d9142dd9` stopped at the migrate step:
+`Migration 0010_missing_objects was changed after it was applied. Add a new migration instead.` — `cabinet-migrate-1`
+exited 1, `cabinet-server-1` never started, and all four doors answered 502/503/000 for about twenty minutes. **No fresh
+database can see it:** a test database applies the edited file and records the edited hash, which is why 1195 local
+tests and two CI runs on that merge were green. Comments are part of the hash; the migration's behaviour was never at
+stake.
+
+**Chose:** restore 0010's original bytes (behaviour-identical, and the hash each existing database recorded matches
+again), and make the class impossible to repeat: `server/migrations/checksums.json` holds every migration's sha256 and
+`server/test/migration-immutability.test.ts` fails the suite when a recorded file changed, vanished, or arrived without
+an entry. `server/scripts/write-migration-checksums.mjs` records a new migration and refuses to rewrite an existing one.
+
+**Also considered:** re-recording the hash on the affected database (`UPDATE schema_migrations SET checksum = …`), which
+repairs one deployment and leaves every other one unable to start; and amending the comment again to fit the recorded
+hash, which is the same edit that failed. Neither fixes the next person's merge.
+
+**Costs:** adding a migration is now two files, not one (the script writes the second); a migration can no longer be
+tidied after the fact, not even a typo in a comment. A deliberate re-record stays possible, but the script forces it to
+be a script change someone reviews.
+
+**Proven:** the live `cabinet` database (39 migrations, `0010_missing_objects = 346335fe…`) refused to start under the
+edited file (`migrate` exit 1, the message above) and started under the restored one, applying `0039_remove_filefacts`:
+40 migrations, `max_version = 0039_remove_filefacts`, `filefacts_cols = 0`, `cabinets = 1`, `/health` 200, console 200,
+`/api/auth/me` 401. `node --test server/dist/test/migration-immutability.test.js` passes on the restored tree and fails
+after prepending one comment line to `0011` ("an applied migration may not change — add a new migration instead").
+
+---
+
 ## D150. The repository consolidated and pruned (2026-11-25)
 
 **Asked:** the owner asked for the repository, its documents and READMEs to be consolidated and pruned before more building:
