@@ -6,6 +6,35 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D150. The repository consolidated and pruned (2026-11-25)
+
+**Asked:** the owner asked for the repository, its documents and READMEs to be consolidated and pruned before more building:
+"everything", in several commits if needed, with finished and historical documents deleted (git history keeps them).
+
+**1. The designs code cites move into the spec.** Five working plans were still cited by code, tests and contract descriptions
+for why things are shaped as they are. Their decisions and reasons are condensed into `docs/spec/18-built-designs.md`:
+- §1 the 32-bit build;
+- §2 the diagnostic engine;
+- §3 sync-path health;
+- §4 the file-facts read;
+- §5 the USB watch;
+- §6 the server side of a control request.
+
+Every citation now points there, and the contract types are regenerated. The exception is three applied migrations (`0007`,
+`0008`, `0017`). Their header comments name the plans by their first paths, and an applied migration is never edited;
+`docs/platform/README.md` says how to read them.
+
+**2. Finished documents deleted.**
+- `docs/codex-tasks/`: 14 build briefs, all built or dispatched.
+- `docs/platform/archive/`: 7 plans and reports, overtaken.
+- `docs/platform/research/2026-10/`: 5 audits and designs, now built or in spec 18.
+- `docs/build-program-2026-11-14.md`: replaced by the plan to completion.
+- `docs/spec/STANDING-INSTRUCTIONS.md`: word for word the first part of `CLAUDE.md`, which is now the one copy.
+
+Every reference to them was removed or repointed first.
+
+---
+
 ## D146. No live document says GitHub Actions is on hold (2026-11-23)
 
 **Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and
@@ -19,7 +48,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 - Spec 09, on checking the CI SQL Server installer: the CI run that item waits on can be had now. D2's own reasons are left as
   written, as the record of that day.
 
-The archived reports in `docs/platform/archive/` are left as written: they record what was true then.
+The archived reports in `docs/platform/archive/` were left as written; they were removed on 2026-11-25 (D150).
 
 **Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
 dated and left as written.

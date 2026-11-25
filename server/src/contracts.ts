@@ -1,6 +1,6 @@
 // Runtime validation against the shared JSON Schema contracts.
 // Every agent and console input passes through one of these validators before
-// any other code touches it (docs/spec/STANDING-INSTRUCTIONS.md).
+// any other code touches it (CLAUDE.md).
 import { createAjv, readCatalog, ref } from "@mashura/cabinet-contracts/load";
 import type {
   BulkFirewallPolicy,

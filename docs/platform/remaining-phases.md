@@ -55,7 +55,7 @@ The work follows the owner's brief of 2026-11-07: findings F1 to F23, one findin
 | Process and task expectations, for whatever the agent already reports: role baseline items judged against stored answers, shown as differences (D142) | F7 | about 1 or 2 |
 | The 2026-11-13 fleet audit is closed: the recovery (ship 3), the answer budget (finding 5) and the fleet list limit landed in #263 to #266, the rollout that left targets waiting (finding 4) in #268, the site page that showed only 200 cabinets in #269 (D81), a batch of cabinets all offline that held its rollout open in #270 (D82), and the job page that showed "Cancelled" over cabinets still being verified (finding 6) is D83. | fleet audit | none |
 
-That is about 16 to 24 PRs. The [build program](../build-program-2026-11-14.md) lists the agent-side items 4 to 20 one PR each. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
+That is about 16 to 24 PRs. Most of them are the F21.R2 paydown, which can stop at any point without leaving anything broken.
 
 **Blocked, and on what.** None of this can be finished here, whatever the effort:
 
@@ -206,7 +206,7 @@ and a stated reason, so a builder can start on any of them without another surve
   The spec amendment is in `09-open-decisions.md` under "No bulk restarts" (the narrowed paragraph). The build brief
   follows the two PRs, the demo split and the two baselines.
 - **Service start order — half is buildable, half is an owner question.** Codex stopped before implementing, and it was
-  right twice over: `docs/spec/STANDING-INSTRUCTIONS.md:21` says *"if the spec does not answer something, stop and ask
+  right twice over: `CLAUDE.md` says *"if the spec does not answer something, stop and ask
   rather than guessing"*, and the spec **plans the read** — `12-milestones-8-to-12.md:51` defines `services.list` as
   "every Windows service, with:" a list that includes the dependencies, and `:84` names *"the dependencies of F14.R1"* as
   work the agent owes — while defining **no operation for setting** a service's dependencies. There is a baseline
@@ -259,7 +259,7 @@ and a stated reason, so a builder can start on any of them without another surve
   that asserts an existing capability ("fleet jobs already drive a restart") must quote the file that proves it. Codex
   stopped both times because the brief's failure rule worked; the brief's *premises* were the defect.
 - **Demo mode is removed** (Marco: "the demo mode stuff can likely go away, just ensure you update ui as well").
-  Brief committed as `docs/codex-tasks/remove-demo-mode.md` and dispatched to Codex: the simulator, its routes,
+  Dispatched to Codex: the simulator, its routes,
   contracts, console UI and five test files go, the console is repaired around the removal, and no migration touches
   live data. The console also has a separate first-run welcome tour (`WelcomeTour.tsx`) — that is not the demo mode and
   stays unless reading shows it exists only for it.
@@ -313,8 +313,8 @@ was checked against the contracts, agent, server and console, and says **built**
 look. In those terms 5 roadmap phases were left: 2, 3, 4, 5 and 6. Separately, **6 gates outside the code** block a real clinic whatever
 the phases say (the last section before the fixes list).
 
-The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each module. The archived
-[diagnostic engine audit](archive/diagnostic-engine-audit.md) and its [execution plan](archive/diagnostic-engine-execution.md) split the
+The [roadmap](../spec/13-roadmap.md) owns the module list and which phase builds each module. The diagnostic engine's
+plan (now [spec 18 §2](../spec/18-built-designs.md)) split the
 same work a second way. That second numbering is **not** extra phases: the mapping is at the bottom of this page, so nothing is counted
 twice.
 
@@ -478,7 +478,7 @@ These are gates, not phases, and they block a real clinic, not the build. All si
 stand:
 
 1. **Release-signing certificates (KMS)** — releases are still signed with the development key, so the installer needs
-   `-AllowUnsigned` (`docs/platform/archive/readiness.md`).
+   `-AllowUnsigned`.
 2. **TPM-held agent keys** — the agent's key is in the software key store (`MicrosoftSoftwareKeyStorageProvider`,
    `agent/src/Cabinet.Agent.Windows/ServerConnection.cs`).
 3. **An independent penetration test.**
