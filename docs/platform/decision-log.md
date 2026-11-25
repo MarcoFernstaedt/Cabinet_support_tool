@@ -23,6 +23,26 @@ descriptions (#340, #341) said 13 and 5; the total of 18 was right, the split wa
 
 ---
 
+## D146. No live document says GitHub Actions is on hold (2026-11-23)
+
+**Asked:** item 1.2 of docs/platform/plan-to-completion.md. Actions runs on free minutes since the repository went public, and
+`main` is green on it. Two live sentences on `main` still said it could not run.
+
+**The change.**
+- `remaining-phases.md`: the closed-port item now names the Windows run in which its strict test passed. That is "Core tests on
+  Windows", job 136864014813, at `e8cd887`. The item stays open, because one run is not a measured bound.
+- D19's note on the Kernel-Power fields now reads as the development branch has it (`a01e71e`).
+- D1's last line names the same Windows run.
+- Spec 09, on checking the CI SQL Server installer: the CI run that item waits on can be had now. D2's own reasons are left as
+  written, as the record of that day.
+
+The archived reports in `docs/platform/archive/` are left as written: they record what was true then.
+
+**Proven:** `git grep` over the live Markdown finds no "on hold" or billing claim about Actions apart from D2's own reason,
+dated and left as written.
+
+---
+
 ## D145. The demo suite answers its time commands itself and waits for the simulator to stop (2026-11-23)
 
 **Asked:** item 1.1 of docs/platform/plan-to-completion.md. The fix was made on the development branch in `a01e71e`, together with
@@ -4553,8 +4573,8 @@ The crash view returns `shutdownCauses` (counts by cause) and each timeline entr
 returns, for Kernel-Power 41 only, the event's `BugcheckCode`, `BugcheckParameter1`, `PowerButtonTimestamp` and `SleepInProgress`
 (`KernelPowerFields`), and the watch puts them in the event's `detail.fields`. The contract allows only those four names and only plain
 decimal or 0x-hex numbers, so this is not a way to send other event data. Field values that are not plain numbers never decide a
-cause. The Windows read of the fields runs only on Windows. While GitHub Actions cannot run (account billing), it can only be proven on a
-real cabinet; the picking and the event are tested on Linux. The agent's check on values is exactly the contract's pattern (a
+cause. GitHub Actions runs on free minutes for this public repository. The Windows read of the fields can be verified on a
+real Windows cabinet. The picking and the event are tested on Linux. The agent's check on values is exactly the contract's pattern (a
 lower-case 0x only), so it never sends a value its own outbound check would refuse. A cabinet on an older agent sends no fields and keeps the step 2 and 3 classification.
 
 **Why 10 minutes.** Long enough for a slow start after a blue screen, short enough that an unrelated blue screen hours later does not
@@ -5033,7 +5053,7 @@ early and still returns the tries it made. Nothing in the product asks for more 
   the budget's edge and that it stays under the operation limit; both budget mutants were caught. That the loop consults
   the budget is not covered by a test: it would need a real series of more than 80 seconds.
 - Agent Core suite: 791 passed on Linux.
-- **Not proven on Windows yet.** GitHub Actions is on hold; the next Windows run is the proof.
+- **On Windows:** the strict test passed in "Core tests on Windows" at `e8cd887` (job 136864014813). One run, not a bound.
 
 ---
 
