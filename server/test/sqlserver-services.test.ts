@@ -265,7 +265,6 @@ test("retention: old rows go, notifications older than an hour go, the audit log
   const { cab } = await world();
   await asOwner(db, async k => {
     await k.query("INSERT INTO notifications (channel, payload, [at]) VALUES ('x', 'old', DATEADD(hour, -2, SYSUTCDATETIME())), ('x', 'new', SYSUTCDATETIME())");
-    await k.query("INSERT INTO drive_samples (cabinet_id, drive_key, [at], health) VALUES ($1, 'd', DATEADD(day, -401, SYSUTCDATETIME()), 'healthy'), ($1, 'd', DATEADD(day, -399, SYSUTCDATETIME()), 'healthy')", [cab]);
     await k.query("INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent) VALUES ($1, DATEADD(day, -15, SYSUTCDATETIME()), 1, 1, 1), ($1, SYSUTCDATETIME(), 1, 1, 1)", [cab]);
     await k.query("INSERT INTO sessions (id_hash, user_id, stage, expires_at) VALUES ($1, $2, 'complete', DATEADD(day, -2, SYSUTCDATETIME()))", [hashId("old-session"), boss]);
     await k.query("INSERT INTO events (event_id, cabinet_id, kind, occurred_at, received_at) VALUES ($1, $2, 'error', DATEADD(day, -200, SYSUTCDATETIME()), DATEADD(day, -200, SYSUTCDATETIME()))", [randomUUID(), cab]);
@@ -275,7 +274,6 @@ test("retention: old rows go, notifications older than an hour go, the audit log
   assert.ok(run.events >= 1); assert.ok(run.sessions >= 1);
   assert.equal((await q("SELECT COUNT(*) AS n FROM notifications WHERE payload = 'old'")).rows[0].n, 0);
   assert.equal((await q("SELECT COUNT(*) AS n FROM notifications WHERE payload = 'new'")).rows[0].n, 1);
-  assert.equal((await q("SELECT COUNT(*) AS n FROM drive_samples WHERE cabinet_id = $1", [cab])).rows[0].n, 1);
   assert.equal((await q("SELECT COUNT(*) AS n FROM health_samples WHERE cabinet_id = $1", [cab])).rows[0].n, 1);
   assert.ok((await q("SELECT COUNT(*) AS n FROM audit_log")).rows[0].n > auditBefore, "the run itself is audited, nothing is pruned");
   assert.equal(await pruneNotifications(db.app), 0);

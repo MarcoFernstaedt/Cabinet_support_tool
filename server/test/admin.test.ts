@@ -259,30 +259,11 @@ test("background checks do not count as activity, so an unattended console still
   assert.equal((await call("PUT", "/api/admin/settings", { sessionIdleMinutes: 1, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, "out of range");
 });
 
-test("an Admin sets the drive risk thresholds with a code; a set that does not rise, or is out of range, is refused and nothing changes", async () => {
-  const before = (await call("GET", "/api/admin/settings", undefined, bossCookie)).body.drives;
-  assert.deepEqual(before, { wearAttentionPct: 80, wearHighRiskPct: 90, wearCriticalPct: 95, wearDaysHighRisk: 180, wearDaysCritical: 60,
-    temperatureAttentionC: 60, temperatureHighRiskC: 70, temperatureRiseAttentionC: 10, reallocatedHighRiskPer7Days: 1, reallocatedCriticalPer30Days: 8 }, "the defaults");
-  const change = { drives: { wearAttentionPct: 75, temperatureHighRiskC: 65 } };
-  const r = await call("PUT", "/api/admin/settings", { ...change, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", change) }, bossCookie);
-  assert.equal(r.status, 200, JSON.stringify(r.body));
-  assert.equal(r.body.drives.wearAttentionPct, 75);
-  assert.equal(r.body.drives.temperatureHighRiskC, 65);
-  assert.equal(r.body.drives.wearCriticalPct, 95, "only what was sent changes");
-  // Attention at or above High risk: refused by the server, not saved.
-  const bad = { drives: { wearAttentionPct: 92 } };
-  const refused = await call("PUT", "/api/admin/settings", { ...bad, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", bad) }, bossCookie);
-  assert.equal(refused.status, 400, JSON.stringify(refused.body));
-  assert.equal((await call("GET", "/api/admin/settings", undefined, bossCookie)).body.drives.wearAttentionPct, 75);
-  // The contract refuses out-of-range, fractions, unknown fields and text before anything else.
-  for (const drives of [{ wearCriticalPct: 101 }, { temperatureHighRiskC: 70.5 }, { smartAttr: 5 }, { wearAttentionPct: "75" }, {}])
+test("the settings carry no drive thresholds any more (D152): none is read back, and a body that sends them is refused", async () => {
+  const now = (await call("GET", "/api/admin/settings", undefined, bossCookie)).body;
+  assert.equal(now.drives, undefined);
+  for (const drives of [{ wearAttentionPct: 75 }, {}])
     assert.equal((await call("PUT", "/api/admin/settings", { drives, stepUpToken: "A".repeat(43) }, bossCookie)).status, 400, JSON.stringify(drives));
-  // A Tier 2 cannot change them.
-  const t2 = await signIn(await account("tier2"));
-  assert.equal((await call("PUT", "/api/admin/settings", { ...change, stepUpToken: "A".repeat(43) }, t2)).status, 403);
-  // Back to the defaults for the tests after this one.
-  const reset = { drives: { wearAttentionPct: 80, temperatureHighRiskC: 70 } };
-  assert.equal((await call("PUT", "/api/admin/settings", { ...reset, stepUpToken: await stepUp(boss, bossCookie, "settings.update", "fleet", reset) }, bossCookie)).status, 200);
 });
 
 test("every account, Tier 1 included, sets up an authenticator before anything else; the setting that made it optional is gone", async () => {

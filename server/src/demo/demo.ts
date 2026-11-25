@@ -17,7 +17,6 @@ import { DEMO_FLEET, DRIFT_SECONDS, harborDriverWithoutCrash, harborStorageError
 import { evaluateTime } from "../services/time.js";
 import { checkSiteOutages } from "../services/site-outage.js";
 import { demoOutput, examplesAvailable, type DemoContext } from "./outputs.js";
-import { refreshDrive } from "../services/drives.js";
 import { applySetDns, applySetIp, baselineFor, initialNet, NET_SCENARIOS, netProblems, type DemoNet } from "./network.js";
 import { saveKnownFix } from "../services/known-fixes.js";
 import { ISSUE } from "../services/rules.js";
@@ -155,7 +154,6 @@ export function scenarioEvents(scenario: Scenario, now = Date.now(), n = 0): Eve
         err(70, "disk", 153, "The IO operation at logical block address 0x1d2f3 for Disk 0 was retried."),
         err(30, "disk", 153, "The IO operation at logical block address 0x1d2f7 for Disk 0 was retried."),
         err(6, "disk", 7, "The device, \\Device\\Harddisk0\\DR0, has a bad block.", "major"),
-        { eventId: randomUUID(), kind: "smart_warning", occurredAt: at(5), severityHint: "major", detail: { message: "Drive predicts failure.", fields: { model: "NVMe 256GB" } } },
       ];
     case "bsod":
       return [50, 26, 3].flatMap(h => [
@@ -383,21 +381,6 @@ async function seedHistory(pool: Pool, userId: string): Promise<void> {
   if (samples.length > 0)
     await pool.query(`INSERT INTO health_samples (cabinet_id, [at], cpu_percent, memory_used_percent, disk_free_percent)
                       SELECT j.k, j.t, j.c, j.m, j.d FROM OPENJSON($1) WITH (k uniqueidentifier, t datetime2(3), c smallint, m smallint, d smallint) j`, [samples]);
-  // A month of daily drive reports. Most drives are fine; three show the trends the platform exists to catch early.
-  // (The number list is written by this code, not taken from input.)
-  const days = Array.from({ length: 30 }, (_, d) => `(${d})`).join(", ");
-  await pool.query(
-    `DECLARE @now datetime2(3) = SYSUTCDATETIME();
-     INSERT INTO drive_samples (cabinet_id, drive_key, [at], model, serial_number, health, predict_failure, temperature_c, power_on_hours, reallocated, pending, uncorrectable, wear_percent)
-     SELECT k.id, CONCAT('DEMO', UPPER(LEFT(REPLACE(CONVERT(nvarchar(36), k.id), '-', ''), 8))), DATEADD(day, -g.d, @now), 'Samsung SSD 870 EVO 500GB', CONCAT('DEMO', UPPER(LEFT(REPLACE(CONVERT(nvarchar(36), k.id), '-', ''), 8))),
-            'healthy', 0,
-            CASE k.name WHEN 'ICU' THEN 40 + CAST(ROUND((29 - g.d) * 0.41, 0) AS int) ELSE 34 + ((CHECKSUM(k.id) & 0x7FFFFFFF) % 8) END,
-            9000 + (29 - g.d) * 24,
-            CASE k.name WHEN 'Surgery' THEN CASE WHEN g.d > 20 THEN 0 ELSE (21 - g.d) * 2 END ELSE 0 END, 0, 0,
-            CASE k.name WHEN 'Lab' THEN 70 + CAST(ROUND((29 - g.d) * 0.25, 0) AS int) ELSE 6 + (CHECKSUM(k.id) & 0x7FFFFFFF) % 5 END
-       FROM cabinets k CROSS JOIN (VALUES ${days}) g(d)
-      WHERE k.demo_scenario IS NOT NULL AND k.demo_scenario NOT IN (SELECT value FROM OPENJSON($1))`, [["offline", "site_outage", "incident_loop"]]);
-  for (const r of (await pool.query<{ cabinet_id: string; drive_key: string }>("SELECT DISTINCT cabinet_id, drive_key FROM drive_samples")).rows) await refreshDrive(pool, r.cabinet_id, r.drive_key);
   const stored: unknown[][] = [];
   // Offline cabinets keep their last readings (shown while they are away); every other cabinet has its installed software read once, so a
   // fleet search for the scanner software finds the whole demo fleet instead of a handful.

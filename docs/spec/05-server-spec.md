@@ -100,7 +100,7 @@ This is how errors become meaningful alerts, and how the team teaches the system
 
 - Issue type: a named problem with a severity of major or minor and a short description. Starting set: Fingerprint scanner problem, Drive failing, Driver failure, Network connectivity, Unexpected firewall change, Windows update failure, Agent problem. Admins can add more.
 - Symptom rule: links a pattern of events to one issue type. It matches on structured fields only: log, source, event ID and level, plus optionally a device hardware ID and a plain phrase that must appear in the message. No regular expressions are allowed, so a badly written rule cannot freeze the server.
-- Built-in rules: the agent's fingerprint scanner events map to Fingerprint scanner problem, SMART warnings to Drive failing, and unexplained firewall changes to Unexpected firewall change.
+- Built-in rules: the agent's fingerprint scanner events map to Fingerprint scanner problem, and unexplained firewall changes to Unexpected firewall change.
 - Unrecognized errors: an event that matches no rule is stored as a minor unrecognized alert, listed on its cabinet and in a fleet-wide Unrecognized list.
 
 Mapping an error to an existing issue:

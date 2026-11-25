@@ -278,8 +278,8 @@ test("a certificate this platform never issued is refused and raises one securit
 
 test("events are stored once even when the agent retries", async () => {
   const cab = await enrolledCabinet();
-  const event = { eventId: randomUUID(), kind: "smart_warning", occurredAt: "2026-10-06T12:00:00Z", severityHint: "major",
-    detail: { message: "Drive 0 reports 12 reallocated sectors.", fields: { reallocatedSectors: "12" } } };
+  const event = { eventId: randomUUID(), kind: "error", occurredAt: "2026-10-06T12:00:00Z", severityHint: "major",
+    source: { log: "System", source: "disk", eventId: 7, level: "error", recordId: 7001 }, detail: { message: "The device, \\Device\\Harddisk0\\DR0, has a bad block." } };
   for (let i = 0; i < 2; i++) assert.equal((await call("POST", "/agent/v1/events", { events: [event] }, cab)).status, 200);
   assert.equal((await db.app.query("SELECT 1 FROM events WHERE event_id = $1", [event.eventId])).rowCount, 1);
   assert.equal((await call("POST", "/agent/v1/events", { events: [{ ...event, kind: "run_this" }] }, cab)).status, 400);
@@ -292,7 +292,8 @@ test("each cabinet has an hourly event quota: over it, a batch is refused with 4
   port = (limited.server.address() as { port: number }).port;
   try {
     const noisy = await enrolledCabinet(), quiet = await enrolledCabinet();
-    const ev = () => ({ eventId: randomUUID(), kind: "smart_warning", occurredAt: "2026-10-06T12:00:00Z", severityHint: "minor", detail: { message: "x" } });
+    let rec = 9000;
+    const ev = () => ({ eventId: randomUUID(), kind: "error", occurredAt: "2026-10-06T12:00:00Z", severityHint: "minor", source: { log: "System", source: "Weird", eventId: 9, level: "error", recordId: rec++ }, detail: { message: "x" } });
     assert.equal((await call("POST", "/agent/v1/events", { events: [ev(), ev()] }, noisy)).status, 200);
     const over = [ev(), ev()];
     assert.equal((await call("POST", "/agent/v1/events", { events: over }, noisy)).status, 429);

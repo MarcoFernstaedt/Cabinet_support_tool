@@ -50,7 +50,7 @@ test("the data diet is in the schema: JSON as UTF-8 varchar, page compression, e
   for (const j of json) assert.deepEqual([j.type, j.collation], ["varchar", "Latin1_General_100_CI_AS_SC_UTF8"], `${j.t}.${j.c}`);
   const compressed = new Set((await asOwner(db, c => c.query<{ t: string }>(
     "SELECT DISTINCT OBJECT_NAME(p.object_id) AS t FROM sys.partitions p WHERE p.index_id IN (0, 1) AND p.data_compression_desc = 'PAGE'"))).rows.map(r => r.t));
-  for (const t of ["events", "health_samples", "drive_samples", "audit_log", "commands", "alerts", "health_hourly"]) assert.ok(compressed.has(t), t);
+  for (const t of ["events", "health_samples", "audit_log", "commands", "alerts", "health_hourly"]) assert.ok(compressed.has(t), t);
   const idx = new Map((await asOwner(db, c => c.query<{ name: string; type: string; filter: string | null; uniq: boolean }>(
     "SELECT i.name, i.type_desc AS type, i.filter_definition AS filter, i.is_unique AS uniq FROM sys.indexes i WHERE i.name IS NOT NULL"))).rows.map(r => [r.name, r]));
   assert.equal(idx.get("events_seq")?.type, "CLUSTERED");

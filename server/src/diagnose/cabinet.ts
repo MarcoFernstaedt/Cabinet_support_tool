@@ -32,7 +32,6 @@ export function bundleReads(now = Date.now(), scannerUsed = true): { key: keyof 
   const from = new Date(now - 24 * 3_600_000).toISOString();
   return [
     { key: "info", operation: "system.info", params: {} },
-    { key: "smart", operation: "disk.smart", params: {} },
     { key: "performance", operation: "system.performance", params: {} },
     // A client that uses no fingerprint scanner: there is nothing to read.
     ...(scannerUsed ? [{ key: "peripheral" as const, operation: "peripheral.status", params: {} }] : []),
@@ -45,7 +44,7 @@ export function bundleReads(now = Date.now(), scannerUsed = true): { key: keyof 
     { key: "appLog", operation: "eventlog.query", params: { log: "Application", levels: ["error", "critical"], from, pageSize: 100 } },
   ];
 }
-type ReadKeys = Pick<CabinetEvidence, "info" | "smart" | "performance" | "peripheral" | "usb" | "devices" | "services" | "updates" | "time" | "systemLog" | "appLog">;
+type ReadKeys = Pick<CabinetEvidence, "info" | "performance" | "peripheral" | "usb" | "devices" | "services" | "updates" | "time" | "systemLog" | "appLog">;
 
 export async function startCabinetDiagnosis(pool: Pool, user: { userId: string; role: Role }, cabinetId: string, log: (m: string) => void = () => {}): Promise<string> {
   const k = (await pool.query<{ name: string; role: string; online: boolean }>(
@@ -110,7 +109,7 @@ async function run(pool: Pool, cabinetId: string, id: string, issued: Issued[], 
   if (!k) throw new Error("the cabinet is gone");
   const evidence: CabinetEvidence = { cabinet: { id: cabinetId, name: k.name, role: k.role }, siteTimeZone: k.zone, clockToleranceSeconds: k.tolerance, now: Date.now(),
     scannerUsed: issued.some(i => i.key === "peripheral") };
-  for (const key of ["info", "smart", "performance", "peripheral", "usb", "devices", "services", "updates", "time", "systemLog", "appLog"] as const) {
+  for (const key of ["info", "performance", "peripheral", "usb", "devices", "services", "updates", "time", "systemLog", "appLog"] as const) {
     const r = read<never>(key);
     if (r) (evidence as unknown as Record<string, unknown>)[key] = r;
   }

@@ -15,7 +15,7 @@ const repo = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const dist = join(repo, "console", "dist");
 const skip = existsSync(join(dist, "index.html")) ? false : "build the console first (console/dist)";
 
-const TABS = ["Overview", "Standards", "Troubleshoot", "What changed", "Compare", "Alerts", "Event logs", "Services", "Processes", "Files", "Devices and drivers", "Drive health",
+const TABS = ["Overview", "Standards", "Troubleshoot", "What changed", "Compare", "Alerts", "Event logs", "Services", "Processes", "Files", "Devices and drivers",
   "Windows updates", "Time", "Network", "Firewall", "Fingerprint scanner", "Crashes and restarts", "Windows", "Software", "Command history"];
 
 const shot = async (page: Page, name: string) => { if (process.env.SHOTS) await page.screenshot({ path: `${process.env.SHOTS}/tour-${name.replace(/\W+/g, "_")}.png` }); };
@@ -38,7 +38,7 @@ async function walk(page: Page, expect: { outlined: (title: string) => string | 
       assert.match((await marked.innerText()).trim(), new RegExp(wanted), `${title}: the outlined control`);
       assert.equal(await panel.getByText(/Not on screen for your role/).count(), 0, `${title}: it found what it points at`);
     }
-    if (/^(Fleet|Drive health|Time)$/.test(title)) await shot(page, title);
+    if (/^(Fleet|Time)$/.test(title)) await shot(page, title);
     assert.equal(await page.evaluate(() => document.activeElement?.id ?? ""), "welcome-title", `${title}: the step's heading has the focus`);
     if (await panel.getByRole("button", { name: "Finish" }).count()) { await panel.getByRole("button", { name: "Finish" }).click(); return titles; }
     await panel.getByRole("button", { name: "Next" }).click();

@@ -277,7 +277,7 @@ jobs:
           $env:CABINET_ID = (($online.Line) -split ' ')[0]
           $ids = @{}
           foreach ($op in @(
-              @('system.info', '{}'), @('peripheral.status', '{}'), @('disk.smart', '{}'), @('updates.status', '{}'),
+              @('system.info', '{}'), @('peripheral.status', '{}'), @('updates.status', '{}'),
               @('eventlog.query', '{"log":"System","levels":["error","warning"],"pageSize":5}'),
               @('network.test', '{"target":"sync_cabinet","method":"tcp","port":135}'))) {
             $ids[$op[0]] = (node server/dist/src/cli.js issue $env:CABINET_ID $op[0] $op[1] --as ci.admin --code (node .github/ci/ci-authenticator.mjs code ci.admin) | Select-Object -Last 1).Trim()

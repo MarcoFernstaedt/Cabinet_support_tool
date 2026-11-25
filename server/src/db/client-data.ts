@@ -35,8 +35,6 @@ export const TABLE_PLACEMENT: Readonly<Record<string, Placement>> = {
   config_versions: "client",
   diagnoses: "client",
   diagnosis_batches: "client",
-  drive_samples: "client",
-  drive_status: "client",
   enrollment_baselines: "client",
   enrollment_requests: "platform",
   error_daily: "client",

@@ -2,7 +2,7 @@
 // of a fixed set of safe reads and say what is wrong, the evidence, how sure they are, the fix, and what matters most. A read that did not
 // answer is "could not check" and is never shown as healthy. Pure functions: no database, no network, no regular expressions. Everything that
 // comes from the cabinet (device names, log lines) is untrusted text: it is cleaned and cut before it is stored or shown.
-import type { DevicesListOutput, DiskSmartOutput, EventlogQueryOutput, PeripheralStatusOutput, ServicesListOutput, SystemInfoOutput,
+import type { DevicesListOutput, EventlogQueryOutput, PeripheralStatusOutput, ServicesListOutput, SystemInfoOutput,
   SystemPerformanceOutput, TimeStatusOutput, UpdatesStatusOutput, UsbPortsOutput } from "@mashura/cabinet-contracts/types";
 import { findingKey } from "../services/known-fixes.js";
 import type { Finding as NetworkFinding, FixAction as NetworkFixAction } from "./network-findings.js";
@@ -10,7 +10,7 @@ import { readModules } from "@mashura/cabinet-contracts/load";
 import { parseModule, type DiagnosticModule } from "./module.js";
 
 export type Area = "system" | "storage" | "performance" | "scanner" | "devices" | "services" | "updates" | "time" | "logs" | "network";
-export const AREAS: readonly [Area, string][] = [["system", "System"], ["storage", "Drive health"], ["performance", "Performance"], ["scanner", "Fingerprint scanner"],
+export const AREAS: readonly [Area, string][] = [["system", "System"], ["performance", "Performance"], ["scanner", "Fingerprint scanner"],
   ["devices", "Devices"], ["services", "Services"], ["updates", "Windows updates"], ["time", "Time"], ["logs", "Event logs"], ["network", "Network"]];
 export type BundleSeverity = "problem" | "warning" | "info";
 export type Certainty = "confirmed" | "probable" | "possible" | "not_checked";
@@ -61,7 +61,6 @@ export interface CabinetEvidence {
   peripheral?: Read<PeripheralStatusOutput>;
   usb?: Read<UsbPortsOutput>;
   devices?: Read<DevicesListOutput>;
-  smart?: Read<DiskSmartOutput>;
   updates?: Read<UpdatesStatusOutput>;
   services?: Read<ServicesListOutput>;
   performance?: Read<SystemPerformanceOutput>;
@@ -150,36 +149,6 @@ function system(e: CabinetEvidence, make: Make): Part {
     fix: "Run the diagnosis again in a few minutes. If it restarted by itself, open Crashes and restarts.", priority: 40,
     action: { kind: "open", section: "crashes", label: "Open Crashes and restarts", cabinetId: e.cabinet.id } }));
   return { findings: f, ok: `${clean(o.osVersion, 60)}, up ${days >= 1 ? `${Math.floor(days)} days` : `${Math.round(num(o.uptimeSeconds) / 3600)} hours`}` };
-}
-
-function storage(e: CabinetEvidence, make: Make): Part {
-  const r = e.smart;
-  if (!r) return { findings: [], ok: null };
-  if (!r.ok) return { findings: [make({ id: "drive-unread", area: "storage", severity: "info", certainty: "not_checked", title: "Could not read the drive health", evidence: lines([r.failure]), fix: null, priority: 20 })], ok: null };
-  const drives = arr(r.output.drives);
-  if (drives.length === 0) return { findings: [make({ id: "drive-none", area: "storage", severity: "info", certainty: "not_checked", title: "No drive reported health data",
-    evidence: ["Some drives and controllers do not pass SMART data to Windows. Healthy is not assumed; look at the disk errors in the event logs."], fix: null, priority: 20 })], ok: null };
-  const f: BundleFinding[] = [];
-  drives.forEach((d, i) => {
-    const name = clean(d.model, 60) || `Drive ${i + 1}`;
-    const reasons: { level: BundleSeverity; text: string }[] = [];
-    if (d.predictFailure === true) reasons.push({ level: "problem", text: "The drive's own self-monitoring predicts it will fail." });
-    if (d.health === "failing") reasons.push({ level: "problem", text: "Windows reports the drive as failing." });
-    else if (d.health === "warning") reasons.push({ level: "warning", text: "Windows reports a warning for the drive." });
-    if (num(d.pendingSectors) > 0) reasons.push({ level: "problem", text: `${num(d.pendingSectors)} sectors are waiting to be reallocated.` });
-    if (num(d.uncorrectableErrors) > 0) reasons.push({ level: "problem", text: `${num(d.uncorrectableErrors)} uncorrectable errors.` });
-    if (num(d.reallocatedSectors) > 0) reasons.push({ level: "warning", text: `${num(d.reallocatedSectors)} sectors have been reallocated.` });
-    if (d.wearPercent !== null && num(d.wearPercent) >= 90) reasons.push({ level: "warning", text: `${num(d.wearPercent)}% of the drive's rated life is used.` });
-    if (d.temperatureCelsius !== null && num(d.temperatureCelsius) >= 70) reasons.push({ level: "warning", text: `The drive is at ${num(d.temperatureCelsius)} °C.` });
-    if (reasons.length === 0) return;
-    const bad = reasons.some(x => x.level === "problem");
-    f.push(make({ id: `drive-${i + 1}`, key: "drive-health", area: "storage", severity: bad ? "problem" : "warning", certainty: d.predictFailure === true || d.health === "failing" ? "confirmed" : "probable",
-      title: bad ? `${name} shows signs of failing` : `${name} needs watching`, evidence: lines(reasons.map(x => x.text)),
-      fix: bad ? "Back up what matters and plan to replace the drive now, before it fails; a failing drive causes slowness, corrupted files and blue screens."
-        : "Keep an eye on it: check again in a few days (the Drive health section shows the trend) and plan a replacement if the numbers grow.",
-      priority: bad ? 98 : 55, issueTypeId: ISSUE_IDS.drive, action: { kind: "open", section: "drives", label: "Open Drive health", cabinetId: e.cabinet.id } }));
-  });
-  return { findings: f, ok: f.length === 0 ? `${drives.length} ${drives.length === 1 ? "drive" : "drives"}, none with a warning (a healthy reading is not a guarantee)` : null };
 }
 
 function performance(e: CabinetEvidence, make: Make): Part {
@@ -384,12 +353,12 @@ const KNOWN_EVENTS: KnownEvent[] = [
     fix: "Kernel-Power 41 means power was lost or Windows froze. Ask the site about the power (a UPS, the plug, a switched outlet); if it repeats with power stable, look at the drive and memory." },
   { sources: ["bugcheck", "microsoft-windows-wer-systemerrorreporting"], ids: [1001], key: "log-blue-screen", title: "Windows stopped with a blue screen", severity: "problem", priority: 90, issue: ISSUE_IDS.crash, area: "logs", section: "crashes",
     fix: "Open Crashes and restarts: it names the stop code and what changed before the first crash. A recently installed driver or update is the first suspect." },
-  { sources: ["disk"], ids: [7, 11, 15, 51, 52, 153, 154], key: "log-disk-errors", title: "Windows logged disk errors", severity: "problem", priority: 92, issue: ISSUE_IDS.drive, area: "storage", section: "drives",
-    fix: "Disk errors back up a failing drive or cable. Check the drive health and back up what matters." },
-  { sources: ["ntfs", "microsoft-windows-ntfs"], ids: [55, 98, 137, 140], key: "log-file-system", title: "Windows logged file system errors", severity: "problem", priority: 85, issue: ISSUE_IDS.drive, area: "storage", section: "drives",
-    fix: "The file system found damage. Check the drive health; a scan of the volume is needed once the drive is known to be sound." },
-  { sources: ["storahci", "stornvme"], ids: [129], key: "log-storage-reset", title: "The storage controller was reset", severity: "warning", priority: 70, issue: ISSUE_IDS.drive, area: "storage", section: "drives",
-    fix: "A controller reset means a request to the drive timed out. Check the drive health and the cable." },
+  { sources: ["disk"], ids: [7, 11, 15, 51, 52, 153, 154], key: "log-disk-errors", title: "Windows logged disk errors", severity: "problem", priority: 92, issue: ISSUE_IDS.drive, area: "logs", section: "events",
+    fix: "Disk errors back up a failing drive or cable. Back up what matters and have the drive and its cable checked." },
+  { sources: ["ntfs", "microsoft-windows-ntfs"], ids: [55, 98, 137, 140], key: "log-file-system", title: "Windows logged file system errors", severity: "problem", priority: 85, issue: ISSUE_IDS.drive, area: "logs", section: "events",
+    fix: "The file system found damage. Have the drive checked; a scan of the volume is needed once the drive is known to be sound." },
+  { sources: ["storahci", "stornvme"], ids: [129], key: "log-storage-reset", title: "The storage controller was reset", severity: "warning", priority: 70, issue: ISSUE_IDS.drive, area: "logs", section: "events",
+    fix: "A controller reset means a request to the drive timed out. Check the drive and its cable." },
   { sources: ["microsoft-windows-whea-logger"], ids: [1, 17, 18, 19, 47], key: "log-hardware", title: "The hardware reported an error (WHEA)", severity: "problem", priority: 86, issue: ISSUE_IDS.hardware, area: "logs",
     fix: "WHEA errors come from the processor, memory or a PCIe device. Repeated ones point at failing hardware." },
   { sources: ["service control manager"], ids: [7000, 7001, 7009, 7011, 7022, 7023, 7024, 7031, 7032, 7034], key: "log-service-failures", title: "Services failed or timed out", severity: "warning", priority: 53, issue: ISSUE_IDS.service, area: "services", section: "services",
@@ -490,7 +459,6 @@ export type CabinetRule = (e: CabinetEvidence, make: Make, ctx: RuleContext) => 
 /** The server rules the cabinet modules name (contracts/diagnostics/modules/cabinet-*.json). A module naming any other rule is refused. */
 export const CABINET_RULES: Readonly<Record<string, CabinetRule>> = {
   "cabinet.system": (e, make) => system(e, make),
-  "cabinet.storage": (e, make) => storage(e, make),
   "cabinet.performance": (e, make) => performance(e, make),
   "cabinet.scanner": (e, make) => scanner(e, make),
   "cabinet.devices": (e, make) => devices(e, make),
@@ -503,7 +471,7 @@ export const CABINET_RULES: Readonly<Record<string, CabinetRule>> = {
 };
 
 /** The order the cabinet modules run in, and so the order their areas are listed. */
-const CABINET_MODULE_ORDER = ["cabinet-system", "cabinet-storage", "cabinet-performance", "cabinet-scanner", "cabinet-devices", "cabinet-services", "cabinet-updates", "cabinet-time", "cabinet-logs"];
+const CABINET_MODULE_ORDER = ["cabinet-system", "cabinet-performance", "cabinet-scanner", "cabinet-devices", "cabinet-services", "cabinet-updates", "cabinet-time", "cabinet-logs"];
 let cabinetModuleCache: readonly DiagnosticModule[] | null = null;
 /** The cabinet modules, read and checked once (a module that fails its checks stops the diagnosis rather than running half). */
 export function cabinetModules(): readonly DiagnosticModule[] {
@@ -543,7 +511,7 @@ export function cabinetFindings(e: CabinetEvidence, network?: { findings: Networ
   const ctx = { findings: [] as BundleFinding[] };
   const parts: [Area, Part][] = cabinetModules().map(m => [m.area, runModule(m, e, make, ctx)]);
   const all: BundleFinding[] = parts.flatMap(([, p]) => p.findings);
-  const asked: Record<Area, boolean> = { system: !!e.info, storage: !!e.smart, performance: !!e.performance, scanner: !!e.peripheral || e.scannerUsed === false, devices: !!e.devices || !!e.usb, services: !!e.services,
+  const asked: Record<Area, boolean> = { system: !!e.info, storage: false, performance: !!e.performance, scanner: !!e.peripheral || e.scannerUsed === false, devices: !!e.devices || !!e.usb, services: !!e.services,
     updates: !!e.updates, time: !!e.time, logs: !!e.systemLog || !!e.appLog, network: network !== undefined };
   if (network && "findings" in network) for (const nf of network.findings) { const b = fromNetwork(nf); if (b) all.push(b); }
   else if (network && "failure" in network) all.push(make({ id: "network-unread", area: "network", severity: "info", certainty: "not_checked", title: "The network checks did not finish", evidence: lines([network.failure]), fix: "Run the diagnosis again, or run Diagnose network on the Network page.", priority: 30 }));

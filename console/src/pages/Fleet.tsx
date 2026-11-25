@@ -1,5 +1,4 @@
 import { PAGE_SIZE, Pager, usePaged } from "../components/Pager";
-import { DrivesAtRisk } from "../components/DriveTrends";
 import { WindowsInFleet } from "../components/WindowsInFleet";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ZONE_NAMES, zoneName } from "./cabinet/Time";
@@ -41,7 +40,6 @@ export function FleetHome() {
     <div className="page">
       <h1>Fleet</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
-      <DrivesAtRisk />
       {data && data.length === 0 && <Empty>No cabinets have been approved yet. {atLeast(me, "admin")
         ? <>Set up from <Link to="/admin/setup">Admin → Setup</Link>: create your team, install the agent on a cabinet, then approve it.</>
         : "An admin approves new cabinets under Admin → Pending cabinets."}</Empty>}
