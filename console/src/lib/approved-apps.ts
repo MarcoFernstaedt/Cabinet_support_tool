@@ -70,3 +70,18 @@ export function documentBytes(base64: string): Uint8Array<ArrayBuffer> {
   for (let i = 0; i < text.length; i++) bytes[i] = text.charCodeAt(i);
   return bytes;
 }
+
+/** One service entry against the cabinets of its level, as the server counted them from their own last service lists (D149). */
+export interface EntryCheck { key: string; reported: number; named: number; matched: number }
+
+/**
+ * What the editor says under a saved service entry no cabinet of the level can use, or null when at least one can (or no cabinet has
+ * reported its services, so there is nothing to compare). The agent acts only when the key name and the program the service runs both match.
+ */
+export function entryWarning(c: EntryCheck | undefined, serviceName: string): string | null {
+  if (!c || c.reported === 0 || c.matched > 0) return null;
+  const of = `${c.reported} ${c.reported === 1 ? "cabinet" : "cabinets"} here that reported ${c.reported === 1 ? "its" : "their"} services`;
+  if (c.named === 0)
+    return `No cabinet can use this entry: none of the ${of} has a service with the key name ${serviceName}. Use the service's key name, not its display name.`;
+  return `No cabinet can use this entry: ${c.named} of the ${of} ${c.named === 1 ? "has" : "have"} ${serviceName}, but it runs a different program than the path above.`;
+}

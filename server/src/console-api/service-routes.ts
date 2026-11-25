@@ -8,7 +8,8 @@ import type { FastifyInstance } from "fastify";
 import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { parseJson } from "../services/settings.js";
-import { appLevels, discardPendingApps, listToSign, readLevel, readLevelState, setApprovedApps, signApprovedApps, type AppLevel } from "../services/approved-apps.js";
+import { appLevels, discardPendingApps, listToSign, readLevel, readLevelState, setApprovedApps, signApprovedApps, type AppLevel, type AppList, type PendingList } from "../services/approved-apps.js";
+import { serviceEntryChecks } from "../services/approved-apps-match.js";
 import { ListSigningKeys } from "../services/approved-list-signing.js";
 import { clientScanner, setClientScanner } from "../services/client-scanner.js";
 import { setWatched, watchLevels, type WatchLevel } from "../services/watched-services.js";
@@ -91,6 +92,10 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   // With an Admin list-signing key set up, a saved list waits for its signature; the console says so and offers it for signing.
   const signing = o.listKeys ?? ListSigningKeys.fromFolder();
   const signingState = { signing: { enabled: signing.count > 0 } };
+  // Whether each service entry the editor shows (the change waiting for a signature, else the list in force) matches any cabinet
+  // of the level: its key name and the program it runs, as the agent checks them (D149).
+  const checks = (level: AppLevel, scope: string | null, state: { list: AppList | null; pending: PendingList | null }) =>
+    serviceEntryChecks(o.pool, level, scope, (state.pending ?? state.list)?.entries ?? []);
 
   // Whether a client uses a fingerprint scanner (Admin, code bound to the exact choice). Switching it on adds the scanner's service to the
   // client's approved list (waiting for a signature when signing is on) and to its watched services.
@@ -105,8 +110,9 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     /** One client's or site's own list, its change waiting for a signature, and the fleet default (for the editor's "inherited" line). */
     app.get(`/api/${table}/:id/approved-apps`, async request => {
       await o.guards.role(request, "tier1");
-      const own = await readLevelState(o.pool, level, id(request));
-      return { own: own.list, ownRejected: own.rejected, ownPending: own.pending, fleet: await readLevel(o.pool, "fleet", null), ...signingState };
+      const scope = id(request);
+      const own = await readLevelState(o.pool, level, scope);
+      return { own: own.list, ownRejected: own.rejected, ownPending: own.pending, fleet: await readLevel(o.pool, "fleet", null), checks: await checks(level, scope, own), ...signingState };
     });
     app.put(`/api/${table}/:id/approved-apps`, async request => {
       const u = await o.guards.role(request, "admin");
@@ -114,14 +120,14 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
       const scope = id(request);
       await setApprovedApps(o.pool, u, level, scope, b.entries ?? null, b.stepUpToken, appsConfirmed(b, level, scope), signing);
       const own = await readLevelState(o.pool, level, scope);
-      return { own: own.list, ownRejected: own.rejected, ownPending: own.pending, fleet: await readLevel(o.pool, "fleet", null), ...signingState };
+      return { own: own.list, ownRejected: own.rejected, ownPending: own.pending, fleet: await readLevel(o.pool, "fleet", null), checks: await checks(level, scope, own), ...signingState };
     });
   }
 
   app.get("/api/admin/approved-apps", async request => {
     await o.guards.role(request, "tier1");
     const fleet = await readLevelState(o.pool, "fleet", null);
-    return { fleet: fleet.list, fleetRejected: fleet.rejected, fleetPending: fleet.pending, ...signingState };
+    return { fleet: fleet.list, fleetRejected: fleet.rejected, fleetPending: fleet.pending, checks: await checks("fleet", null, fleet), ...signingState };
   });
 
   app.put("/api/admin/approved-apps", async request => {
@@ -129,7 +135,7 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const b = consoleBodies.approvedApps.parse(request.body);
     await setApprovedApps(o.pool, u, "fleet", null, b.entries ?? null, b.stepUpToken, appsConfirmed(b, "fleet", null), signing);
     const fleet = await readLevelState(o.pool, "fleet", null);
-    return { fleet: fleet.list, fleetRejected: fleet.rejected, fleetPending: fleet.pending, ...signingState };
+    return { fleet: fleet.list, fleetRejected: fleet.rejected, fleetPending: fleet.pending, checks: await checks("fleet", null, fleet), ...signingState };
   });
 
   // Signing, for every level: the document to sign, the signature upload, and dropping a change that waits for one. Admin only.
@@ -161,7 +167,7 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
   // list here, and that list wins over every level above, so an Admin has to be able to see, replace or remove it.
   const cabinetApps = async (cabinetId: string) => {
     const own = await readLevelState(o.pool, "cabinet", cabinetId);
-    return { ...(await appLevels(o.pool, cabinetId)), own: own.list, ownRejected: own.rejected, ownPending: own.pending, ...signingState };
+    return { ...(await appLevels(o.pool, cabinetId)), own: own.list, ownRejected: own.rejected, ownPending: own.pending, checks: await checks("cabinet", cabinetId, own), ...signingState };
   };
   app.get("/api/cabinets/:id/approved-apps", async request => {
     await o.guards.role(request, "tier1");
