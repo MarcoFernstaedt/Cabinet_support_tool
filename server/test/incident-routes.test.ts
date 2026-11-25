@@ -1,4 +1,4 @@
-// Incident records in the console API (docs/platform/archive/diagnostic-engine-execution.md, "The foundation in detail", item 6): read only,
+// Incident records in the console API (docs/spec/18-built-designs.md §2, item 6): read only,
 // Tier 1 and up, always within one cabinet; people shown by name, never by id; a record of another cabinet is not found through this
 // one; hostile query strings are refused by the contract.
 import test from "node:test";

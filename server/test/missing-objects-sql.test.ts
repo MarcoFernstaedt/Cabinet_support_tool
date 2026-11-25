@@ -1,6 +1,6 @@
 // Migration 0010 against a real SQL Server: the objects the code already used but no migration created (audit of 2026-10-26, S7 and F2).
 // Each part is driven through the code that needs it, not just looked up in the catalog: the audit check notices that the newest entries
-// were deleted, a client's file-facts paths are stored and read back, the three issue types the rules raise are there to raise, and a
+// were deleted, the file-facts objects 0039 removed are gone, the USB issue types the rules raise are there to raise, and a
 // cabinet whose agent accepts unsigned upgrades is marked.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -8,8 +8,6 @@ import { randomUUID } from "node:crypto";
 import { asOwner, createTestDatabase, type TestDatabase } from "./database.js";
 import { audit, auditChainHeadAnchor, transaction } from "../src/db/db.js";
 import { verifyChainAndAlert } from "../src/services/maintenance.js";
-import { ALLOWLIST_SET_ACTION, normalizeEntries, readLevel, setAllowlist } from "../src/services/filefacts-allowlist.js";
-import { APP_VERSION_ISSUE } from "../src/services/filefacts-ingest.js";
 import { usbIssueCatalogParams, usbIssueCatalogSql } from "../src/services/usb-sql.js";
 import { USB_ISSUE_KEYS } from "../src/services/usb-policy.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
@@ -47,21 +45,14 @@ test("migration 0010: the audit anchor, the file-facts paths and the missing iss
   const alert = (await db.app.query<{ title: string }>("SELECT TOP (1) title FROM security_alerts WHERE kind = 'audit_chain' ORDER BY last_seen DESC")).rows[0];
   assert.match(alert?.title ?? "", /ends before the entry the append path last wrote/);
 
-  // The file-facts paths: stored on the client and read back through the same service the console uses.
+  // The file-facts read is removed (0039, D150): its three columns, the fleet row and its issue type are gone.
   const clientId = randomUUID();
   await db.app.query("INSERT INTO clients ([id],[name]) VALUES ($1,'M10 client')", [clientId]);
-  const raw = [{ key: "app:dispenser", root: "C:\\Program Files\\Dispenser", name: "dispenser.exe", includeSha256: false }];
-  const list = normalizeEntries(raw);
-  assert.ok(list.ok);
-  const token = await issueStepUpToken(db.app, admin.userId, ALLOWLIST_SET_ACTION.client, clientId, paramsHash({ level: "client", id: clientId, entries: list.entries }));
-  await setAllowlist(db.app, admin, "client", clientId, raw, token);
-  assert.deepEqual((await readLevel(db.app, "client", clientId))?.entries.map(e => e.key), ["app:dispenser"]);
-  // The column's own check holds at most 32 entries, as the approved programs' does.
-  const tooMany = JSON.stringify({ entries: Array.from({ length: 33 }, (_, i) => ({ key: `app:${i}` })) });
-  await assert.rejects(asOwner(db, c => c.query("UPDATE clients SET filefacts_paths = $1 WHERE id = $2", [tooMany, clientId])));
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM sys.columns WHERE name = 'filefacts_paths'")).rows[0].n, 0);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM settings WHERE [key] = 'filefacts.paths'")).rows[0].n, 0);
+  assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM issue_types WHERE [key] = 'app_version'")).rows[0].n, 0);
 
-  // The issue types: the app-version alert's id, and all three USB rules' keys.
-  assert.equal((await db.app.query("SELECT [key] FROM issue_types WHERE id = $1", [APP_VERSION_ISSUE])).rows[0]?.key, "app_version");
+  // The issue types: all three USB rules' keys.
   const usb = (await db.app.query<{ key: string }>(usbIssueCatalogSql, [...usbIssueCatalogParams()])).rows.map(r => r.key).sort();
   assert.deepEqual(usb, Object.values(USB_ISSUE_KEYS).sort());
 

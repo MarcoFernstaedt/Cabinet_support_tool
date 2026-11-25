@@ -39,7 +39,7 @@ A repository test (`server/test/supply-chain.test.ts`) fails if a base image los
 
 1. Merge only from a reviewed pull request whose checks are green (tests, audits, signatures, SBOM).
 2. Build the platform image from the pinned Dockerfile; keep its SBOM and attestation with the release.
-3. Build the agent in the pipeline, Authenticode-sign the binaries, build the manifest, and have the KMS sign the manifest. The pipeline's identity is the only one allowed to ask the KMS for a signature, and every request is logged by the KMS.
+3. Build the agent, Authenticode-sign the binaries with our own publisher, build the manifest, and sign it with the offline release key (D143). The key never leaves the offline machine.
 4. Roll the upgrade out in stages (a few cabinets, then more); the agent keeps its previous version until the new one has reached the platform.
 
 ## 5. Still to do (outside the code)

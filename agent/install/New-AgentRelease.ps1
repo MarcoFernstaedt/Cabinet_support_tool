@@ -5,7 +5,7 @@
   signature.json, a detached ECDSA P-256 signature over the manifest's exact bytes.
 .DESCRIPTION
   Run this once per Windows architecture, with the publish directory that architecture was published into and -Architecture
-  naming it (docs/platform/archive/second-architecture.md). One version therefore has one release per architecture: Windows cannot
+  naming it (docs/spec/18-built-designs.md section 1). One version therefore has one release per architecture: Windows cannot
   run a 64-bit program on 32-bit Windows, so a cabinet can only ever be offered the release built for it, and the platform
   records which architecture a release is when the package is uploaded. The file names are the same for every architecture
   because each release is stored and served on its own; the architecture is not on the signed manifest, whose schema is closed

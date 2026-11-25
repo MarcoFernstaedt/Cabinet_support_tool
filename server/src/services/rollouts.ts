@@ -1,5 +1,5 @@
 // Staged rollouts (docs/spec/07-upgrade-channel.md "Staged rollout"): an Admin starts one, with step-up, for one
-// ready release, which is one version of one Windows architecture (docs/platform/archive/second-architecture.md). Batch 1 is
+// ready release, which is one version of one Windows architecture (docs/spec/18-built-designs.md §1). Batch 1 is
 // one cabinet the Admin names, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest, batch 4 everyone
 // else. The server offers the version in its heartbeat answer to cabinets in the batches reached so far; each agent
 // reports how its upgrade ended. A batch must reach the success rate before the next starts, and failures above the

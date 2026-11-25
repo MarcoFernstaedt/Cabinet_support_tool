@@ -6,10 +6,10 @@ Upgrading the agent means running new code on every cabinet. If the server alone
 
 ## Signing key
 
-- Recommended: an asymmetric signing key in a cloud KMS with hardware backing, such as AWS KMS or Azure Key Vault Managed HSM. The private key never leaves the KMS.
-- Acceptable alternative: an offline key on a machine that never touches production, with signing done by hand per release.
+- Decided (D143): an offline key the operator holds on a machine that never touches production, used only where releases are cut, with signing done per release (`agent/install/new-agent-release.py`, docs/platform/agent-release-signing.md). No cloud KMS and nothing bought.
+- `New-AgentRelease.ps1` can also sign through AWS KMS or Azure Key Vault, if that is ever chosen instead.
 - Never: on the server, in the repository, or in a production environment variable.
-- Only the build pipeline's identity may request signatures, and every signature request is logged by the KMS.
+- The release key and the offline roots are backed up and kept off any networked machine.
 
 ## Package format
 
@@ -20,7 +20,7 @@ Upgrading the agent means running new code on every cabinet. If the server alone
 ## Signing flow
 
 1. The build pipeline builds the new version and produces the package and manifest.
-2. The pipeline sends the manifest's hash to the KMS and receives a signature. The key never leaves the KMS.
+2. The manifest's hash is signed with the release key on the offline machine. The key never leaves it.
 3. The package, manifest and signature are uploaded to the server's update store.
 4. An admin starts a staged rollout in the console, with step-up. This is audited separately.
 5. The server tells the agents in the current batch that the version is available.

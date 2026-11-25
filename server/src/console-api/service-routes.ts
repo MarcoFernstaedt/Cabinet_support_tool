@@ -87,7 +87,7 @@ export async function serviceRoutes(app: FastifyInstance, o: ConsoleApiOptions &
 
   // ---- Approved applications (docs/spec/13-roadmap.md: process.end and app.restart with a per-client allowlist). -------------
   // What this cabinet may be asked to control: the programs an owner approves, with the exact executable path written by the
-  // owner. Admin only, the same rule the file-facts paths follow, and the step-up token is bound to the exact entries.
+  // owner. Admin only, and the step-up token is bound to the exact entries.
 
   // With an Admin list-signing key set up, a saved list waits for its signature; the console says so and offers it for signing.
   const signing = o.listKeys ?? ListSigningKeys.fromFolder();

@@ -65,8 +65,8 @@ test("a sync cabinet's replacement takes its name, satellites, address and own s
   assert.equal((await row(sat.cabinetId)).sync_cabinet_id?.toLowerCase(), sync.cabinetId.toLowerCase());
   const old = sync.cabinetId;
   // The old cabinet's own settings and history.
-  await db.app.query(`UPDATE cabinets SET sync_address = '10.30.0.5', sync_address_source = 'admin', scanner_hardware_ids = $2, watched_services = $3, in_office = 1,
-                      filefacts_paths = NULL WHERE id = $1`, [old, JSON.stringify(["USB\\VID_1234&PID_5678"]), JSON.stringify(["Spooler"])]);
+  await db.app.query(`UPDATE cabinets SET sync_address = '10.30.0.5', sync_address_source = 'admin', scanner_hardware_ids = $2, watched_services = $3, in_office = 1
+                      WHERE id = $1`, [old, JSON.stringify(["USB\\VID_1234&PID_5678"]), JSON.stringify(["Spooler"])]);
   const apps = { level: "cabinet", id: old.toLowerCase(), entries: [APP] };
   assert.equal((await call("PUT", `/api/cabinets/${old}/approved-apps`, { ...apps, stepUpToken: await h.codeToken(ada, "cabinet.apps", old.toLowerCase(), apps) }, ada)).status, 200);
   await db.app.query("INSERT INTO settings ([key], [value]) VALUES ($1, $2)", [`usb.policy.cabinet.${old.toLowerCase()}`, JSON.stringify({ version: 3, policy: USB })]);

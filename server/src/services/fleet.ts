@@ -19,7 +19,7 @@ export interface CabinetRow {
   agentVersion: string | null; readOnly: boolean | null; hostname: string | null; openAlerts: number;
   /**
    * Which Windows the installed agent programs are built for, as the agent reports it ("windows-x64" / "windows-x86"), or
-   * null for an agent built before cabinets reported one (docs/platform/archive/second-architecture.md). This is the value an
+   * null for an agent built before cabinets reported one (docs/spec/18-built-designs.md §1). This is the value an
    * update has to match. Null is unknown rather than a claim: for an update it counts as 64-bit, because 64-bit is the only
    * agent that has ever shipped and a 32-bit cabinet cannot exist without reporting one; the console shows nothing at all.
    */
