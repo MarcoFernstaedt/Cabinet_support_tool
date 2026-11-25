@@ -1,22 +1,11 @@
-// The named file paths of the file-facts read (docs/spec/18-built-designs.md §4). This file holds every rule that decides
-// whether a path an owner configured may be read at all. It is pure: no filesystem call, no clock, no database.
+// The path rules an approved program must meet before it is stored (approved-apps.ts) or named (app-control.ts). Pure: no
+// filesystem call, no clock, no database.
 //
-// A version resource is read from a file the owner named, so the allowlist is an exact list: a path is either written exactly as
-// configured and canonical, or it is refused. Nothing here repairs a path ("close enough" is how a traversal gets through): a
-// device path, a UNC path, an alternate data stream, a relative or rooted segment, a wildcard, a trailing dot or space, a
-// forward slash and a control character are all refusals, never a normalisation.
-//
-// What this file cannot do is what only the cabinet can: it cannot know whether the handle it opened traversed a reparse point.
-// The read therefore also reports the path of the opened handle and whether it went through one, and the ingest side
-// (filefacts-ingest.ts) refuses the entry unless both agree with the configured root and file name. Lexical containment on its
-// own is not a security check; it is one of two.
-import { Refused } from "./errors.js";
+// A path is either written exactly as configured and canonical, or it is refused. Nothing here repairs a path ("close enough" is
+// how a traversal gets through): a device path, a UNC path, an alternate data stream, a relative or rooted segment, a wildcard, a
+// trailing dot or space, a forward slash and a control character are all refusals, never a normalisation. The cabinet compares the
+// program it opens itself; these lexical rules are one of two checks.
 
-/** The platform's own caps. Contracts carry the same numbers: the report schema refuses anything larger. */
-export const MAX_FILES = 32;
-export const MAX_FILE_BYTES = 8 * 1024 * 1024;
-export const MAX_TOTAL_BYTES = 64 * 1024 * 1024;
-export const MAX_ELAPSED_MS = 30_000;
 export const MAX_PATH_LENGTH = 260;
 export const MAX_ROOT_LENGTH = 200;
 export const MAX_NAME_LENGTH = 128;
@@ -93,22 +82,12 @@ function canonical(raw: string, max: number): Canonical {
   return accepts(out);
 }
 
-/** A canonical directory root, as the allowlist stores it. */
+/** A canonical directory root, as the approved list stores it. */
 export function canonicalRoot(raw: unknown): Canonical {
   if (typeof raw !== "string") return refuses("not_text");
   if (raw.length === 0) return refuses("empty");
   return canonical(raw, MAX_ROOT_LENGTH);
 }
-
-/** A canonical absolute file path, as a cabinet reports the handle it opened. */
-export function canonicalPath(raw: unknown): Canonical {
-  if (typeof raw !== "string") return refuses("not_text");
-  if (raw.length === 0) return refuses("empty");
-  return canonical(raw, MAX_PATH_LENGTH);
-}
-
-/** True when two parts of a path name the same thing: a directory on Windows is found whatever the case. */
-const samePart = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 /**
  * The full path of one allowlist entry: the canonical root plus one file name taken exactly as configured. The name is a single
@@ -129,30 +108,6 @@ export function joinWithinRoot(rootRaw: unknown, nameRaw: unknown): Canonical {
   return accepts(path);
 }
 
-/**
- * True when `candidate` is a file directly inside `root`: the root's own parts compared as Windows compares a directory name,
- * and exactly one more separator with something after it. This is a cross-check on the path a cabinet reports having opened —
- * never the only check, and never used to build a path.
- */
-export function insideRoot(rootRaw: unknown, candidateRaw: unknown): boolean {
-  const root = canonicalRoot(rootRaw);
-  const candidate = canonicalPath(candidateRaw);
-  if (!root.ok || !candidate.ok) return false;
-  const prefix = `${root.path}\\`;
-  if (!samePart(candidate.path.slice(0, prefix.length), prefix)) return false;
-  const rest = candidate.path.slice(prefix.length);
-  return rest.length > 0 && !rest.includes("\\");
-}
-
-/** True when the opened handle is exactly the configured root plus the configured file name. */
-export function matchesEntry(entry: { root: string; name: string }, candidateRaw: unknown): boolean {
-  if (!insideRoot(entry.root, candidateRaw)) return false;
-  const candidate = canonicalPath(candidateRaw);
-  const root = canonicalRoot(entry.root);
-  if (!candidate.ok || !root.ok) return false;
-  return candidate.path.slice(root.path.length + 1) === entry.name;
-}
-
 /** An `app:<name>` key, the name a file stands for in the applications category. */
 export function keyProblem(raw: unknown): PathRefusalReason | null {
   if (typeof raw !== "string") return "not_text";
@@ -160,14 +115,4 @@ export function keyProblem(raw: unknown): PathRefusalReason | null {
   if (raw.length > MAX_KEY_LENGTH) return "too_long";
   if (!raw.startsWith("app:") || raw.length === 4) return "not_a_name";
   return segmentProblem(raw.slice(4)) ?? (raw.slice(4).includes("\\") ? "not_a_name" : null);
-}
-
-/** True when the text could be a version string: short, single line, no control character. Reported values are never parsed. */
-export function looksLikeVersion(value: unknown): boolean {
-  return typeof value === "string" && value.length > 0 && value.length <= 64 && ![...value].some(ch => isControl(ch.codePointAt(0)!));
-}
-
-/** The refusal a route or a service raises for a reason found here; the path itself is never echoed. */
-export function refusePath(action: string, reason: PathRefusalReason): Refused {
-  return new Refused("invalid_params", 400, `${action}: ${reason}`);
 }

@@ -2252,10 +2252,6 @@ export interface StepUpRequest {
     | "client.usb-policy"
     | "site.usb-policy"
     | "cabinet.usb-policy"
-    | "settings.filefacts"
-    | "client.filefacts"
-    | "site.filefacts"
-    | "cabinet.filefacts"
     | "site.apply_standards"
     | "fleet.import";
   /**

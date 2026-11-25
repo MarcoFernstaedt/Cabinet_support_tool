@@ -69,6 +69,14 @@ The contracts README no longer calls the upgrade trust list empty: it holds the 
   sampler is the first case (`pathhealth-targets`, `-analysis`, `-correlation`, `-contracts`, their two tests and two schemas).
   The owner removed it: "as long as firewalls are disabled, it should all be fine". The on-demand network diagnosis stays.
   Spec 18 §3 records the decision and keeps the target rules the on-demand tests rely on.
+- **The file-facts read.** The owner: viewing files on the machine is not beneficial any more. Its agent operation was never built;
+  the server held an allowlist per scope (read only, no route wrote it), a planned read, an ingest and an `app_version` alert.
+  - **Removed:** `filefacts-allowlist`, `-ingest`, `-request` with their four tests and two schemas, the four `*.filefacts`
+    step-up actions, the setting on the Standards tab and in setting origins, and the copy on cabinet replacement.
+  - **Migration `0039_remove_filefacts.sql`** drops the three columns and their checks, the fleet row, and the `app_version`
+    issue type when nothing refers to it. The 0010 test now proves they are gone.
+  - **Kept:** the path rules the approved-programs list uses, renamed `program-path.ts`. The read's caps, handle cross-checks
+    and version check are pruned from it.
 
 
 ---

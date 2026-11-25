@@ -105,25 +105,15 @@ What stays from the design, because the on-demand tests rely on it:
   - No replies means jitter and RTT are null, not zero.
 - **Peers** are suggested by the server only, from topology it already holds. The agent does no discovery scanning.
 
-## §4 The file-facts read
+## §4 The file-facts read: removed
 
-Application versions from named file paths, without a general file read.
+**Removed 2026-11-25 (D150).** A server half was built to read application versions from named file paths on a cabinet: an Admin's
+allowlist per scope, a planned read with byte and time caps, and an alert when a version differed from the baseline. Its agent
+operation was never built. The owner does not want the platform reading file details on a cabinet, so it was removed. Migration
+`0039_remove_filefacts.sql` drops its columns, its fleet row and its `app_version` issue type. Application versions remain
+visible through `software.list`.
 
-- **Who sets the paths.** A server administrator only. A versioned per-application allowlist of exact paths, or canonical roots
-  plus fixed relative names, set at fleet, client, site or cabinet level with step-up and audit. Tier 1, Tier 2 and agents
-  never submit a path.
-- **What comes back.** Metadata only: product and file version, company, description, size, last-write time, Authenticode status,
-  optionally SHA-256. Never file content. A version resource is evidence of a file, not proof the application works.
-- **Path rules.**
-  - Canonicalise, then reject absolute, traversal, UNC, device and alternate-stream forms.
-  - Refuse or safely resolve reparse points, junctions and symlinks, and check that the opened handle stays inside the
-    approved root. A lexical prefix check is not enough.
-  - No recursion and no network shares.
-  - Per-file and total byte caps, a bounded count, timeouts, and no gap between the check and the open.
-- **Handling.** Return a path identifier, a normalised version, the observed time and a bounded status. Audit each request and
-  each path's outcome, rate-limit, cap the response by schema, and treat reported values as untrusted telemetry bound to the
-  authenticated cabinet.
-- **Console.** An application-versions panel, and drift from the site baseline through the existing baseline machinery.
+The path rules it shared with the approved-programs list stay, as `server/src/services/program-path.ts`.
 
 ## §5 USB device watch
 

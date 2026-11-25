@@ -24,7 +24,7 @@ import type { Command } from "../contracts.js";
 import { appLevels, rawEntry, type AppLevels } from "./approved-apps.js";
 import { issueFromConsole, type Role } from "./console-commands.js";
 import { Refused } from "./errors.js";
-import { keyProblem } from "./filefacts-path.js";
+import { keyProblem } from "./program-path.js";
 import { listProblem, reportedProcesses, reportedServices } from "./controlled-targets.js";
 
 export { reportedProcesses, reportedServices, type ReportedProcess, type ReportedService } from "./controlled-targets.js";

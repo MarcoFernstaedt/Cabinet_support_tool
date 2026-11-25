@@ -20,7 +20,7 @@ async function site(): Promise<string> {
 }
 const plain = (siteId: string, name: string, over: Partial<NewCabinet> = {}): NewCabinet => ({
   id: randomUUID(), siteId, name, role: "standalone", hostname: "CAB-01", serialNumber: "SN-1", agentVersion: "1.4.0", architecture: "windows-x64",
-  syncCabinetId: null, replacesCabinetId: null, scannerHardwareIds: null, watchedServices: null, filefactsPaths: null, inOffice: false,
+  syncCabinetId: null, replacesCabinetId: null, scannerHardwareIds: null, watchedServices: null, inOffice: false,
   syncAddress: null, syncAddressSource: null, ...over });
 // A connection that fails the test if it is used: a refusal has to come from the check, not from the database.
 const untouched: Queryable = { query: async () => { throw new Error("a value the check refuses reached the database"); } };
@@ -30,22 +30,22 @@ test("every field is written as given, and the cabinet is active", async () => {
   const old = plain(s, "Old ICU", { role: "sync" });
   assert.equal(await insertCabinet(db.app, old), true);
   const k = plain(s, "ICU 1", { role: "sync", hostname: "ICU-CAB", serialNumber: null, agentVersion: "2.0.1-beta.1", architecture: null,
-    replacesCabinetId: old.id, scannerHardwareIds: '["USB\\\\VID_1234"]', watchedServices: '["Spooler"]', filefactsPaths: '{"entries":[]}',
+    replacesCabinetId: old.id, scannerHardwareIds: '["USB\\\\VID_1234"]', watchedServices: '["Spooler"]',
     inOffice: true, syncAddress: "10.0.0.5", syncAddressSource: "admin" });
   assert.equal(await insertCabinet(db.app, k), true);
   // The connection reads the JSON settings back parsed; the stored text is what was given.
   const row = (await db.app.query<Record<string, unknown>>(
     `SELECT LOWER(CAST(site_id AS char(36))) AS site, name, role, status, hostname, serial_number, agent_version, architecture, sync_cabinet_id,
-            LOWER(CAST(replaces_cabinet_id AS char(36))) AS replaces, scanner_hardware_ids, watched_services, filefacts_paths, in_office, sync_address, sync_address_source
+            LOWER(CAST(replaces_cabinet_id AS char(36))) AS replaces, scanner_hardware_ids, watched_services, in_office, sync_address, sync_address_source
        FROM cabinets WHERE id = $1`, [k.id])).rows[0]!;
   assert.deepEqual(row, { site: s, name: "ICU 1", role: "sync", status: "active", hostname: "ICU-CAB", serial_number: null, agent_version: "2.0.1-beta.1",
     architecture: null, sync_cabinet_id: null, replaces: old.id, scanner_hardware_ids: ["USB\\VID_1234"], watched_services: ["Spooler"],
-    filefacts_paths: { entries: [] }, in_office: true, sync_address: "10.0.0.5", sync_address_source: "admin" });
+    in_office: true, sync_address: "10.0.0.5", sync_address_source: "admin" });
   // The settings as the connection reads them back from the replaced cabinet's row, parsed, are taken and stored as their JSON.
-  const copy = plain(s, "ICU 3", { scannerHardwareIds: ["USB\\VID_1234"] as never, watchedServices: ["Spooler"] as never, filefactsPaths: { entries: [] } as never });
+  const copy = plain(s, "ICU 3", { scannerHardwareIds: ["USB\\VID_1234"] as never, watchedServices: ["Spooler"] as never });
   assert.equal(await insertCabinet(db.app, copy), true);
-  assert.deepEqual((await db.app.query<Record<string, unknown>>("SELECT scanner_hardware_ids, watched_services, filefacts_paths FROM cabinets WHERE id = $1", [copy.id])).rows[0],
-    { scanner_hardware_ids: ["USB\\VID_1234"], watched_services: ["Spooler"], filefacts_paths: { entries: [] } });
+  assert.deepEqual((await db.app.query<Record<string, unknown>>("SELECT scanner_hardware_ids, watched_services FROM cabinets WHERE id = $1", [copy.id])).rows[0],
+    { scanner_hardware_ids: ["USB\\VID_1234"], watched_services: ["Spooler"] });
   // A satellite placed with its sync cabinet.
   const sat = plain(s, "ICU 2", { role: "satellite", syncCabinetId: k.id.toUpperCase() });
   assert.equal(await insertCabinet(db.app, sat), true);

@@ -1,4 +1,4 @@
-// Where a cabinet's settings come from (F6.R5), in a real browser: the Standards tab lists approved programs, file-facts paths and USB watch
+// Where a cabinet's settings come from (F6.R5), in a real browser: the Standards tab lists approved programs and USB watch
 // with the level each comes from, and a level whose stored value was refused says so in the line's dialog instead of reading as unset.
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -32,7 +32,7 @@ test("the Standards tab names where each inherited setting comes from, and a ref
     await row("Approved programs").waitFor();
     assert.match(await row("Approved programs").innerText(), /None \(the list in force was refused\)\s+The site/);
     assert.match(await row("Watched services").innerText(), /Spooler\s+The client/);
-    assert.match(await row("File-facts paths").innerText(), /None\s+Not set/);
+    assert.equal(await row("File-facts paths").count(), 0, "the file-facts read is removed (D150)");
     assert.match(await row("USB watch").innerText(), /Nothing watched\s+Not set/);
     await page.getByRole("button", { name: "Approved programs", exact: true }).click();
     const dialog = page.getByRole("dialog", { name: "Approved programs" });

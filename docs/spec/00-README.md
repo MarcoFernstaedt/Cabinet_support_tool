@@ -26,7 +26,7 @@ The platform as it actually is — what is proven, what is left, and how it runs
 - 15-baselines-and-config.md: configuration baselines and snapshots, and how a cabinet's settings are compared against them
 - 16-network-troubleshooting.md: finding a network problem on one cabinet, several, or a whole site, and fixing it
 - 17-phase-7-and-beyond.md: fleet correlation, known errors and self-healing, proposed and not approved
-- 18-built-designs.md: the built designs code cites for its reasons: the 32-bit build, the diagnostic engine, network targets, the file-facts read, the USB watch, the server side of a control request
+- 18-built-designs.md: the built designs code cites for its reasons: the 32-bit build, the diagnostic engine, network targets, the USB watch, the server side of a control request
 
 ## Stack
 
