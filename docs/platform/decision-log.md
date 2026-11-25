@@ -17,9 +17,11 @@ the code. Chromium was missing, and Git refused the checkout as root (`safe.dire
 - Added for `main`: what is skipped without `TEST_AGENT_DLL` (10 tests) or PowerShell 7 (8 tests), and that each reason is
   printed after `# SKIP`.
 
-**Proven:** the local run on `main` at `e8cd887` skipped exactly these 18: 15 in the non-browser run, 3 in the browser run. Each
-was read from its `# SKIP` line: 10 for `TEST_AGENT_DLL` (7 and 3) and 8 for PowerShell. There were 0 failures. Earlier PR
-descriptions (#340, #341) said 13 and 5; the total of 18 was right, the split was not.
+**Proven:** a local run on `main` at `e8cd887`, without PowerShell 7 and with the console built, skipped 18: 15 in the
+non-browser run, 3 in the browser run. Each was read from its `# SKIP` line: 10 for `TEST_AGENT_DLL` (7 and 3) and 8 for
+PowerShell. There were 0 failures. Where PowerShell 7 is present, the same commit skips only the 10 `TEST_AGENT_DLL` ones, as the
+owner's run showed. So the total is 10 or 18 depending on the box. Earlier PR descriptions (#340, #341) said 13 and 5; the split
+was wrong.
 
 ---
 
