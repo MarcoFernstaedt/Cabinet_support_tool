@@ -4,6 +4,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { envelopes } from "../src/contracts.js";
 import { recordHeartbeat } from "../src/services/cabinets.js";
 import { storeEvents } from "../src/services/events.js";
@@ -92,4 +95,12 @@ test("nothing issues the SMART reads again, and migration 0040 dropped the drive
   assert.equal((await db.app.query("SELECT OBJECT_ID('drive_status') AS b")).rows[0].b, null);
   assert.equal((await db.app.query("SELECT state FROM symptom_rules WHERE id = '00000000-0000-4000-8000-000000000202'")).rows[0].state, "disabled");
   assert.equal((await db.app.query("SELECT COUNT(*) AS n FROM settings WHERE [key] LIKE 'drives.%'")).rows[0].n, 0);
+});
+
+test("no CI workflow issues a retired read: the server would refuse it and the Windows run would fail", () => {
+  const dir = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", ".github", "workflows");
+  const files = readdirSync(dir).filter(f => f.endsWith(".yml"));
+  assert.ok(files.length > 0, "the workflows were read");
+  for (const f of files) for (const op of RETIRED_OPERATIONS)
+    assert.equal(readFileSync(join(dir, f), "utf8").includes(`'${op}'`), false, `${f} issues ${op}`);
 });

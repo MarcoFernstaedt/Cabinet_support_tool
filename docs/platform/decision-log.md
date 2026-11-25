@@ -20,7 +20,7 @@ no SMART read had been recorded on a real cabinet. So the risk class built on it
 - **Views and the diagnosis:** the cabinet's Drive health section, the fleet's drives-at-risk list, the cabinet diagnosis's SMART
   step and its module, the runbook's SMART steps, the SMART check, the crash view's SMART lines and the demo's SMART data.
 - **Requests:** the server refuses to issue `disk.smart` or `storage.health` (`RETIRED_OPERATIONS` in `commands.ts`), so nothing
-  asks for them again.
+  asks for them again, the Windows CI run's list of reads included.
 
 **Kept.**
 - **The free-space forecast** moves to `disk-forecast.ts`. It used to run only when a cabinet's daily SMART report arrived, so
