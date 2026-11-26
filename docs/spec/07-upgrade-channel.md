@@ -97,6 +97,10 @@ Agents refuse older versions by default. A rollback is published as a new signed
 - Batch 2: the in-office cabinets
 - Batch 3: a small slice of the field, around 5 percent
 - Batch 4: everyone else
+- **To change** (the owner, 2026-11-26, decision-log D160, plan items 2.11 to 2.14):
+  - a rollout gets a target (one cabinet, chosen cabinets, a site or a client), a canary first batch, and later batches the person
+    sets, and library packages roll out the same way;
+  - starting one becomes a permission an Admin can grant. The rules below stay.
 - Each batch must reach a set success rate before the next starts. Any failure above the limit pauses the rollout automatically.
 - A rollout completes once its last batch reaches the rate and no offer in any batch is still open. Cabinets still waiting then are closed as skipped, so none is left pending ([open decisions](09-open-decisions.md), "Thresholds").
 
