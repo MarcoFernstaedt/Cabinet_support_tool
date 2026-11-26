@@ -50,7 +50,13 @@ test("a cabinet that differs from its baseline: health, the difference, the chan
   await db.app.query("INSERT INTO baselines (id, scope_kind, scope_id, name, created_by) VALUES ($1, 'site', $2, 'North', $3)", [baselineId, siteId, adaId]);
   await db.app.query(`INSERT INTO baseline_versions (id, baseline_id, [version], status, content, description, created_by, decided_by, decided_at, decision_note)
                       VALUES ($1, $2, 1, 'approved', $3, 'DNS and the scanner service', $4, $4, SYSUTCDATETIME(), 'Reviewed')`,
-    [versionId, baselineId, JSON.stringify({ items: [{ category: "network", key: "adapter:Ethernet", mode: "match", expect: { dnsServers: ["10.21.4.10", "10.21.4.11"] }, required: true, severity: "major" }] }), adaId]);
+    [versionId, baselineId, JSON.stringify({ items: [{ category: "network", key: "adapter:Ethernet", mode: "match", expect: { dnsServers: ["10.21.4.10", "10.21.4.11"] }, required: true, severity: "major" },
+      { category: "processes", key: "process:BioScanAgent.exe", mode: "present", severity: "minor" }] }), adaId]);
+  // The cabinet's latest stored process list, which the process item is judged on (D155): the scanner's agent is not in it.
+  await db.app.query(`INSERT INTO commands (id, cabinet_id, operation, params, issued_by, issued_at, expires_at, status, result_at, result)
+                      VALUES ($1, $2, 'processes.list', '{}', $3, SYSUTCDATETIME(), DATEADD(minute, 5, SYSUTCDATETIME()), 'succeeded', SYSUTCDATETIME(), $4)`,
+    [randomUUID(), cabinetId, adaId, JSON.stringify({ status: "succeeded", output: { processes: [{ processId: 4, name: "explorer.exe", executablePath: null, cpuPercent: 1, workingSetBytes: 80_000_000,
+      privateBytes: 40_000_000, threads: 30, handles: 900, startTime: null, sessionId: 1, account: null }], sampleMilliseconds: 1000, truncated: false } })]);
   const eth = (dns: string[]): Item => ({ key: "adapter:Ethernet", values: { dhcp: true, addresses: ["10.21.4.25/24"], gateways: ["10.21.4.1"], dnsServers: dns, dnsAutomatic: false, interfaceIndex: 12 } });
   const snap = (items: Item[], minutes: number) => ({ category: "network", hash: configHash(items), truncated: false, items, observedAt: new Date(Date.now() - 3_600_000 + minutes * 60_000).toISOString() });
   await ingestAndEvaluate(db.app, cabinetId, [snap([eth(["10.21.4.10", "10.21.4.11"])], 0)] as never, "agent");
@@ -84,6 +90,8 @@ test("a cabinet that differs from its baseline: health, the difference, the chan
     await page.getByRole("heading", { name: "Baseline and drift" }).waitFor();
     await page.getByRole("row", { name: /dnsServers/ }).getByText("8.8.8.8").waitFor();
     await page.getByRole("row", { name: /dnsServers/ }).getByText("10.21.4.10, 10.21.4.11").waitFor();
+    await page.getByRole("row", { name: /Processes: process:BioScanAgent\.exe/ }).getByText(/^Not running, in the process list of /).waitFor();
+    assert.equal(await page.getByText("[object Object]").count(), 0, "no stored object shown raw");
     await page.getByRole("button", { name: "Since last healthy" }).click();
     await page.getByText(/last recorded healthy/).waitFor();
     await page.getByRole("button", { name: "History" }).click();
@@ -114,6 +122,15 @@ test("a cabinet that differs from its baseline: health, the difference, the chan
     assert.ok(before > 0, "the captured draft has items");
     await remove.first().click();
     assert.equal(await remove.count(), before - 1);
+    const add = page.getByRole("group", { name: "Add a process" });
+    await add.getByLabel("Program").fill("<SyncService>");
+    await add.getByRole("button", { name: "Add the process" }).click();
+    await add.getByRole("alert").getByText(/angle brackets/).waitFor();
+    await add.getByLabel("Program").fill("SyncService.exe");
+    await add.getByLabel("At most CPU (%)").fill("25");
+    await add.getByRole("button", { name: "Add the process" }).click();
+    await page.getByRole("row", { name: /Processes: process:SyncService\.exe/ }).getByText("Must be running, using at most 25% CPU").waitFor();
+    assert.equal(await remove.count(), before, "the process is one more item");
     await page.getByRole("button", { name: "Save the draft" }).click();
     await page.getByText("Saved.").waitFor();
     await page.getByRole("button", { name: "Propose this version" }).click();
@@ -132,6 +149,7 @@ test("a cabinet that differs from its baseline: health, the difference, the chan
 
     // The fleet view groups the same difference and counts the cabinets that have it and those that do not.
     await page.goto(`${origin}/fleet-differences`);
+    await page.getByRole("link", { name: /Processes: process:BioScanAgent\.exe/ }).waitFor();
     await page.getByRole("link", { name: /dnsServers/ }).click();
     await page.getByText(/not a finding about the cause|common cause/).first().waitFor();
     await page.getByRole("link", { name: "Front desk" }).waitFor();
