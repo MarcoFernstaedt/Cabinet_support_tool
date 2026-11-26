@@ -6,6 +6,56 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D157. A fleet incident compares the attributes its cabinets have (2026-11-26)
+
+D156 went to #350, so this entry takes the next number.
+
+**Asked:** plan item 2.3 (roadmap module 11, the owner's top ask) wants one incident with "the attributes they share". The crash
+incident and a fleet pattern's report already compared what *changed* on the affected cabinets in the 72 hours before (D22), and
+counted the agent version in a pattern. Nothing said what the cabinets *are*: their model, Windows build or BIOS. Taken on the owner's
+standing instruction: the recommended choice, recorded here and in docs/spec/09-open-decisions.md.
+
+**Decided:**
+- **The attributes:**
+  - the model (manufacturer and model, as the cabinet row holds them);
+  - the Windows build, from each cabinet's latest stored `system.info` answer;
+  - the BIOS version;
+  - the agent version.
+- **The rule:** each value is counted among the affected cabinets and among the others. It stands out under the rule changes
+  already use: at least two cabinets affected, half or more of them have it, and 40 points more than the others. Values match
+  whatever their case. A value a cabinet never reported is not counted, so "unknown" never stands out.
+- **Where:** `sharedAttributes` in the crash incident's answer and in a fleet pattern's report, at most 20 rows, those that stand out
+  first. Like the change comparison, it says what they have in common, never what caused it.
+- **The BIOS version on the cabinet:** migration 0041 adds `cabinets.bios_version`, set by `rememberCabinetModel` from the same
+  reports that set the model: the system category's hardware item, or a `system.hardware` answer. A configuration version is stored
+  packed, so SQL cannot read it, and unpacking every cabinet's system category for a 10,000-cabinet incident would not fit the
+  view's budget. Empty until a cabinet next reports.
+
+**Alternatives:**
+- Reading the BIOS from the latest `system.hardware` answer only, which a cabinet sends when someone asks, not every day.
+- Unpacking the configuration in Node for each incident: correct, but slow at fleet size.
+
+**Not in this change:**
+- the console showing the attributes;
+- the installed drivers and updates the cabinets share;
+- the errors that come with an incident.
+
+These are the next pieces of 2.3.
+
+**Proven:** `server/test/shared-attributes.test.ts` (3 tests):
+- **The plan's proof:** ten cabinets of two models and two builds spread over both sides; the four that crash share only BIOS 1.4.2,
+  which one other has. The crash incident names exactly that value as standing out: 4 of 4 against 1 of 6. The model is 50% on both
+  sides and does not stand out. The build is read from the stored answer, and an unreported value is never counted.
+- One affected cabinet makes nothing stand out, values match whatever their case, and an empty fleet compares nothing.
+- The BIOS is remembered from the hardware item and from a `system.hardware` answer. A blank value keeps what was known; a hostile
+  one is kept as text and cut to 200 characters; a cabinet id that is not a GUID is refused.
+- **Red proof:** without the step in the incident, the first test fails; without remembering the BIOS, the third does.
+- The 105 tests of the crash, pattern, cluster, signature, demo, baseline, ownership and migration files pass unchanged.
+- **The 10,000-cabinet bench:** the crash incident takes 218 ms median (209 to 254). Its seeded fleet holds no `system.info` answers,
+  so the build lookups find nothing there.
+
+---
+
 ## D156. The console adds process items and shows their differences in words (2026-11-26)
 
 **What was missing** after D155 (plan item 2.2):

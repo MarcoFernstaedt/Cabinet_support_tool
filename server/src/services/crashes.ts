@@ -3,6 +3,7 @@
 // cabinets that crashed with the ones that did not. Everything here reads what the agents already sent (their change,
 // error and service events, and heartbeats), so it still works when the cabinets that crashed can no longer boot.
 // Findings are correlations and are labelled so; nothing here claims a root cause. No regular expressions.
+import { sharedAttributes } from "./shared-attributes.js";
 import type { Pool, Queryable } from "../db/db.js";
 import { closeSignatureAlert, upsertAlert } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
@@ -381,6 +382,8 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
 
   const affectedCount = affected.size, unaffectedCount = population.length - affectedCount;
   const comparisons = await compareChanges(db, { ids, affected: new Map([...affected.values()].map(a => [a.id, a.firstAt])), from: f.from, to: f.to });
+  // What the affected cabinets are, beside what changed on them (D157).
+  const sharedAttributesFound = await sharedAttributes(db, { ids, affected: new Set([...affected.keys()].map(k => k.toLowerCase())) });
 
   const byId = new Map(population.map(p => [p.id, p]));
   const rows = [...affected.values()].sort((a, b) => a.firstAt.getTime() - b.firstAt.getTime()).map(a => {
@@ -406,7 +409,7 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
     stopCodes: [...stopCodes.values()].sort((a, b) => b.cabinets - a.cabinets),
     onset: [...onset.entries()].sort().map(([hour, cabinets]) => ({ hour, cabinets })),
     byClient: groups(p => p.client), bySite: groups(p => `${p.client} / ${p.site}`), byAgentVersion: groups(p => p.agent_version ?? "unknown"),
-    comparisons, cabinetsAffected: rows,
+    comparisons, sharedAttributes: sharedAttributesFound, cabinetsAffected: rows,
   };
 }
 
