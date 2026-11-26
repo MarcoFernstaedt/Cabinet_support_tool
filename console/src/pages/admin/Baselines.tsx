@@ -12,6 +12,7 @@ import { Badge, Empty } from "../../components/ui";
 import { Pager, usePaged } from "../../components/Pager";
 import { useStepUp } from "../../components/StepUp";
 import { categoryName, show } from "../../components/ConfigParts";
+import { processExpects, processItem, processProblem, type ProcessLimits } from "../../lib/drift-text";
 
 type Kind = "global" | "role" | "model" | "client" | "site" | "cabinet";
 interface Scope { kind: Kind; id: string | null }
@@ -113,7 +114,7 @@ export function BaselineDetail({ id }: { id: string }) {
   );
 }
 
-interface Item { category: string; key: string; mode: string; expect?: Record<string, unknown>; required?: boolean; severity?: "minor" | "major"; note?: string }
+interface Item { category: string; key: string; mode: string; expect?: Record<string, unknown>; limits?: ProcessLimits; required?: boolean; severity?: "minor" | "major"; note?: string }
 interface Content { items: Item[]; health?: Record<string, unknown> }
 interface VersionFull extends VersionSummary { baselineId: string; scope: Scope; content: Content; proposedAt: string | null; previousVersionId: string | null;
   diff: { added: Item[]; removed: Item[]; changed: { before: Item; after: Item }[]; healthChanged: boolean }; origin: { kind?: string; cabinetName?: string; enrollment?: boolean } | null }
@@ -190,13 +191,14 @@ export function VersionReview({ id }: { id: string }) {
               <thead><tr><th scope="col">Item</th><th scope="col">Expects</th><th scope="col">Required</th><th scope="col">If it differs</th>{editable && <th scope="col"><span className="sr-only">Remove</span></th>}</tr></thead>
               <tbody>{view.rows.map(i => (
                 <tr key={`${i.category}|${i.key}`}><th scope="row">{categoryName(i.category)}: {i.key}{i.note && <div className="muted small">{i.note}</div>}</th>
-                  <td><strong>{MODE[i.mode] ?? i.mode}</strong>{i.mode === "match" && Object.entries(i.expect ?? {}).map(([f, v]) => <div key={f} className="small">{f}: {show(v)}</div>)}</td>
+                  <td><strong>{i.category === "processes" ? processExpects(i.mode, i.limits) : MODE[i.mode] ?? i.mode}</strong>{i.mode === "match" && Object.entries(i.expect ?? {}).map(([f, v]) => <div key={f} className="small">{f}: {show(v)}</div>)}</td>
                   <td>{editable ? <input type="checkbox" aria-label={`${i.key} is required`} checked={!!i.required} onChange={e => change(i, { required: e.target.checked })} /> : i.required ? "Yes" : "No"}</td>
                   <td>{editable ? <select aria-label={`Severity of ${i.key}`} value={i.severity ?? "minor"} onChange={e => change(i, { severity: e.target.value as "minor" | "major" })}><option value="minor">Minor</option><option value="major">Major</option></select> : (i.severity ?? "minor") === "major" ? "Major" : "Minor"}</td>
                   {editable && <td><button className="btn small" onClick={() => setItems(working.filter(x => x !== i))} aria-label={`Remove ${i.key}`}>Remove</button></td>}</tr>))}</tbody>
             </table></div>
             <Pager {...view} label="items" />
           </>)}
+          {editable && <AddProcess items={working} onAdd={item => setItems([...working, item])} />}
           {editable && <div className="row gap wrap"><button className="btn primary" disabled={!dirty} onClick={() => void save()}>Save the draft</button></div>}
         </section>
 
@@ -220,5 +222,44 @@ export function VersionReview({ id }: { id: string }) {
       </>)}
       {step.dialog}
     </div>
+  );
+}
+
+/**
+ * A program a cabinet must be running, within limits if given, or must not be running (decision-log D155). It is judged on the
+ * cabinet's latest stored process list, never by asking the cabinet; the item is saved with the draft.
+ */
+function AddProcess({ items, onAdd }: { items: readonly Item[]; onAdd: (item: Item) => void }) {
+  const [name, setName] = useState("");
+  const [mustRun, setMustRun] = useState(true);
+  const [cpu, setCpu] = useState("");
+  const [memory, setMemory] = useState("");
+  const [required, setRequired] = useState(false);
+  const [severity, setSeverity] = useState<"minor" | "major">("minor");
+  const [problem, setProblem] = useState<string | null>(null);
+  const add = () => {
+    const p = processProblem(name, mustRun ? cpu : "", mustRun ? memory : "", items);
+    setProblem(p);
+    if (p) return;
+    onAdd(processItem(name, mustRun, cpu, memory, required, severity));
+    setName(""); setCpu(""); setMemory("");
+  };
+  return (
+    <fieldset className="stack">
+      <legend>Add a process</legend>
+      <p className="muted small">Judged on the cabinet's latest process list, with the time of that list shown on any difference. A difference is never an alert.</p>
+      <div className="row gap wrap">
+        <label className="field"><span>Program</span><input value={name} maxLength={180} placeholder="SyncService.exe" onChange={e => setName(e.target.value)} /></label>
+        <label className="field"><span>It</span><select value={mustRun ? "run" : "not"} onChange={e => setMustRun(e.target.value === "run")}>
+          <option value="run">must be running</option><option value="not">must not be running</option></select></label>
+        {mustRun && <label className="field"><span>At most CPU (%)</span><input inputMode="decimal" value={cpu} onChange={e => setCpu(e.target.value)} /></label>}
+        {mustRun && <label className="field"><span>At most memory (MB)</span><input inputMode="numeric" value={memory} onChange={e => setMemory(e.target.value)} /></label>}
+        <label className="field inline"><input type="checkbox" checked={required} onChange={e => setRequired(e.target.checked)} /><span>Health depends on it</span></label>
+        <label className="field"><span>If it differs</span><select value={severity} onChange={e => setSeverity(e.target.value as "minor" | "major")}>
+          <option value="minor">Minor</option><option value="major">Major</option></select></label>
+      </div>
+      {problem && <p className="error" role="alert">{problem}</p>}
+      <div><button type="button" className="btn" onClick={add}>Add the process</button></div>
+    </fieldset>
   );
 }

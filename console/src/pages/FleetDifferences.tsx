@@ -9,6 +9,7 @@ import { Breadcrumbs } from "../components/Layout";
 import { Pager, usePaged } from "../components/Pager";
 import { categoryName, show } from "../components/ConfigParts";
 import { fullTime } from "../lib/time";
+import { fieldName, isNow, shouldBe } from "../lib/drift-text";
 
 interface Group { category: string; itemKey: string; field: string; cabinets: number; major: number; required: number }
 interface Overview { cabinetsReporting: number; cabinetsJudged: number; groups: Group[] }
@@ -48,7 +49,7 @@ export function FleetDifferences() {
           <thead><tr><th scope="col">Difference</th><th scope="col">Cabinets</th><th scope="col">Of which</th></tr></thead>
           <tbody>{paged.rows.map(g => (
             <tr key={`${g.category}|${g.itemKey}|${g.field}`}>
-              <th scope="row"><Link to={`/fleet-differences/group${query({ ...scope, category: g.category, itemKey: g.itemKey, field: g.field })}`}>{categoryName(g.category)}: {g.itemKey}{g.field && <> · {g.field}</>}</Link></th>
+              <th scope="row"><Link to={`/fleet-differences/group${query({ ...scope, category: g.category, itemKey: g.itemKey, field: g.field })}`}>{categoryName(g.category)}: {g.itemKey}{g.field && <> · {fieldName(g.category, g.field)}</>}</Link></th>
               <td>{g.cabinets} of {data.cabinetsJudged}</td>
               <td>{g.major > 0 && <Badge tone="crit">{g.major} major</Badge>} {g.required > 0 && <Badge tone="info">{g.required} required</Badge>}</td>
             </tr>))}</tbody>
@@ -72,7 +73,7 @@ export function FleetDifferenceGroup() {
   return (
     <div className="page">
       <Breadcrumbs items={[{ label: "Fleet", to: "/" }, { label: "Differences from baselines", to: `/fleet-differences${query({ clientId: p.clientId, siteId: p.siteId, role: p.role, from: p.from })}` }, { label: "One difference" }]} />
-      <h1>{p.category ? `${categoryName(p.category)}: ${p.itemKey}` : "Difference"}{p.field && <> · {p.field}</>}</h1>
+      <h1>{p.category ? `${categoryName(p.category)}: ${p.itemKey}` : "Difference"}{p.field && <> · {fieldName(p.category ?? "", p.field)}</>}</h1>
       {problem && <p className="error" role="alert">{problem}</p>}
       {data && (<>
         <p className="muted" role="status">{data.affected} {data.affected === 1 ? "cabinet differs" : "cabinets differ"}; {data.unaffected} {data.unaffected === 1 ? "cabinet reports" : "cabinets report"} the same item and {data.unaffected === 1 ? "does" : "do"} not.
@@ -82,8 +83,8 @@ export function FleetDifferenceGroup() {
           <thead><tr><th scope="col">Cabinet</th><th scope="col">Should be</th><th scope="col">Is</th><th scope="col">Since</th></tr></thead>
           <tbody>{paged.rows.map(c => (
             <tr key={c.id}><th scope="row"><Link to={`/cabinets/${c.id}/baseline`}>{c.name}</Link> {!c.online && <Badge tone="off">Not in contact</Badge>}<div className="muted small">{c.client} / {c.site}{c.model && <> · {c.model}</>}</div></th>
-              <td>{c.mode === "present" ? "Present" : c.mode === "absent" ? "Not present" : show(c.expected)}</td>
-              <td>{c.mode === "present" ? "Missing" : c.mode === "absent" ? "Present" : show(c.actual)}</td>
+              <td>{shouldBe({ category: p.category ?? "", field: p.field ?? "", mode: c.mode, expected: c.expected, actual: c.actual })}</td>
+              <td>{isNow({ category: p.category ?? "", field: p.field ?? "", mode: c.mode, expected: c.expected, actual: c.actual }, fullTime)}</td>
               <td title={fullTime(c.since)}>{fullTime(c.since)}</td></tr>))}</tbody>
         </table></div>
         <Pager {...paged} label="cabinets" />

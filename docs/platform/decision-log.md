@@ -6,6 +6,51 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D156. The console adds process items and shows their differences in words (2026-11-26)
+
+**What was missing** after D155 (plan item 2.2):
+- **No way to add one:** the console's draft editor could only trim, mark and grade items a capture or an import had made. A process
+  item could not be added from the console.
+- **Unreadable differences:** every view of a difference printed a stored object with `String()`. A process difference, whose
+  expected and actual values are objects (`{ atMost }`, `{ running, takenAt }`), read "[object Object]". So did the expectation of a
+  `match` item with no field in the fleet's group view.
+
+**Decided:**
+- **The wording in one place:** `console/src/lib/drift-text.ts` says how a difference reads, used by the cabinet's Baseline tab,
+  Compare and the fleet's Differences.
+  - A process item reads "Running" or "Not running", or as an amount ("31.5% CPU", "At most 25% CPU", "1200 MB of memory").
+  - What it is adds the time of the process list it was judged on: "Not running, in the process list of …".
+  - Any other stored object reads as its fields, never "[object Object]".
+- **The fields and the category by name:** a process item's fields read "CPU" and "Memory", and its category "Processes".
+- **The editor:**
+  - "Add a process" on a draft takes the program, must or must not be running, the optional limits (only when it must run), whether
+    health depends on it, and its severity.
+  - It refuses on the page what the contract refuses: an empty name, one over 180 characters, control characters or angle brackets,
+    the same program twice in any case, a CPU limit outside 0 to 100, and a memory limit that is not a whole number from 1 to
+    1,048,576.
+  - The server checks the saved draft against its contract again.
+
+**Not changed:** how a configuration difference reads. The cabinet's Baseline tab used one wording and the other two views another;
+all three now use the Baseline tab's.
+
+**Proven:**
+- `console/test/drift-text.test.ts` (4 tests):
+  - each kind of process difference, in words and with its time;
+  - configuration differences read as before;
+  - hostile stored values (`null`, text, numbers, empty arrays, a non-text time, a non-number value) never read "[object Object]",
+    "undefined" or "NaN";
+  - the editor's check against each name and limit the contract refuses, including `10; DROP TABLE cabinets` as a memory limit.
+- `server/test/console-baselines-e2e.test.ts`, in a real browser:
+  - the seeded site baseline expects `BioScanAgent.exe`, and the cabinet's stored process list lacks it. The Baseline tab reads
+    "Not running, in the process list of …", and the page holds no "[object Object]";
+  - the draft editor refuses `<SyncService>`, then adds `SyncService.exe` at most 25% CPU, which the item list reads as "Must be
+    running, using at most 25% CPU";
+  - the fleet's Differences lists the process difference.
+- **Red proof:** with the console as it was, the browser test fails waiting for the "Not running" wording, and the unit test has
+  nothing to load.
+
+---
+
 ## D155. Process expectations: how they are written, judged and shown (2026-11-26)
 
 D154 went to #348, so this entry takes the next number.
