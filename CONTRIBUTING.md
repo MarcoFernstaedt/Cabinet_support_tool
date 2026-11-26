@@ -30,7 +30,8 @@ is not finished.
 
 ## Pull requests
 
-- One item, one PR. The title mirrors the commit subject; the body carries the defect, the change, the evidence and
+- One feature, one PR. A fix or follow-up to a feature whose PR is still open goes into that PR, not into a new one.
+  The title mirrors the commit subject; the body carries the defect, the change, the evidence and
   what is deliberately out of scope.
 - Contracts and migrations move with the code. A new operation ships with its schema in `contracts/schemas/operations/`
   and its migration, in the same PR.

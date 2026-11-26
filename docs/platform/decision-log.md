@@ -6,6 +6,56 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D163. A change watch across the fleet, the library beyond drivers, a prune pass, and one feature per PR (2026-11-26)
+
+This entry plans the work; nothing is built by it. It rides #356, which already changes the plan (one feature per PR, below).
+
+**Asked by the owner, 2026-11-26:**
+- "detect issues across the fleet ... say we pushed an update and now cabinets that got it are having certain issues, it should report
+  them and provide a report of the issue"; "it should look at things like updates or software rollouts", researched in depth;
+- the software library should "work for more than just drivers, like a file transfer";
+- "remove anything we don't need, like those generated files", and prune old, stale and historical traces;
+- consolidate PRs: a small issue goes into the earlier PR it belongs to, not a new one.
+
+**The change watch (plan item 2.15), from what the research found:**
+- **Correlate each fault with the changes the faulty cabinets received.** Azure's Gandalf (NSDI 2020) correlates each fault signal,
+  by place and by time, with every rollout in progress, and halts the rollout it blames. The platform knows which cabinets got which
+  change and when, so the correlation is exact, not inferred.
+- **Compare with cabinets that did not change, over the same hours.** Google and Waze's canary guidance compares the canary with a
+  baseline running the old version at the same time, not with history. Here that baseline is the target's cabinets not yet reached.
+  The changed cabinets' own 7 days before is the second comparison, so a problem they already had is not blamed on the change.
+- **A simple test, explained in its report.** Kayenta's judge favours tests that are simple to interpret. Its Mann-Whitney test is
+  for latency-like series; here the question is whether a cabinet has the problem or not, in groups of a few to a few hundred
+  cabinets, so the test is Fisher's exact test, one-sided, on a two-by-two count. It needs no dependency and stays exact at small
+  counts. The cut is p below 0.01, divided across the signals watched. D22's margin still applies, so a large fleet cannot raise a
+  pattern on a trivially small difference.
+- **Pause first, then report.** As Google Play's halt and Gandalf's no-go, the rollout stops reaching more cabinets and the ones that
+  have it keep it. Pausing is reversible; resuming takes a person.
+- **Rejected:** a learned model, as Windows Update's safeguard holds use, because they need millions of devices. A fixed rate
+  threshold is also rejected, because it fires on normal noise in a small batch and misses a doubling in a large one.
+
+**The library beyond drivers (2.16 and 4.17):** "like a file transfer" is met inside the rules. The rules are CLAUDE.md, spec 00
+and spec 02: files reach a cabinet only as approved library packages, verified on the cabinet.
+- **A standalone Windows update** (`.msu`, Microsoft-signed), installed with `wusa.exe` by full path and fixed arguments.
+- **A file package:** plain files for a destination named in the agent's protected configuration. It is signed with an offline
+  platform library key applied by a second Admin, and is never run.
+- **Still refused:** an arbitrary path, an unsigned file, a pull from a cabinet, EXE installers and scripts. Plain files have no
+  publisher signature; the platform's own key, held offline like the release keys, takes the trusted publisher's place for them.
+- **The spec text** changes in the PR that builds it.
+
+**The prune pass (2.17):**
+- `contracts/generated/ts/contracts.d.ts` is built, not committed;
+- dead code, unused columns and settings, and stale docs are removed;
+- every growing table is checked for its pruning;
+- the security review covers the new paths.
+
+**PRs from now:** one feature per PR. A fix or follow-up to a feature whose PR is open goes into that PR. CONTRIBUTING.md's "One
+item, one PR" and the plan's rule say so. As the first use, 2.13 and 2.14 are one PR.
+
+**Order:** 2.13 with 2.14, then 2.15, then 2.16, then 2.17.
+
+---
+
 ## D162. A software-library package rolls out on the rollout engine (2026-11-26)
 
 **What changed** (plan item 2.12, the second of D160's four):

@@ -1068,3 +1068,19 @@ Recorded in docs/platform/decision-log.md, D160, and planned as items 2.11 to 2.
   it installs.
 - **Who:** Admins, and anyone an Admin grants "can run rollouts".
 
+## The change watch, the library beyond drivers, and the prune pass (the owner, 2026-11-26, decided)
+
+Asked by the owner and taken on their standing instruction: the recommended choices, recorded in docs/platform/decision-log.md, D163,
+and planned as items 2.15 to 2.17 and 4.17 of docs/platform/plan-to-completion.md.
+- **Change watch:**
+  - **Watched:** every change a cabinet receives, for 72 hours.
+  - **Compared:** with the same cabinets' 7 days before it, and with the target's cabinets not yet changed.
+  - **Judged:** by a one-sided Fisher exact test and D22's margin.
+  - **On a signal that stands out:** the rollout pauses and a fleet pattern with a report opens.
+- **The library:** adds `.msu` updates and file packages for named destinations, signed with an offline platform key and never run.
+  There is still no general file transfer, EXE installer or script. Spec 00, 02, 04 and 05 change when it is built.
+- **The prune pass:**
+  - generated files are no longer committed;
+  - dead code and stale docs are removed;
+  - every growing table has its pruning;
+  - the new paths get a security review.
