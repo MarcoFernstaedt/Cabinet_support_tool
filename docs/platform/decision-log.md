@@ -6,6 +6,64 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D162. A software-library package rolls out on the rollout engine (2026-11-26)
+
+**What changed** (plan item 2.12, the second of D160's four):
+- **The start:** `startPackageRollout` starts a rollout of one approved package with the same request as an agent rollout: a target,
+  a canary, batches, the success rate and the failure limit. It is the route `POST /api/admin/package-rollouts`, with contract
+  `package-rollout-start.schema.json`. Pause, resume and stop are the existing rollout routes.
+- **Its cabinets:** the active cabinets of the target, whatever their agent version. The canary must be one of them.
+- **Its commands:** each cabinet of a batch reached, in contact now, is sent `package.install`.
+  - The package's type and hash come from the library, never from the request.
+  - The command is in the starter's name, with the rollout's id as its bulk id.
+  - The cabinet still checks the file's hash, signature and trusted publisher itself before anything runs.
+  - A cabinet out of contact waits, and is skipped once offline for the whole batch, as in an agent rollout.
+- **Outcomes:** a target's outcome is its command's: succeeded; refused by the cabinet (with the check that refused it); failed; or
+  timed out when the command expired unanswered. The minute's rollout check reads them, then evaluates the rollout as for an agent:
+  - the next batch waits for the success rate;
+  - failures above the limit pause the rollout on their own, naming the batch.
+- **The same safety controls as a fleet job:**
+  - **At the start:** refused while writes are paused fleet-wide.
+  - **The write limit:** the whole rollout counts once against the starter's hourly limit (its commands share one bulk id), and
+    going over it pauses their writes.
+  - **At each pass:** nothing is sent while writes are paused; nothing more once the starter can no longer make changes or the
+    package is retired (the cabinets still waiting are closed with the reason); and a cabinet whose client is paused, or that is
+    read-only or removed, is skipped with the reason.
+- **Migration 0043:**
+  - adds `rollouts.kind` (agent or package) and `rollouts.package_id`;
+  - makes `version` and `architecture` null for a package rollout, with a check that each kind names only its own;
+  - adds `rollout_targets.command_id`;
+  - redefines the one-active key per kind. One package rollout and one agent rollout can be active at the same time; never two of
+    the same kind.
+- **Kept to the agent:** a heartbeat's offer, an agent's upgrade report and the 30-minute offer timeout apply only to agent
+  rollouts. A package rollout never offers an agent version.
+- **The list:** each rollout gives its kind and its package.
+
+**Why one of each kind:** an agent upgrade and a driver rollout are separate work, and the owner wants both. Two package rollouts at
+once would let two installs race on one cabinet.
+
+**Not in this change:** the grantable permission (2.13; the route is Admin only for now) and the console's screen (2.14).
+
+**Proven:** `server/test/package-rollouts.test.ts` (5 tests):
+- **A site's package rollout:** the canary alone is sent its install first, with the library's type and hash, in the starter's name.
+  Once it succeeds, the next batch's cabinets in contact are sent theirs; the offline one waits; the other site is sent nothing; and
+  no agent version is offered to anyone.
+- **A refusal:** the cabinet's own check refusing (`signature_invalid`) pauses the rollout, naming batch 1, recorded as refused with
+  its check, and nothing more is sent.
+- **Concurrency and refusals:**
+  - an agent rollout and a package rollout run together, and a second package rollout is refused;
+  - a retired, an uploaded or an unknown package is refused;
+  - so is a canary outside the target, and a start while writes are paused. None starts anything.
+- **A package retired mid-rollout:** it is sent no further, and the cabinets still waiting are closed saying so.
+- **The contract** takes a package, a target and batches, and refuses a release's fields, a raw file, a path or SQL as the package,
+  and a missing step-up.
+
+**Red proof and the rest:** with #355's `rollouts.ts` the new test file cannot load: the functions it calls are not there. The 45 tests
+of the upgrade, rollout-scope, database, ownership, migration, import-cycle and package-architecture files pass unchanged, with 2
+skipped without the agent build, and the console's 141 pass.
+
+---
+
 ## D161. An agent rollout has a target and the batches its starter sets (2026-11-26)
 
 **What changed** (plan item 2.11, the first of D160's four):

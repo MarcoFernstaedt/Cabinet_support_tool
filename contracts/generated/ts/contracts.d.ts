@@ -1502,6 +1502,69 @@ export interface OpenIncidentsQuery {
 }
 
 /**
+ * Starts a staged rollout of one approved software-library package (plan item 2.12, decision-log D162), on the same rules as a release's rollout: batch 1 is the one cabinet named here, the canary; the target and the batches are as in rollout-start; a batch must reach successRatePercent before the next starts, and failures above failureLimitPercent of a batch pause the rollout on their own. Each cabinet of a batch reached is sent package.install with the package's type and hash from the library, and checks the file's hash, signature and publisher itself before anything runs.
+ */
+export interface PackageRolloutStart {
+  /**
+   * An approved package of the software library.
+   */
+  packageId: string;
+  /**
+   * The one cabinet in batch 1.
+   */
+  pilotCabinetId: string;
+  successRatePercent: number;
+  failureLimitPercent: number;
+  /**
+   * Which cabinets the rollout is for. Omitted, the whole fleet.
+   */
+  target?:
+    | {
+        kind: "fleet";
+      }
+    | {
+        kind: "client" | "site";
+        id: string;
+      }
+    | {
+        kind: "cabinets";
+        /**
+         * @minItems 1
+         * @maxItems 500
+         */
+        cabinetIds: [string, ...string[]];
+      };
+  /**
+   * The batches after the canary, in order: each a number of cabinets or a share (percent) of the cabinets left after the canary. What remains after the last is one more batch. At most eight, so a rollout has at most ten.
+   *
+   * @minItems 1
+   * @maxItems 8
+   */
+  batches?: [
+    (
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    ),
+    ...(
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    )[]
+  ];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.
  */
 export interface PackageUpload {

@@ -101,7 +101,10 @@ Agents refuse older versions by default. A rollback is published as a new signed
   - a rollout can be for a client, a site or chosen cabinets, and the first cabinet must be one of them;
   - its batches after the first can be set as a number of cabinets or a share of the rest, in-office cabinets first, with what is
     left as one more batch, up to ten in all. Without them the four batches above apply, to the target only.
-- **To change** (the owner, 2026-11-26, decision-log D160, plan items 2.12 to 2.14):
+- **Software-library packages** (decision-log D162): an approved package rolls out the same way, with the same target, canary,
+  batches and rules. Each cabinet of a batch reached is sent `package.install` and checks the file itself. One package rollout
+  and one agent rollout can be active at the same time.
+- **To change** (the owner, 2026-11-26, decision-log D160, plan items 2.13 and 2.14):
   - a rollout gets a target (one cabinet, chosen cabinets, a site or a client), a canary first batch, and later batches the person
     sets, and library packages roll out the same way;
   - starting one becomes a permission an Admin can grant. The rules below stay.

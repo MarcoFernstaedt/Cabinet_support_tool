@@ -11,7 +11,10 @@
 import { randomInt, randomUUID } from "node:crypto";
 import { consumeStepUpToken } from "../auth/stepup.js";
 import type { UpgradeStatus } from "../contracts.js";
-import { audit, transaction, type Pool, type Queryable } from "../db/db.js";
+import { audit, auditMany, lock, transaction, type Pool, type Queryable } from "../db/db.js";
+import { catalog } from "../contracts.js";
+import { queueBulkCommand } from "./commands.js";
+import { assertUnderWriteLimit, fleetPause, pauseOnWriteLimit } from "./writes.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
 import { Refused } from "./errors.js";
 import type { Architecture } from "./package-architecture.js";
@@ -66,14 +69,55 @@ function shuffle<T>(items: T[]): T[] {
   return items;
 }
 
+interface Candidate { id: string; agent_version: string | null; in_office: boolean; architecture: string; site_id: string; client_id: string }
+
+/**
+ * The active cabinets a rollout's target holds (D161), before any kind's own filters: a client or site that does not exist, a chosen
+ * cabinet that is not active, and a first cabinet outside the target are refused here, for both kinds of rollout.
+ */
+async function targetCabinets(c: Queryable, target: RolloutTarget, pilotCabinetId: string): Promise<Candidate[]> {
+  if ((target.kind === "client" || target.kind === "site")
+      && !(await c.query(`SELECT 1 FROM ${target.kind === "client" ? "clients" : "sites"} WHERE id = $1`, [target.id])).rows[0])
+    throw new Refused("not_found", 404, `no such ${target.kind}`);
+  // No row locks: holding them would stall every heartbeat while the rollout is written.
+  const all = (await c.query<Candidate>(
+    `SELECT k.id, k.agent_version, k.in_office, COALESCE(k.architecture, 'windows-x64') AS architecture, k.site_id, s.client_id
+       FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.status = 'active' AND k.demo_scenario IS NULL`)).rows;
+  const chosen = target.kind === "cabinets" ? new Set(target.cabinetIds.map(x => x.toLowerCase())) : null;
+  if (chosen) {
+    const known = new Set(all.map(k => k.id.toLowerCase()));
+    const unknown = [...chosen].filter(x => !known.has(x));
+    if (unknown.length) throw new Refused("target_not_found", 404, `${unknown.length} of the chosen cabinets ${unknown.length === 1 ? "is" : "are"} not an active cabinet`);
+  }
+  const inTarget = (k: Candidate) => target.kind === "fleet" ? true : target.kind === "client" ? k.client_id.toLowerCase() === target.id.toLowerCase()
+    : target.kind === "site" ? k.site_id.toLowerCase() === target.id.toLowerCase() : chosen!.has(k.id.toLowerCase());
+  const pilot = pilotCabinetId.toLowerCase();
+  if (all.some(k => k.id.toLowerCase() === pilot) && !all.some(k => k.id.toLowerCase() === pilot && inTarget(k)))
+    throw new Refused("pilot_outside_target", 409, "the first cabinet must be one of the cabinets the rollout is for");
+  return all.filter(inTarget);
+}
+
+/** Batch 1 is the canary; then the batches asked for (D161), or the four fixed ones without them. */
+function batchPlan<T extends { id: string; in_office: boolean }>(pilot: T, rest: T[], specs: readonly BatchSpec[] | undefined): { batches: [number, T[]][]; labels: string[] } {
+  if (specs && specs.length > 0) {
+    if (specs.length > MAX_BATCHES - 2) throw new Refused("invalid_request", 400, `at most ${MAX_BATCHES - 2} batches after the first cabinet`);
+    const planned = plannedBatches(rest, specs);
+    return { batches: [[1, [pilot]], ...planned.map(([b, m]) => [b, m] as [number, T[]])], labels: [BATCH_NAMES[1], ...planned.map(([, , l]) => l)] };
+  }
+  const office = rest.filter(k => k.in_office);
+  const field = shuffle(rest.filter(k => !k.in_office));
+  const slice = field.length === 0 ? 0 : Math.max(1, Math.ceil(field.length * 0.05));
+  return { batches: [[1, [pilot]], [2, office], [3, field.slice(0, slice)], [4, field.slice(slice)]], labels: [BATCH_NAMES[1], BATCH_NAMES[2], BATCH_NAMES[3], BATCH_NAMES[4]] };
+}
+
 export async function startRollout(pool: Pool, adminId: string, req: RolloutRequest, stepUpToken: Authority): Promise<string> {
   return transaction(pool, async c => {
     if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, adminId, "rollout.start", "fleet");
     const release = (await c.query<{ state: string; minimum_version: string }>("SELECT state, minimum_version FROM agent_releases WHERE version = $1 AND architecture = $2", [req.version, req.architecture])).rows[0];
     if (!release) throw new Refused("not_found", 404, `no ${req.architecture} release ${req.version}`);
     if (release.state !== "ready") throw new Refused("release_not_ready", 409, "this release has no verified package yet");
-    if ((await c.query("SELECT 1 FROM rollouts WHERE state IN ('running', 'paused')")).rows[0])
-      throw new Refused("rollout_active", 409, "another rollout is running or paused; finish or stop it first");
+    if ((await c.query("SELECT 1 FROM rollouts WHERE kind = 'agent' AND state IN ('running', 'paused')")).rows[0])
+      throw new Refused("rollout_active", 409, "another agent rollout is running or paused; finish or stop it first");
 
     // Every active cabinet whose agent is older than the release (or has not reported a version yet), except those older
     // than the release's minimum version: they would refuse it, and those refusals would pause the rollout for nothing.
@@ -81,24 +125,7 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
     // never reported an architecture is treated as windows-x64, which is what it is (see releases.ts cabinetArchitecture).
     // No row locks: holding them would stall every heartbeat while the rollout is written.
     const target: RolloutTarget = req.target ?? { kind: "fleet" };
-    if ((target.kind === "client" || target.kind === "site")
-        && !(await c.query(`SELECT 1 FROM ${target.kind === "client" ? "clients" : "sites"} WHERE id = $1`, [target.id])).rows[0])
-      throw new Refused("not_found", 404, `no such ${target.kind}`);
-    const all = (await c.query<{ id: string; agent_version: string | null; in_office: boolean; architecture: string; site_id: string; client_id: string }>(
-      `SELECT k.id, k.agent_version, k.in_office, COALESCE(k.architecture, 'windows-x64') AS architecture, k.site_id, s.client_id
-         FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.status = 'active' AND k.demo_scenario IS NULL`)).rows;
-    // The target, before anything else: a cabinet outside it is never a candidate, whatever its version (D161).
-    const chosen = target.kind === "cabinets" ? new Set(target.cabinetIds.map(x => x.toLowerCase())) : null;
-    if (chosen) {
-      const known = new Set(all.map(k => k.id.toLowerCase()));
-      const unknown = [...chosen].filter(x => !known.has(x));
-      if (unknown.length) throw new Refused("target_not_found", 404, `${unknown.length} of the chosen cabinets ${unknown.length === 1 ? "is" : "are"} not an active cabinet`);
-    }
-    const inTarget = (k: (typeof all)[number]) => target.kind === "fleet" ? true : target.kind === "client" ? k.client_id.toLowerCase() === target.id.toLowerCase()
-      : target.kind === "site" ? k.site_id.toLowerCase() === target.id.toLowerCase() : chosen!.has(k.id.toLowerCase());
-    if (!all.some(k => k.id.toLowerCase() === req.pilotCabinetId.toLowerCase() && inTarget(k)) && all.some(k => k.id.toLowerCase() === req.pilotCabinetId.toLowerCase()))
-      throw new Refused("pilot_outside_target", 409, "the first cabinet must be one of the cabinets the rollout is for");
-    const older = all.filter(inTarget)
+    const older = (await targetCabinets(c, target, req.pilotCabinetId))
       .filter(k => k.agent_version === null || !isVersion(k.agent_version) || compareVersions(k.agent_version, req.version) < 0);
     const belowMinimum = (k: { agent_version: string | null }): boolean =>
       k.agent_version !== null && isVersion(k.agent_version) && isVersion(release.minimum_version) && compareVersions(k.agent_version, release.minimum_version) < 0;
@@ -112,21 +139,7 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
       : rejected
         ? `the first cabinet runs an agent older than this release's minimum version (${release.minimum_version})`
         : "the first cabinet must be an active cabinet running an older agent");
-    const rest = cabinets.filter(k => k.id !== pilot.id);
-    let batches: [number, typeof cabinets][];
-    let labels: string[];
-    if (req.batches && req.batches.length > 0) {
-      if (req.batches.length > MAX_BATCHES - 2) throw new Refused("invalid_request", 400, `at most ${MAX_BATCHES - 2} batches after the first cabinet`);
-      const planned = plannedBatches(rest, req.batches);
-      batches = [[1, [pilot]], ...planned.map(([b, m]) => [b, m] as [number, typeof cabinets])];
-      labels = [BATCH_NAMES[1], ...planned.map(([, , l]) => l)];
-    } else {
-      const office = rest.filter(k => k.in_office);
-      const field = shuffle(rest.filter(k => !k.in_office));
-      const slice = field.length === 0 ? 0 : Math.max(1, Math.ceil(field.length * 0.05));
-      batches = [[1, [pilot]], [2, office], [3, field.slice(0, slice)], [4, field.slice(slice)]];
-      labels = [BATCH_NAMES[1], BATCH_NAMES[2], BATCH_NAMES[3], BATCH_NAMES[4]];
-    }
+    const { batches, labels } = batchPlan(pilot, cabinets.filter(k => k.id !== pilot.id), req.batches);
     const plan: RolloutPlan = { target, batches: batches.map(([b, m], i) => ({ batch: b, label: labels[i]!, cabinets: m.length })) };
 
     const id = randomUUID();
@@ -172,7 +185,7 @@ let running: { at: number; value: Promise<boolean> } | null = null;
  */
 export function anyRolloutRunning(pool: Queryable): Promise<boolean> {
   if (!running || Date.now() - running.at > 5_000) {
-    const value = pool.query("SELECT TOP (1) 1 FROM rollouts WHERE state = 'running'", [], { timeoutMs: 3_000 }).then(r => r.rows.length > 0, () => {
+    const value = pool.query("SELECT TOP (1) 1 FROM rollouts WHERE kind = 'agent' AND state = 'running'", [], { timeoutMs: 3_000 }).then(r => r.rows.length > 0, () => {
       if (running?.value === value) running = null;
       return false;
     });
@@ -188,7 +201,7 @@ export function anyRolloutRunning(pool: Queryable): Promise<boolean> {
 export async function offerFor(db: Queryable, cabinetId: string, reportedVersion: string): Promise<string | null> {
   const t = (await db.query<{ rollout_id: string; version: string; state: string }>(
     `SELECT t.rollout_id, r.version, t.state FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
-      WHERE t.cabinet_id = $1 AND r.state = 'running' AND t.batch <= r.current_batch AND t.state IN ('pending', 'offered', 'skipped')`, [cabinetId])).rows[0];
+      WHERE t.cabinet_id = $1 AND r.kind = 'agent' AND r.state = 'running' AND t.batch <= r.current_batch AND t.state IN ('pending', 'offered', 'skipped')`, [cabinetId])).rows[0];
   if (!t) return null;
   if (isVersion(reportedVersion) && compareVersions(reportedVersion, t.version) >= 0) {
     await finish(db, t.rollout_id, cabinetId, { outcome: "succeeded", message: `Running ${reportedVersion}.` });
@@ -209,7 +222,8 @@ async function finish(db: Queryable, rolloutId: string, cabinetId: string, f: Fi
                              WHERE rollout_id = $1 AND cabinet_id = $2 AND state IN ('pending', 'offered', 'skipped')`,
     [rolloutId, cabinetId, f.outcome === "succeeded" ? "succeeded" : "failed", f.outcome, f.check ?? null, f.message.slice(0, 1024)]);
   if (r.rowCount !== 1) return false;
-  await audit(db, { actorKind: "agent", actorId: cabinetId, action: "upgrade.outcome", targetKind: "cabinet", targetId: cabinetId, outcome: f.outcome === "succeeded" ? "succeeded" : "failed",
+  const kind = (await db.query<{ kind: string }>("SELECT kind FROM rollouts WHERE id = $1", [rolloutId])).rows[0]?.kind;
+  await audit(db, { actorKind: "agent", actorId: cabinetId, action: kind === "package" ? "package.outcome" : "upgrade.outcome", targetKind: "cabinet", targetId: cabinetId, outcome: f.outcome === "succeeded" ? "succeeded" : "failed",
     details: { rolloutId, outcome: f.outcome, check: f.check ?? null, message: f.message.slice(0, 256) } });
   await evaluate(db, rolloutId);
   return true;
@@ -220,7 +234,7 @@ export async function recordUpgradeStatus(pool: Pool, cabinetId: string, s: Upgr
   return transaction(pool, async c => {
     const t = (await c.query<{ rollout_id: string; state: string }>(
       `SELECT TOP (1) t.rollout_id, t.state FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
-        WHERE t.cabinet_id = $1 AND r.version = $2 ORDER BY r.started_at DESC`, [cabinetId, s.version])).rows[0];
+        WHERE t.cabinet_id = $1 AND r.kind = 'agent' AND r.version = $2 ORDER BY r.started_at DESC`, [cabinetId, s.version])).rows[0];
     if (!t) return false;
     await finish(c, t.rollout_id, cabinetId, { outcome: s.outcome, check: s.check ?? null, message: s.message });
     return true;
@@ -269,6 +283,7 @@ export async function evaluate(db: Queryable, rolloutId: string): Promise<void> 
     await db.query("UPDATE rollouts SET current_batch = $2, batch_started_at = SYSUTCDATETIME(), accepted_failures = 0 WHERE id = $1", [rolloutId, next]);
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.batch", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
       details: { rolloutId, finishedBatch: batch, succeeded, counted, nextBatch: next } });
+    await issuePackageCommands(db, rolloutId);
     await evaluate(db, rolloutId); // an empty or already-upgraded batch moves on at once
   } else if (offered === 0 && !(await offeredEarlier(db, rolloutId, batch))) {
     // The rollout ends here, so nothing is left waiting (D80): every target still pending, in any batch the rollout reached, is closed
@@ -297,11 +312,12 @@ export async function checkRollouts(pool: Pool): Promise<void> {
   await transaction(pool, async c => {
     const stale = (await c.query<{ rollout_id: string; cabinet_id: string }>(
       `SELECT t.rollout_id, t.cabinet_id FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id
-        WHERE r.state IN ('running', 'paused') AND t.state = 'offered' AND t.offered_at < DATEADD(minute, -$1, SYSUTCDATETIME())`, [OUTCOME_TIMEOUT_MINUTES])).rows;
+        WHERE r.kind = 'agent' AND r.state IN ('running', 'paused') AND t.state = 'offered' AND t.offered_at < DATEADD(minute, -$1, SYSUTCDATETIME())`, [OUTCOME_TIMEOUT_MINUTES])).rows;
     for (const s of stale)
       await finish(c, s.rollout_id, s.cabinet_id, { outcome: "timed_out", check: null,
         message: `No outcome reported within ${OUTCOME_TIMEOUT_MINUTES} minutes of the offer.` });
-    for (const r of (await c.query<{ id: string }>("SELECT id FROM rollouts WHERE state = 'running'")).rows) await evaluate(c, r.id);
+    await packageOutcomes(c);
+    for (const r of (await c.query<{ id: string }>("SELECT id FROM rollouts WHERE state = 'running'")).rows) { await evaluate(c, r.id); await issuePackageCommands(c, r.id); }
   });
 }
 
@@ -310,20 +326,22 @@ interface BatchCounts { batch: number; total: number; succeeded: number; failed:
 
 export async function listRollouts(db: Queryable) {
   const rows = (await db.query<{ id: string; version: string; architecture: string; state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number;
-    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string; plan: RolloutPlan | null }>(
+    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string; plan: RolloutPlan | null;
+    kind: string; package_id: string | null; package_name: string | null; package_version: string | null }>(
     `SELECT TOP (100) r.id, r.version, r.architecture, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
-            r.paused_reason, r.finished_at, r.[plan],
+            r.paused_reason, r.finished_at, r.[plan], r.kind, r.package_id, p.name AS package_name, p.version AS package_version,
             COALESCE((SELECT x.batch, COUNT(*) AS total, SUM(CASE WHEN x.state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, SUM(CASE WHEN x.state = 'failed' THEN 1 ELSE 0 END) AS failed,
                              SUM(CASE WHEN x.state = 'offered' THEN 1 ELSE 0 END) AS offered, SUM(CASE WHEN x.state = 'pending' THEN 1 ELSE 0 END) AS pending,
                              SUM(CASE WHEN x.state = 'skipped' THEN 1 ELSE 0 END) AS skipped
                         FROM rollout_targets x WHERE x.rollout_id = r.id GROUP BY x.batch ORDER BY x.batch FOR JSON PATH), '[]') AS counts
-       FROM rollouts r JOIN users u ON u.id = r.started_by ORDER BY r.started_at DESC`)).rows;
+       FROM rollouts r JOIN users u ON u.id = r.started_by LEFT JOIN packages p ON p.id = r.package_id ORDER BY r.started_at DESC`)).rows;
   return rows.map(r => ({
     id: r.id, version: r.version, architecture: r.architecture, state: r.state, currentBatch: r.current_batch, successRatePercent: r.success_rate_percent, failureLimitPercent: r.failure_limit_percent,
     startedBy: { id: r.started_by, name: r.started_by_name }, startedAt: r.started_at.toISOString(), pausedReason: r.paused_reason, finishedAt: r.finished_at?.toISOString() ?? null,
     // Each batch's counts, with its name: a rollout from before migration 0042 has no plan and the four fixed names.
     batches: (JSON.parse(r.counts) as BatchCounts[]).map(b => ({ ...b, label: batchLabel(r.plan, b.batch) })),
     target: r.plan?.target ?? { kind: "fleet" },
+    kind: r.kind, package: r.package_id ? { id: r.package_id.toLowerCase(), name: r.package_name, version: r.package_version } : null,
   }));
 }
 
@@ -360,4 +378,106 @@ export async function upgradeCandidates(db: Queryable) {
     id: r.id, name: r.name, site: r.site, client: r.client, agentVersion: r.agent_version, architecture: r.architecture, inOffice: r.in_office,
     online: r.last_heartbeat_at !== null && Date.now() - r.last_heartbeat_at.getTime() < OFFLINE_AFTER_MS,
   }));
+}
+
+// ---- Package rollouts (plan item 2.12, decision-log D162) -------------------------------------------------------------------
+
+export interface PackageRolloutRequest {
+  packageId: string; pilotCabinetId: string; successRatePercent: number; failureLimitPercent: number;
+  target?: RolloutTarget | undefined; batches?: BatchSpec[] | undefined;
+}
+
+/**
+ * A software-library package to a target, the same engine as an agent release: batch 1 is the canary, the next waits for the success
+ * rate, failures above the limit pause it. Only an approved package is rolled out. Each cabinet of a batch reached is sent package.install
+ * with the package's type and hash from the library; the cabinet still checks the file's hash, signature and publisher itself before
+ * anything runs. One package rollout is active at a time, beside at most one agent rollout.
+ */
+export async function startPackageRollout(pool: Pool, userId: string, req: PackageRolloutRequest, stepUpToken: Authority): Promise<string> {
+  // The whole rollout counts as one write against the person's hourly limit (its commands share its id as their bulk id), as a
+  // fleet job does; going over the limit pauses the person's writes.
+  return pauseOnWriteLimit(pool, userId, () => transaction(pool, async c => {
+    if (stepUpToken !== null) await consumeStepUpToken(c, stepUpToken, userId, "rollout.start", "fleet");
+    await lock(c, `writes:${userId}`);
+    await assertUnderWriteLimit(c, userId);
+    const pkg = (await c.query<{ name: string; version: string; state: string }>("SELECT name, version, state FROM packages WHERE id = $1", [req.packageId])).rows[0];
+    if (!pkg || pkg.state !== "approved") throw new Refused("package_not_approved", 409, "that package is not approved, or was retired");
+    if ((await c.query("SELECT 1 FROM rollouts WHERE kind = 'package' AND state IN ('running', 'paused')")).rows[0])
+      throw new Refused("rollout_active", 409, "another package rollout is running or paused; finish or stop it first");
+    if ((await fleetPause(c)).paused) throw new Refused("writes_paused", 409, "writes are paused fleet-wide");
+    const target: RolloutTarget = req.target ?? { kind: "fleet" };
+    const cabinets = await targetCabinets(c, target, req.pilotCabinetId);
+    const pilot = cabinets.find(k => k.id.toLowerCase() === req.pilotCabinetId.toLowerCase());
+    if (!pilot) throw new Refused("pilot_not_eligible", 409, "the first cabinet must be an active cabinet");
+    const { batches, labels } = batchPlan(pilot, cabinets.filter(k => k.id !== pilot.id), req.batches);
+    const plan: RolloutPlan = { target, batches: batches.map(([b, m], i) => ({ batch: b, label: labels[i]!, cabinets: m.length })) };
+    const rolloutId = randomUUID();
+    await c.query(`INSERT INTO rollouts (id, kind, package_id, state, current_batch, success_rate_percent, failure_limit_percent, started_by, [plan])
+                   VALUES ($1, 'package', $2, 'running', 1, $3, $4, $5, $6)`, [rolloutId, req.packageId, req.successRatePercent, req.failureLimitPercent, userId, JSON.stringify(plan)]);
+    const targets = batches.flatMap(([batch, members]) => members.map(k => ({ batch, id: k.id })));
+    await c.query(`INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state)
+                   SELECT $1, t.cabinet_id, t.batch, 'pending' FROM OPENJSON($2) WITH (cabinet_id uniqueidentifier '$.id', batch int '$.batch') AS t`,
+      [rolloutId, targets.map(t => ({ id: t.id, batch: t.batch }))]);
+    await audit(c, { actorKind: "user", actorId: userId, action: "rollout.start", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
+      details: { rolloutId, kind: "package", packageId: req.packageId, package: `${pkg.name} ${pkg.version}`.slice(0, 200), pilotCabinetId: pilot.id,
+        successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent, target, batches: plan.batches, ...viaCli(stepUpToken) } });
+    await issuePackageCommands(c, rolloutId);
+    return rolloutId;
+  }));
+}
+
+/**
+ * Sends package.install to each cabinet still waiting in a batch the package rollout has reached and in contact now; one that is
+ * offline waits, and is skipped once offline for the whole batch (evaluate). Checked as a fleet job checks each batch: nothing is sent
+ * while writes are paused fleet-wide, or once the starter cannot make changes; a cabinet whose client is paused, or that is read-only
+ * or removed, is skipped with the reason.
+ */
+async function issuePackageCommands(c: Queryable, rolloutId: string): Promise<number> {
+  const r = (await c.query<{ kind: string; state: string; current_batch: number; package_id: string; started_by: string }>(
+    "SELECT kind, state, current_batch, package_id, started_by FROM rollouts WHERE id = $1", [rolloutId])).rows[0];
+  if (!r || r.kind !== "package" || r.state !== "running") return 0;
+  const waiting = (await c.query<{ cabinet_id: string; paused: boolean; read_only: boolean | null; status: string }>(
+    `SELECT t.cabinet_id, cl.write_paused AS paused, k.read_only, k.status
+       FROM rollout_targets t JOIN cabinets k ON k.id = t.cabinet_id JOIN sites s ON s.id = k.site_id JOIN clients cl ON cl.id = s.client_id
+      WHERE t.rollout_id = $1 AND t.batch <= $2 AND t.state = 'pending' AND t.command_id IS NULL
+        AND k.last_heartbeat_at >= DATEADD(second, -$3, SYSUTCDATETIME())`, [rolloutId, r.current_batch, OFFLINE_AFTER_MS / 1000])).rows;
+  if (waiting.length === 0) return 0;
+  const skipAll = async (why: string) => { await c.query("UPDATE rollout_targets SET state = 'skipped', message = $2 WHERE rollout_id = $1 AND state = 'pending'", [rolloutId, why]); return 0; };
+  if ((await fleetPause(c)).paused) return 0; // nothing sent while paused; the next check tries again
+  const starter = (await c.query<{ status: string; writes_paused: boolean; role: string }>("SELECT status, writes_paused, role FROM users WHERE id = $1", [r.started_by])).rows[0];
+  if (!starter || starter.status !== "active" || starter.writes_paused) return skipAll("The person who started the rollout can no longer make changes.");
+  const pkg = (await c.query<{ type: string; sha256: string | null; state: string }>("SELECT type, sha256, state FROM packages WHERE id = $1", [r.package_id])).rows[0];
+  if (!pkg || pkg.state !== "approved" || !pkg.sha256) return skipAll("The package was retired, so the rest was not sent.");
+  const entry = catalog.get("package.install")!;
+  const issuedAt = new Date(Math.floor(Date.now() / 1000) * 1000);
+  const expiresAt = new Date(issuedAt.getTime() + entry.expirySeconds * 1000);
+  const params = { packageId: r.package_id.toLowerCase(), packageType: pkg.type, sha256: pkg.sha256 };
+  const sent: { cabinetId: string; commandId: string }[] = [];
+  for (const t of waiting) {
+    if (t.status !== "active" || t.paused || t.read_only !== false) {
+      await c.query("UPDATE rollout_targets SET state = 'skipped', message = $3 WHERE rollout_id = $1 AND cabinet_id = $2", [rolloutId, t.cabinet_id,
+        "The cabinet does not accept changes (its client is paused, or it is read-only or removed)."]);
+      continue;
+    }
+    const commandId = randomUUID();
+    await queueBulkCommand(c, { commandId, cabinetId: t.cabinet_id, operation: "package.install", params, issuedBy: r.started_by, issuedAt, expiresAt, bulkId: rolloutId });
+    await c.query("UPDATE rollout_targets SET state = 'offered', offered_at = SYSUTCDATETIME(), command_id = $3 WHERE rollout_id = $1 AND cabinet_id = $2", [rolloutId, t.cabinet_id, commandId]);
+    sent.push({ cabinetId: t.cabinet_id, commandId });
+  }
+  await auditMany(c, sent.map(s => ({ actorKind: "user" as const, actorId: r.started_by, action: "command.write", targetKind: "cabinet" as const, targetId: s.cabinetId,
+    outcome: "succeeded" as const, details: { commandId: s.commandId, operation: "package.install", params, bulkId: rolloutId } })));
+  return sent.length;
+}
+
+/** A package target's outcome is its command's: succeeded, refused by the cabinet (its own checks), failed, or expired unanswered. */
+async function packageOutcomes(c: Queryable): Promise<void> {
+  const done = (await c.query<{ rollout_id: string; cabinet_id: string; status: string; code: string | null; message: string | null }>(
+    `SELECT t.rollout_id, t.cabinet_id, cm.status, JSON_VALUE(cm.result, '$.error.code') AS code, JSON_VALUE(cm.result, '$.error.message') AS message
+       FROM rollout_targets t JOIN rollouts r ON r.id = t.rollout_id JOIN commands cm ON cm.id = t.command_id
+      WHERE r.kind = 'package' AND r.state IN ('running', 'paused') AND t.state = 'offered' AND cm.status IN ('succeeded', 'failed', 'rejected', 'expired')`)).rows;
+  for (const d of done) {
+    const outcome = d.status === "succeeded" ? "succeeded" : d.status === "rejected" ? "refused" : d.status === "expired" ? "timed_out" : "failed";
+    await finish(c, d.rollout_id, d.cabinet_id, { outcome, check: d.code ? d.code.slice(0, 64) : null,
+      message: d.status === "succeeded" ? "Installed." : d.status === "expired" ? "The install was not answered before it expired." : (d.message ?? d.code ?? "The install failed.") });
+  }
 }
