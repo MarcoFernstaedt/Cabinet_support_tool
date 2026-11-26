@@ -71,6 +71,10 @@ before this plan, `remaining-phases.md`, was folded in here on 2026-11-25 (D150)
 | 2.8 | Split the largest files when they are next touched: `alerts.ts`, `demo.ts`, `agent-api/server.ts`, `cabinet-findings.ts` (and `AgentConnection.cs` in 4) | — | the gate unchanged | 4 to 5 |
 | 2.9 | Open issues: #297 load shed hides the heartbeat; #291 guided demo unreliable in the gate; #289 `replacesCabinetId` in the CLI approval; #288 test the enrollment chain check; #56 re-approval after reactivation; #41 retire cabinet-to-cabinet ping. #39 is re-read first: the 2026-11-23 deployment may have closed it | per issue | a test per fix | 6 to 7 |
 | 2.10 | Agent restart by an operator (D144): the server, contract and console side | `catalog.json`, console | the operation refused below Tier 2 and without its code | 1 |
+| 2.11 | Rollouts with a target, a canary and batches (the owner, 2026-11-26, D160), first for agent releases. The target is one cabinet, chosen cabinets, a site or a client; batch 1 is the canary cabinet or cabinets the person names; later batches are a size or a share the person sets. The success gate, the automatic pause on failures and the step-up on start, pause, resume and stop stay as they are | `rollouts.ts`, its routes and contracts | a rollout for one site never offers the release to a cabinet outside it; batch 2 is not offered before batch 1 reaches the rate; a one-cabinet rollout completes on that cabinet alone | 2 |
+| 2.12 | Package rollouts on the same engine: a software-library package (driver files among them) to the same targets and batches | `packages.ts`, `rollouts.ts` | a package is installed only on the cabinets of the batches reached; the cabinet's own hash, signature and publisher check is unchanged; a failure above the limit pauses the rollout | 2 |
+| 2.13 | "Can run rollouts": a permission an Admin grants a person of any role (Tier 1 included), like "can approve fixes", for both kinds of rollout | `users.ts`, the rollout routes | without it every rollout route refuses, whatever the console shows; with it a Tier 1 person can start, pause, resume and stop one, still with their code; the grant and its withdrawal are audited | 1 |
+| 2.14 | The console: start and follow both kinds of rollout, batch by batch, and grant the permission in Admin › Users | console | a browser test: a canary on one cabinet, then the next batch | 1 to 2 |
 
 ## 3. Built from a decision now taken (about 10 PRs, 1 week)
 
@@ -137,8 +141,9 @@ TypeScript in one PR.
 **Dropped by the owner on 2026-11-25** (D150), so not built:
 - background sampling of the path to the sync cabinet (the on-demand network diagnosis stays);
 - reading file details on a cabinet: the file-facts read, and F11 file staleness;
-- more driver work: driver rollout, rollback and repair, per-model scanner profiles, publishers per vendor (were 4.9, 4.12, F19,
-  F5). The built package library stays, and scanner troubleshooting is service control and the USB watch;
+- more driver work: rollback and repair, per-model scanner profiles, publishers per vendor (were 4.9, 4.12, F19, F5). The built
+  package library stays, and scanner troubleshooting is service control and the USB watch. Rolling packages out, driver files among
+  them, came back on 2026-11-26 as 2.11 to 2.14 (D160);
 - SMART beyond free space: NVMe counters, and crashes linked to degrading drives (were 4.10 and 2.4).
 
 ## 8. Findings outside the owner's order (not scheduled)

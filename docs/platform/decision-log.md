@@ -6,6 +6,53 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D160. Rollouts get a target, a canary and batches, for agent releases and library packages, as a grantable permission (2026-11-26)
+
+D159 is #353's, still open, so this entry takes the next number. This entry plans the work; nothing is built by it.
+
+**Asked by the owner, 2026-11-26, in three messages:**
+1. "software library should allow us to deploy software like driver files and such onto select cabinets by client, site and
+   batched rollouts, even just one if desired";
+2. "Updates to agent should be the same as well so we can do proper canary rollouts for upgrades and software library";
+3. "ensure this is an ability that can be given permission to execute, example a Tier 1 if granted permission through the admin can
+   do updates".
+
+**What is built now:**
+- **Agent rollouts** (`rollouts.ts`, spec 07) are fleet-wide, in four fixed batches: a named cabinet, the in-office cabinets, about 5%
+  of the field and everyone else. An Admin starts one with step-up.
+- **A library package** installs on one cabinet at a time, from its Software page.
+- **Fleet operations** run six fixed operations, package install not among them, on at most 200 cabinets of one site.
+
+**Decided** (the owner's ask; where the ask leaves a detail open, the recommended choice):
+- **One rollout engine** for both kinds. A rollout is for one agent release or one library package.
+- **The target:** one cabinet, chosen cabinets, a site or a whole client. A whole client is allowed: the canary first batch and the
+  automatic pause take the place of the one-site limit that fleet operations keep.
+- **The batches:** batch 1 is the canary, the cabinet or cabinets the person names. Later batches are a size or a share the person
+  sets. A rollout of one cabinet is one batch.
+- **Unchanged:**
+  - each batch must reach the success rate before the next starts;
+  - failures above the limit pause the rollout on their own;
+  - start, pause, resume and stop each take the person's authenticator code;
+  - an agent installs only a release that passes its own signature checks, and a cabinet installs a package only after its own hash,
+    signature and trusted-publisher check;
+  - no other way of putting files on a cabinet is added.
+- **Who:** Admins, and any person an Admin grants "can run rollouts", whatever their role, Tier 1 included. This follows the "can
+  approve fixes" grant already built.
+  - Granting and withdrawing it are audited.
+  - Every rollout route checks it on the server; the console only hides what a person cannot do.
+- **Driver work:** rolling packages out, driver files among them, comes back from D150's drop list. Driver rollback and repair,
+  per-model scanner profiles and publishers per vendor stay dropped.
+
+**Planned:** items 2.11 to 2.14, in that order:
+- 2.11, agent rollouts with a target, a canary and batches;
+- 2.12, package rollouts on the same engine;
+- 2.13, the grantable permission;
+- 2.14, the console.
+
+Each item has its own decision entry when it is built. Spec 07's staged rollout section says what will change.
+
+---
+
 ## D158. The console shows what the affected cabinets are (2026-11-26)
 
 **What was missing** after D157 (plan item 2.3): the crash incident and a fleet pattern's report answer with `sharedAttributes`, and
