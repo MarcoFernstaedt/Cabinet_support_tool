@@ -8,7 +8,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ## D155. Process expectations: how they are written, judged and shown (2026-11-26)
 
-D154 is #348's, still open, so this entry takes the next number.
+D154 went to #348, so this entry takes the next number.
 
 **Asked:** D142 settled that process and task expectations are role baseline items, judged against stored answers and shown as
 differences. It left the item's shape open. Taken on the owner's standing instruction: the recommended choice, recorded here and in
@@ -49,6 +49,39 @@ process list changes every second); a staleness cut-off on the answer, which wou
   - an answer over the CPU limit is the CPU difference;
   - an answer within the limit clears it, and no alert is ever raised.
 - Without the re-judge on a stored answer, the route test fails. Without the judge in the drift engine, four of the five fail.
+
+---
+
+## D154. The fleet reports are measured at 10,000 cabinets, each against its own data, and need no change (2026-11-26)
+
+**What was left** (plan item 2.1, F21.R4): after D153, five views had not been measured with their own data:
+- open incidents and fleet differences, which D153's bench ran empty;
+- one difference's cabinets;
+- a person's activity report;
+- the blue-screen kinds and one kind's report.
+
+**What was done:** `fleet-reports-at-scale.bench.ts` seeds each view's own tables at 10,000 cabinets:
+- 101,000 incidents with 303,000 steps, a year of them, 1,000 open;
+- 150,000 baseline differences, with every category reported and every cabinet judged;
+- 200,000 commands and 200,050 alerts by 50 people;
+- 300,200 events with 50 blue screens.
+
+Every view comes in at 7 to 249 ms median. `performance.md` has the figures and the machine.
+
+**No change to the code.** The one view over budget was a blue-screen kind's report: past the pools' 10 s statement limit on
+`b52bdea`'s `crashes.ts`, and 90 ms with D153's. It shares the incident's change comparison, so D153 already fixes it.
+
+**Fleet patterns are not benched.** Their list reads at most 100 rows of `fleet_patterns`, one row for each pattern, so the fleet's
+size does not reach it.
+
+**To watch:** since D153 the crash incident reads every crash in its window across the fleet, then applies the client and the
+active status in code (the owner's review of #347). So its cost follows the fleet's crash volume, not one client's. At 50 blue
+screens in 10,000 cabinets it is 266 ms. If one client's crash volume grows large, a client filter has to be put back in a form that
+keeps the seek.
+
+**Proven:** the bench, run on the branch with D153 and once with `b52bdea`'s `crashes.ts` for the blue-screen report's before
+figure. A measurement changes no behaviour, so it has no failing test: the bench is the record, and D153's plan test holds the
+statement it relies on.
 
 ---
 

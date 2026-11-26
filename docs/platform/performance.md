@@ -383,11 +383,27 @@ machine: 4 cores, 15 GB, SQL Server 2022 in Docker, nothing else running. Five r
 The rest of the fleet views, measured the same way in `fleet-views-at-scale.bench.js` (20 clients, 500 sites, 10,000 cabinets,
 202,050 alerts, 300,050 events), are all under the console's budget, at 2 to 250 ms. The alert badge and lists, offline, the
 fleet tree and search, triage, fleet operations, the compatibility report, the runbook overview, fleet safety and system health
-read real rows here. Open incidents, fleet patterns and fleet differences ran with none of their own data stored, so their 2 to
-5 ms is the cost of an empty answer only (plan item 2.1).
+read real rows here.
+
+The fleet reports, each against its own data, in `fleet-reports-at-scale.bench.js`. The fleet holds 10,000 cabinets with 200,050
+alerts, 200,000 commands by 50 people, 101,000 incidents (1,000 open) with 303,000 steps, 150,000 baseline differences and 300,200
+events.
+
+| View | Median (best to worst) |
+|---|---|
+| Open incidents, all and one client (`openIncidents`) | 35 ms (31 to 40), 35 ms (32 to 36) |
+| Fleet differences, all and one client (`fleetDifferences`) | 187 ms (179 to 203), 82 ms (66 to 105) |
+| One difference's cabinets (`fleetDifferenceGroup`) | 249 ms (232 to 289) |
+| A person's activity report, 8 and 72 hours (`activityReport`) | 78 ms (74 to 82), 87 ms (85 to 125) |
+| Kinds of blue screen, 7 days (`fleetCrashSignatures`) | 7 ms (6 to 9) |
+| One blue-screen kind's report, 7 days (`crashSignatureReport`) | 90 ms (83 to 100); past the 10 s statement limit before D153, whose change comparison it shares |
+
+Fleet patterns are not in either bench: the list reads at most 100 rows of `fleet_patterns`, which holds one row for each pattern
+rather than one for each cabinet.
 
 How to run them: `cd server && npm run build`, then `node dist/test/crash-kinds-at-scale.bench.js`,
-`node dist/test/fleet-views-at-scale.bench.js` or `node dist/test/readings-search-at-scale.bench.js` (`WITH_TEXT=0` seeds the stored answers as they were before the search text, which
+`node dist/test/fleet-views-at-scale.bench.js`, `node dist/test/fleet-reports-at-scale.bench.js` or
+`node dist/test/readings-search-at-scale.bench.js` (`WITH_TEXT=0` seeds the stored answers as they were before the search text, which
 gives the "before" figure). Each seeds a test database, prints the timings and drops the database. The readings search's "before" is
 past the pools' 10 s statement limit at real software lists (often 150 to 300 programs) and close to the console's 15 s search limit at
 the 81 measured here; D63 has what changed. What made the difference is in decision-log D61: in the same statement, a filter on the JSON source
