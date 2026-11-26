@@ -27,11 +27,16 @@ test("a fleet alert's report stages a recovery of the still-affected cabinets th
       await c.db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [site, client, `Stage ${tag} site ${s}`]);
       for (let n = 0; n < (s === 0 ? 3 : 1); n++) {
         const k = randomUUID(); here.push(k);
-        await c.db.app.query("INSERT INTO cabinets (id, site_id, name, role, status) VALUES ($1, $2, $3, 'standalone', 'active')", [k, site, `STAGE ${s}-${n}`]);
+        await c.db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, bios_version) VALUES ($1, $2, $3, 'standalone', 'active', '1.4.2')", [k, site, `STAGE ${s}-${n}`]);
         await c.db.app.query(`INSERT INTO alerts (cabinet_id, issue_type_id, severity, signature, title, first_seen, last_seen, occurrences, scope)
             VALUES ($1, NULL, 'major', $2, $3, DATEADD(hour, -2, SYSUTCDATETIME()), SYSUTCDATETIME(), 1, 'fleet')`, [k, sig, `Stage probe ${tag}`]);
       }
     }
+    // Six cabinets without the error, at a site of their own, with another BIOS: what the affected ones are stands out (D157).
+    const calm = randomUUID();
+    await c.db.app.query("INSERT INTO sites (id, client_id, name) VALUES ($1, $2, $3)", [calm, client, `Stage ${tag} calm`]);
+    for (let n = 0; n < 6; n++)
+      await c.db.app.query("INSERT INTO cabinets (id, site_id, name, role, status, bios_version) VALUES ($1, $2, $3, 'standalone', 'active', '1.5.0')", [randomUUID(), calm, `CALM ${n}`]);
     await sweepFleetPatterns(c.db.app);
     await c.db.app.query("UPDATE alerts SET state = 'resolved', resolved_at = SYSUTCDATETIME() WHERE signature = $1 AND cabinet_id IN ($2, $3)", [sig, cabinetsAt[0]![0], cabinetsAt[1]![0]]);
 
@@ -42,6 +47,7 @@ test("a fleet alert's report stages a recovery of the still-affected cabinets th
     const report = page.getByLabel(new RegExp(`Report: .*Stage probe ${tag}`));
     await report.waitFor();
     assert.match(await report.locator("dl").innerText(), /Still affected\s*6[\s\S]*Recovered\s*2/i);
+    await report.getByRole("listitem").filter({ hasText: /^BIOS version 1\.4\.2: 100% of affected cabinets \(8\), 0% of the others \(0\)$/ }).waitFor();
     // The recovery table lists only the sites with cabinets still affected: the second site has recovered and is not there.
     const recovery = report.getByRole("table", { name: "Sites with cabinets still affected" });
     assert.equal(await recovery.locator("tbody tr").count(), 5);
