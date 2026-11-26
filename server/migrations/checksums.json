@@ -36,5 +36,7 @@
   "0038_event_error_key": "04a041de7a599be6aad02b2fa21470654310cfd7ff5660881f0abd79d34a7373",
   "0039_remove_filefacts": "3604cb1fce4429f3105c0c52a7ea31f4cfd8b35ecc38eec4ed1d2760f9abef7d",
   "0040_remove_drive_health": "23ef2fd55455c0bf026749a06c7cc4fd66599433713402aba2806dca71a455c8",
-  "0041_cabinet_bios": "2e576f2322e83a3c2e8d556aa205ef7b3cb5f2f40d23cd563c89fb3ab430ca2b"
+  "0041_cabinet_bios": "2e576f2322e83a3c2e8d556aa205ef7b3cb5f2f40d23cd563c89fb3ab430ca2b",
+  "0042_rollout_scope": "d20259dd248376229cc6d1de374b52623bca3f578bdccb154fe359fe29145d6b",
+  "0043_package_rollouts": "2ece44d2c84efd10027dc0f8c932c2d6c4eec9932f8f825a11acbb894872ff88"
 }

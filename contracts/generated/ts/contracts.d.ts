@@ -1502,6 +1502,69 @@ export interface OpenIncidentsQuery {
 }
 
 /**
+ * Starts a staged rollout of one approved software-library package (plan item 2.12, decision-log D162), on the same rules as a release's rollout: batch 1 is the one cabinet named here, the canary; the target and the batches are as in rollout-start; a batch must reach successRatePercent before the next starts, and failures above failureLimitPercent of a batch pause the rollout on their own. Each cabinet of a batch reached is sent package.install with the package's type and hash from the library, and checks the file's hash, signature and publisher itself before anything runs.
+ */
+export interface PackageRolloutStart {
+  /**
+   * An approved package of the software library.
+   */
+  packageId: string;
+  /**
+   * The one cabinet in batch 1.
+   */
+  pilotCabinetId: string;
+  successRatePercent: number;
+  failureLimitPercent: number;
+  /**
+   * Which cabinets the rollout is for. Omitted, the whole fleet.
+   */
+  target?:
+    | {
+        kind: "fleet";
+      }
+    | {
+        kind: "client" | "site";
+        id: string;
+      }
+    | {
+        kind: "cabinets";
+        /**
+         * @minItems 1
+         * @maxItems 500
+         */
+        cabinetIds: [string, ...string[]];
+      };
+  /**
+   * The batches after the canary, in order: each a number of cabinets or a share (percent) of the cabinets left after the canary. What remains after the last is one more batch. At most eight, so a rollout has at most ten.
+   *
+   * @minItems 1
+   * @maxItems 8
+   */
+  batches?: [
+    (
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    ),
+    ...(
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    )[]
+  ];
+  /**
+   * A one-time step-up token bound to this exact action.
+   */
+  stepUpToken: string;
+}
+
+/**
  * Starts a software library upload: what the package is. The file itself follows in a second request, and is checked (hash, signature, trusted publisher) before anyone can approve it.
  */
 export interface PackageUpload {
@@ -1631,7 +1694,7 @@ export interface ReleaseCreate {
 }
 
 /**
- * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/spec/18-built-designs.md §1), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.
+ * Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md "Staged rollout"). Batch 1 is the one cabinet named here, the canary. Without a target the rollout is for the whole fleet; with one it is for a client, a site or chosen cabinets, and the canary must be one of them (plan item 2.11, decision-log D161). Without batches, batch 2 is the in-office cabinets, batch 3 about 5 percent of the rest and batch 4 everyone else; with batches, each one after the canary is a number of cabinets or a share of those left after the canary, in-office cabinets first, and whatever remains is a last batch. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/spec/18-built-designs.md §1), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.
  */
 export interface RolloutStart {
   /**
@@ -1648,6 +1711,49 @@ export interface RolloutStart {
   pilotCabinetId: string;
   successRatePercent: number;
   failureLimitPercent: number;
+  /**
+   * Which cabinets the rollout is for. Omitted, the whole fleet.
+   */
+  target?:
+    | {
+        kind: "fleet";
+      }
+    | {
+        kind: "client" | "site";
+        id: string;
+      }
+    | {
+        kind: "cabinets";
+        /**
+         * @minItems 1
+         * @maxItems 500
+         */
+        cabinetIds: [string, ...string[]];
+      };
+  /**
+   * The batches after the canary, in order: each a number of cabinets or a share (percent) of the cabinets left after the canary. What remains after the last is one more batch. At most eight, so a rollout has at most ten.
+   *
+   * @minItems 1
+   * @maxItems 8
+   */
+  batches?: [
+    (
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    ),
+    ...(
+      | {
+          cabinets: number;
+        }
+      | {
+          percent: number;
+        }
+    )[]
+  ];
   /**
    * A one-time step-up token bound to this exact action.
    */

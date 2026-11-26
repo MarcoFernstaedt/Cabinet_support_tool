@@ -706,6 +706,16 @@ const codeExplanations: Record<string, Explanation> = {
     detail: "It is offline, or on a version that cannot take part in a staged rollout.",
     fix: "Bring it online and up to the required version, or pick a different cabinet.",
   },
+  pilot_outside_target: {
+    title: "First cabinet is not in the rollout",
+    detail: "The cabinet chosen to go first is not one of the cabinets this rollout is for (its client, site or chosen cabinets).",
+    fix: "Pick a first cabinet inside the target, or widen the target to include it.",
+  },
+  target_not_found: {
+    title: "A chosen cabinet is not active",
+    detail: "At least one of the chosen cabinets does not exist or has been removed, so the rollout was not started.",
+    fix: "Refresh the list and choose again from the active cabinets.",
+  },
   rename_not_allowed: {
     title: "Cannot be renamed",
     detail: "The platform reserves this name, or the item is locked by another change.",

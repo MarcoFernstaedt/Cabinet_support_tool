@@ -6,6 +6,168 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D163. A change watch across the fleet, the library beyond drivers, a prune pass, and one feature per PR (2026-11-26)
+
+This entry plans the work; nothing is built by it. It rides #356, which already changes the plan (one feature per PR, below).
+
+**Asked by the owner, 2026-11-26:**
+- "detect issues across the fleet ... say we pushed an update and now cabinets that got it are having certain issues, it should report
+  them and provide a report of the issue"; "it should look at things like updates or software rollouts", researched in depth;
+- the software library should "work for more than just drivers, like a file transfer";
+- "remove anything we don't need, like those generated files", and prune old, stale and historical traces;
+- consolidate PRs: a small issue goes into the earlier PR it belongs to, not a new one.
+
+**The change watch (plan item 2.15), from what the research found:**
+- **Correlate each fault with the changes the faulty cabinets received.** Azure's Gandalf (NSDI 2020) correlates each fault signal,
+  by place and by time, with every rollout in progress, and halts the rollout it blames. The platform knows which cabinets got which
+  change and when, so the correlation is exact, not inferred.
+- **Compare with cabinets that did not change, over the same hours.** Google and Waze's canary guidance compares the canary with a
+  baseline running the old version at the same time, not with history. Here that baseline is the target's cabinets not yet reached.
+  The changed cabinets' own 7 days before is the second comparison, so a problem they already had is not blamed on the change.
+- **A simple test, explained in its report.** Kayenta's judge favours tests that are simple to interpret. Its Mann-Whitney test is
+  for latency-like series; here the question is whether a cabinet has the problem or not, in groups of a few to a few hundred
+  cabinets, so the test is Fisher's exact test, one-sided, on a two-by-two count. It needs no dependency and stays exact at small
+  counts. The cut is p below 0.01, divided across the signals watched. D22's margin still applies, so a large fleet cannot raise a
+  pattern on a trivially small difference.
+- **Pause first, then report.** As Google Play's halt and Gandalf's no-go, the rollout stops reaching more cabinets and the ones that
+  have it keep it. Pausing is reversible; resuming takes a person.
+- **Rejected:** a learned model, as Windows Update's safeguard holds use, because they need millions of devices. A fixed rate
+  threshold is also rejected, because it fires on normal noise in a small batch and misses a doubling in a large one.
+
+**The library beyond drivers (2.16 and 4.17):** "like a file transfer" is met inside the rules. The rules are CLAUDE.md, spec 00
+and spec 02: files reach a cabinet only as approved library packages, verified on the cabinet.
+- **A standalone Windows update** (`.msu`, Microsoft-signed), installed with `wusa.exe` by full path and fixed arguments.
+- **A file package:** plain files for a destination named in the agent's protected configuration. It is signed with an offline
+  platform library key applied by a second Admin, and is never run.
+- **Still refused:** an arbitrary path, an unsigned file, a pull from a cabinet, EXE installers and scripts. Plain files have no
+  publisher signature; the platform's own key, held offline like the release keys, takes the trusted publisher's place for them.
+- **The spec text** changes in the PR that builds it.
+
+**The prune pass (2.17):**
+- `contracts/generated/ts/contracts.d.ts` is built, not committed;
+- dead code, unused columns and settings, and stale docs are removed;
+- every growing table is checked for its pruning;
+- the security review covers the new paths.
+
+**PRs from now:** one feature per PR. A fix or follow-up to a feature whose PR is open goes into that PR. CONTRIBUTING.md's "One
+item, one PR" and the plan's rule say so. As the first use, 2.13 and 2.14 are one PR.
+
+**Order:** 2.13 with 2.14, then 2.15, then 2.16, then 2.17.
+
+---
+
+## D162. A software-library package rolls out on the rollout engine (2026-11-26)
+
+**What changed** (plan item 2.12, the second of D160's four):
+- **The start:** `startPackageRollout` starts a rollout of one approved package with the same request as an agent rollout: a target,
+  a canary, batches, the success rate and the failure limit. It is the route `POST /api/admin/package-rollouts`, with contract
+  `package-rollout-start.schema.json`. Pause, resume and stop are the existing rollout routes.
+- **Its cabinets:** the active cabinets of the target, whatever their agent version. The canary must be one of them.
+- **Its commands:** each cabinet of a batch reached, in contact now, is sent `package.install`.
+  - The package's type and hash come from the library, never from the request.
+  - The command is in the starter's name, with the rollout's id as its bulk id.
+  - The cabinet still checks the file's hash, signature and trusted publisher itself before anything runs.
+  - A cabinet out of contact waits, and is skipped once offline for the whole batch, as in an agent rollout.
+- **Outcomes:** a target's outcome is its command's: succeeded; refused by the cabinet (with the check that refused it); failed; or
+  timed out when the command expired unanswered. The minute's rollout check reads them, then evaluates the rollout as for an agent:
+  - the next batch waits for the success rate;
+  - failures above the limit pause the rollout on their own, naming the batch.
+- **The same safety controls as a fleet job:**
+  - **At the start:** refused while writes are paused fleet-wide.
+  - **The write limit:** the whole rollout counts once against the starter's hourly limit (its commands share one bulk id), and
+    going over it pauses their writes.
+  - **At each pass:** nothing is sent while writes are paused; nothing more once the starter can no longer make changes or the
+    package is retired (the cabinets still waiting are closed with the reason); and a cabinet whose client is paused, or that is
+    read-only or removed, is skipped with the reason.
+- **Migration 0043:**
+  - adds `rollouts.kind` (agent or package) and `rollouts.package_id`;
+  - makes `version` and `architecture` null for a package rollout, with a check that each kind names only its own;
+  - adds `rollout_targets.command_id`;
+  - redefines the one-active key per kind. One package rollout and one agent rollout can be active at the same time; never two of
+    the same kind.
+- **Kept to the agent:** a heartbeat's offer, an agent's upgrade report and the 30-minute offer timeout apply only to agent
+  rollouts. A package rollout never offers an agent version.
+- **The list:** each rollout gives its kind and its package.
+
+**Why one of each kind:** an agent upgrade and a driver rollout are separate work, and the owner wants both. Two package rollouts at
+once would let two installs race on one cabinet.
+
+**Not in this change:** the grantable permission (2.13; the route is Admin only for now) and the console's screen (2.14).
+
+**Proven:** `server/test/package-rollouts.test.ts` (5 tests):
+- **A site's package rollout:** the canary alone is sent its install first, with the library's type and hash, in the starter's name.
+  Once it succeeds, the next batch's cabinets in contact are sent theirs; the offline one waits; the other site is sent nothing; and
+  no agent version is offered to anyone.
+- **A refusal:** the cabinet's own check refusing (`signature_invalid`) pauses the rollout, naming batch 1, recorded as refused with
+  its check, and nothing more is sent.
+- **Concurrency and refusals:**
+  - an agent rollout and a package rollout run together, and a second package rollout is refused;
+  - a retired, an uploaded or an unknown package is refused;
+  - so is a canary outside the target, and a start while writes are paused. None starts anything.
+- **A package retired mid-rollout:** it is sent no further, and the cabinets still waiting are closed saying so.
+- **The contract** takes a package, a target and batches, and refuses a release's fields, a raw file, a path or SQL as the package,
+  and a missing step-up.
+
+**Red proof and the rest:** with #355's `rollouts.ts` the new test file cannot load: the functions it calls are not there. The 45 tests
+of the upgrade, rollout-scope, database, ownership, migration, import-cycle and package-architecture files pass unchanged, with 2
+skipped without the agent build, and the console's 141 pass.
+
+---
+
+## D161. An agent rollout has a target and the batches its starter sets (2026-11-26)
+
+**What changed** (plan item 2.11, the first of D160's four):
+- **The target:** `startRollout` takes an optional `target`: the fleet (the default, as before), a client, a site, or up to 500
+  chosen cabinets.
+  - Only active cabinets in the target are candidates, before the version, architecture and minimum-version filters.
+  - The first cabinet, the canary, must be one of them.
+  - A client or site that does not exist, or a chosen cabinet that is not active, is refused.
+- **The batches:** an optional `batches`, up to eight, each a number of cabinets or a share of those left after the canary.
+  - They are taken in order from the in-office cabinets first, then the field in an order nobody can predict (the same
+    cryptographic shuffle as before).
+  - Whatever is left is one more batch, "Everyone else", so a rollout has at most ten batches.
+  - Without `batches`, the four fixed batches apply, to the target only.
+- **The plan:** migration 0042 widens both batch checks from 1-4 to 1-10, and adds `rollouts.plan` (JSON, an object, at most 64 KB,
+  registered in `json-columns.ts`). The plan holds the target and each batch's label and size.
+  - `listRollouts` gives each batch its label and the rollout its target.
+  - An automatic pause names the batch by its label.
+  - A rollout from before this change has no plan and keeps the four fixed names.
+- **The two new refusals,** `pilot_outside_target` and `target_not_found`, have their own explanations in the console.
+
+**Unchanged:**
+- one rollout at a time;
+- the success gate;
+- the automatic pause;
+- step-up on start, pause, resume and stop;
+- the Admin-only routes (the grantable permission is 2.13);
+- the agent's own checks of the release.
+
+**Not in this change:**
+- the command line's `rollout start`, which still starts a fleet rollout;
+- the console's form (2.14), which still sends neither field, so it starts the same rollouts as before.
+
+**Proven:** `server/test/rollout-scope.test.ts` (5 tests):
+- **A one-site rollout:** it holds only that site's cabinets and never offers the release to the other site. The rest of its site is
+  not offered it until the canary succeeds.
+- **A client's rollout, with batches of 2 cabinets and 50%:** it is the canary, 2, 5 (half of the 9 left, rounded up) and the last 2,
+  named "One cabinet", "2 cabinets", "50% of the rest" and "Everyone else"; the other client's cabinets are not in it.
+- **A one-cabinet rollout:** it is one batch, and it completes on that cabinet alone.
+- **A failure:** it pauses the rollout, naming batch 2 "3 cabinets".
+- **Refusals:**
+  - a canary outside the target, by site or by chosen cabinets;
+  - an unknown site or client;
+  - a chosen cabinet that is not active;
+  - nine batches.
+  None of them starts anything.
+- **The contract refuses:**
+  - a target of unknown kind, a site without its id, a fleet target with an id;
+  - an empty or repeated cabinet list, a non-GUID id;
+  - a 0% batch, a batch of both kinds, a text count, an empty batch list.
+- **Red proof:** with `main`'s `rollouts.ts`, all five fail. The 33 tests of `upgrades.test.ts` and the database, ownership and
+  migration files pass unchanged, and 2 are skipped without the agent build.
+
+---
+
 ## D160. Rollouts get a target, a canary and batches, for agent releases and library packages, as a grantable permission (2026-11-26)
 
 D159 went to #353, so this entry takes the next number. This entry plans the work; nothing is built by it.
