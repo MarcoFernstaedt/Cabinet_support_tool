@@ -6,6 +6,60 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D161. An agent rollout has a target and the batches its starter sets (2026-11-26)
+
+**What changed** (plan item 2.11, the first of D160's four):
+- **The target:** `startRollout` takes an optional `target`: the fleet (the default, as before), a client, a site, or up to 500
+  chosen cabinets.
+  - Only active cabinets in the target are candidates, before the version, architecture and minimum-version filters.
+  - The first cabinet, the canary, must be one of them.
+  - A client or site that does not exist, or a chosen cabinet that is not active, is refused.
+- **The batches:** an optional `batches`, up to eight, each a number of cabinets or a share of those left after the canary.
+  - They are taken in order from the in-office cabinets first, then the field in an order nobody can predict (the same
+    cryptographic shuffle as before).
+  - Whatever is left is one more batch, "Everyone else", so a rollout has at most ten batches.
+  - Without `batches`, the four fixed batches apply, to the target only.
+- **The plan:** migration 0042 widens both batch checks from 1-4 to 1-10, and adds `rollouts.plan` (JSON, an object, at most 64 KB,
+  registered in `json-columns.ts`). The plan holds the target and each batch's label and size.
+  - `listRollouts` gives each batch its label and the rollout its target.
+  - An automatic pause names the batch by its label.
+  - A rollout from before this change has no plan and keeps the four fixed names.
+- **The two new refusals,** `pilot_outside_target` and `target_not_found`, have their own explanations in the console.
+
+**Unchanged:**
+- one rollout at a time;
+- the success gate;
+- the automatic pause;
+- step-up on start, pause, resume and stop;
+- the Admin-only routes (the grantable permission is 2.13);
+- the agent's own checks of the release.
+
+**Not in this change:**
+- the command line's `rollout start`, which still starts a fleet rollout;
+- the console's form (2.14), which still sends neither field, so it starts the same rollouts as before.
+
+**Proven:** `server/test/rollout-scope.test.ts` (5 tests):
+- **A one-site rollout:** it holds only that site's cabinets and never offers the release to the other site. The rest of its site is
+  not offered it until the canary succeeds.
+- **A client's rollout, with batches of 2 cabinets and 50%:** it is the canary, 2, 5 (half of the 9 left, rounded up) and the last 2,
+  named "One cabinet", "2 cabinets", "50% of the rest" and "Everyone else"; the other client's cabinets are not in it.
+- **A one-cabinet rollout:** it is one batch, and it completes on that cabinet alone.
+- **A failure:** it pauses the rollout, naming batch 2 "3 cabinets".
+- **Refusals:**
+  - a canary outside the target, by site or by chosen cabinets;
+  - an unknown site or client;
+  - a chosen cabinet that is not active;
+  - nine batches.
+  None of them starts anything.
+- **The contract refuses:**
+  - a target of unknown kind, a site without its id, a fleet target with an id;
+  - an empty or repeated cabinet list, a non-GUID id;
+  - a 0% batch, a batch of both kinds, a text count, an empty batch list.
+- **Red proof:** with `main`'s `rollouts.ts`, all five fail. The 33 tests of `upgrades.test.ts` and the database, ownership and
+  migration files pass unchanged, and 2 are skipped without the agent build.
+
+---
+
 ## D160. Rollouts get a target, a canary and batches, for agent releases and library packages, as a grantable permission (2026-11-26)
 
 D159 went to #353, so this entry takes the next number. This entry plans the work; nothing is built by it.

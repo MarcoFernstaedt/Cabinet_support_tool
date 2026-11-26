@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://schemas.mashura.example/cabinet-diagnostics/v1/console/rollout-start.schema.json",
   "title": "rollout-start",
-  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"): batch 1 is the one cabinet named here, batch 2 the in-office cabinets, batch 3 about 5 percent of the rest of the fleet, batch 4 everyone else. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/spec/18-built-designs.md §1), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.",
+  "description": "Starts a staged rollout of one release (docs/spec/07-upgrade-channel.md \"Staged rollout\"). Batch 1 is the one cabinet named here, the canary. Without a target the rollout is for the whole fleet; with one it is for a client, a site or chosen cabinets, and the canary must be one of them (plan item 2.11, decision-log D161). Without batches, batch 2 is the in-office cabinets, batch 3 about 5 percent of the rest and batch 4 everyone else; with batches, each one after the canary is a number of cabinets or a share of those left after the canary, in-office cabinets first, and whatever remains is a last batch. A batch must reach successRatePercent before the next starts; failures above failureLimitPercent of a batch pause the rollout on their own. A release is one version for one Windows architecture (docs/spec/18-built-designs.md §1), so the version alone does not name one: the architecture does, and only cabinets built for it are ever targets - the others could not run the package at all.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -26,6 +26,102 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 50
+    },
+    "target": {
+      "description": "Which cabinets the rollout is for. Omitted, the whole fleet.",
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "fleet"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "client",
+                "site"
+              ]
+            },
+            "id": {
+              "$ref": "../common.schema.json#/$defs/uuid"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "cabinetIds"
+          ],
+          "properties": {
+            "kind": {
+              "const": "cabinets"
+            },
+            "cabinetIds": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 500,
+              "uniqueItems": true,
+              "items": {
+                "$ref": "../common.schema.json#/$defs/uuid"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "batches": {
+      "description": "The batches after the canary, in order: each a number of cabinets or a share (percent) of the cabinets left after the canary. What remains after the last is one more batch. At most eight, so a rollout has at most ten.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 8,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "cabinets"
+            ],
+            "properties": {
+              "cabinets": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 10000
+              }
+            }
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "percent"
+            ],
+            "properties": {
+              "percent": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100
+              }
+            }
+          }
+        ]
+      }
     },
     "stepUpToken": {
       "description": "A one-time step-up token bound to this exact action.",

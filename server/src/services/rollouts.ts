@@ -26,7 +26,39 @@ export const OFFLINE_SKIP_HOURS = 24;
 type Authority = string | null;
 const viaCli = (a: Authority) => (a === null ? { via: "cli" } : {});
 
-export interface RolloutRequest { version: string; architecture: Architecture; pilotCabinetId: string; successRatePercent: number; failureLimitPercent: number }
+/** Which cabinets a rollout is for (plan item 2.11, D161); the whole fleet when none is given. */
+export type RolloutTarget = { kind: "fleet" } | { kind: "client" | "site"; id: string } | { kind: "cabinets"; cabinetIds: string[] };
+/** One batch after the canary: a number of cabinets, or a share of those left after the canary. */
+export type BatchSpec = { cabinets: number } | { percent: number };
+/** What a rollout was planned as: kept with it for the console and the audit (migration 0042). */
+export interface RolloutPlan { target: RolloutTarget; batches: { batch: number; label: string; cabinets: number }[] }
+export const MAX_BATCHES = 10;
+
+export interface RolloutRequest {
+  version: string; architecture: Architecture; pilotCabinetId: string; successRatePercent: number; failureLimitPercent: number;
+  target?: RolloutTarget | undefined; batches?: BatchSpec[] | undefined;
+}
+
+/** A batch's name: from the rollout's plan, or the four fixed batches of a rollout from before it had one. */
+export const batchLabel = (plan: RolloutPlan | null | undefined, batch: number): string =>
+  plan?.batches.find(b => b.batch === batch)?.label ?? BATCH_NAMES[batch] ?? `Batch ${batch}`;
+
+/**
+ * The batches after the canary as asked: in-office cabinets first, then the field in an order nobody can predict; each spec takes
+ * its number or its share of all of them, and whatever is left is one more batch.
+ */
+export function plannedBatches<T extends { in_office: boolean }>(rest: readonly T[], specs: readonly BatchSpec[]): [number, T[], string][] {
+  const ordered = [...rest.filter(k => k.in_office), ...shuffle(rest.filter(k => !k.in_office))];
+  const out: [number, T[], string][] = [];
+  let at = 0;
+  for (const s of specs) {
+    const n = "cabinets" in s ? s.cabinets : Math.max(1, Math.ceil(rest.length * s.percent / 100));
+    out.push([out.length + 2, ordered.slice(at, at + n), "cabinets" in s ? `${s.cabinets} cabinet${s.cabinets === 1 ? "" : "s"}` : `${s.percent}% of the rest`]);
+    at += n;
+  }
+  if (at < ordered.length) out.push([out.length + 2, ordered.slice(at), "Everyone else"]);
+  return out;
+}
 
 /** Fisher-Yates with a cryptographic source, so nobody can predict or steer which cabinets land in batch 3. */
 function shuffle<T>(items: T[]): T[] {
@@ -48,8 +80,25 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
     // Neither are cabinets built for the other architecture, which cannot run this package at all; a cabinet whose agent
     // never reported an architecture is treated as windows-x64, which is what it is (see releases.ts cabinetArchitecture).
     // No row locks: holding them would stall every heartbeat while the rollout is written.
-    const older = (await c.query<{ id: string; agent_version: string | null; in_office: boolean; architecture: string }>(
-      "SELECT id, agent_version, in_office, COALESCE(architecture, 'windows-x64') AS architecture FROM cabinets WHERE status = 'active' AND demo_scenario IS NULL")).rows
+    const target: RolloutTarget = req.target ?? { kind: "fleet" };
+    if ((target.kind === "client" || target.kind === "site")
+        && !(await c.query(`SELECT 1 FROM ${target.kind === "client" ? "clients" : "sites"} WHERE id = $1`, [target.id])).rows[0])
+      throw new Refused("not_found", 404, `no such ${target.kind}`);
+    const all = (await c.query<{ id: string; agent_version: string | null; in_office: boolean; architecture: string; site_id: string; client_id: string }>(
+      `SELECT k.id, k.agent_version, k.in_office, COALESCE(k.architecture, 'windows-x64') AS architecture, k.site_id, s.client_id
+         FROM cabinets k JOIN sites s ON s.id = k.site_id WHERE k.status = 'active' AND k.demo_scenario IS NULL`)).rows;
+    // The target, before anything else: a cabinet outside it is never a candidate, whatever its version (D161).
+    const chosen = target.kind === "cabinets" ? new Set(target.cabinetIds.map(x => x.toLowerCase())) : null;
+    if (chosen) {
+      const known = new Set(all.map(k => k.id.toLowerCase()));
+      const unknown = [...chosen].filter(x => !known.has(x));
+      if (unknown.length) throw new Refused("target_not_found", 404, `${unknown.length} of the chosen cabinets ${unknown.length === 1 ? "is" : "are"} not an active cabinet`);
+    }
+    const inTarget = (k: (typeof all)[number]) => target.kind === "fleet" ? true : target.kind === "client" ? k.client_id.toLowerCase() === target.id.toLowerCase()
+      : target.kind === "site" ? k.site_id.toLowerCase() === target.id.toLowerCase() : chosen!.has(k.id.toLowerCase());
+    if (!all.some(k => k.id.toLowerCase() === req.pilotCabinetId.toLowerCase() && inTarget(k)) && all.some(k => k.id.toLowerCase() === req.pilotCabinetId.toLowerCase()))
+      throw new Refused("pilot_outside_target", 409, "the first cabinet must be one of the cabinets the rollout is for");
+    const older = all.filter(inTarget)
       .filter(k => k.agent_version === null || !isVersion(k.agent_version) || compareVersions(k.agent_version, req.version) < 0);
     const belowMinimum = (k: { agent_version: string | null }): boolean =>
       k.agent_version !== null && isVersion(k.agent_version) && isVersion(release.minimum_version) && compareVersions(k.agent_version, release.minimum_version) < 0;
@@ -64,14 +113,25 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
         ? `the first cabinet runs an agent older than this release's minimum version (${release.minimum_version})`
         : "the first cabinet must be an active cabinet running an older agent");
     const rest = cabinets.filter(k => k.id !== pilot.id);
-    const office = rest.filter(k => k.in_office);
-    const field = shuffle(rest.filter(k => !k.in_office));
-    const slice = field.length === 0 ? 0 : Math.max(1, Math.ceil(field.length * 0.05));
-    const batches: [number, typeof cabinets][] = [[1, [pilot]], [2, office], [3, field.slice(0, slice)], [4, field.slice(slice)]];
+    let batches: [number, typeof cabinets][];
+    let labels: string[];
+    if (req.batches && req.batches.length > 0) {
+      if (req.batches.length > MAX_BATCHES - 2) throw new Refused("invalid_request", 400, `at most ${MAX_BATCHES - 2} batches after the first cabinet`);
+      const planned = plannedBatches(rest, req.batches);
+      batches = [[1, [pilot]], ...planned.map(([b, m]) => [b, m] as [number, typeof cabinets])];
+      labels = [BATCH_NAMES[1], ...planned.map(([, , l]) => l)];
+    } else {
+      const office = rest.filter(k => k.in_office);
+      const field = shuffle(rest.filter(k => !k.in_office));
+      const slice = field.length === 0 ? 0 : Math.max(1, Math.ceil(field.length * 0.05));
+      batches = [[1, [pilot]], [2, office], [3, field.slice(0, slice)], [4, field.slice(slice)]];
+      labels = [BATCH_NAMES[1], BATCH_NAMES[2], BATCH_NAMES[3], BATCH_NAMES[4]];
+    }
+    const plan: RolloutPlan = { target, batches: batches.map(([b, m], i) => ({ batch: b, label: labels[i]!, cabinets: m.length })) };
 
     const id = randomUUID();
-    await c.query(`INSERT INTO rollouts (id, version, architecture, state, current_batch, success_rate_percent, failure_limit_percent, started_by)
-                   VALUES ($1, $2, $3, 'running', 1, $4, $5, $6)`, [id, req.version, req.architecture, req.successRatePercent, req.failureLimitPercent, adminId]);
+    await c.query(`INSERT INTO rollouts (id, version, architecture, state, current_batch, success_rate_percent, failure_limit_percent, started_by, [plan])
+                   VALUES ($1, $2, $3, 'running', 1, $4, $5, $6, $7)`, [id, req.version, req.architecture, req.successRatePercent, req.failureLimitPercent, adminId, JSON.stringify(plan)]);
     const targets = batches.flatMap(([batch, members]) => members.map(k => ({ batch, id: k.id, from: k.agent_version })));
     await c.query(`INSERT INTO rollout_targets (rollout_id, cabinet_id, batch, state, from_version)
                    SELECT $1, t.cabinet_id, t.batch, 'pending', t.from_version
@@ -80,7 +140,7 @@ export async function startRollout(pool: Pool, adminId: string, req: RolloutRequ
     // Audited on its own (docs/spec/07-upgrade-channel.md step 4).
     await audit(c, { actorKind: "user", actorId: adminId, action: "rollout.start", targetKind: "rollout", targetId: id, outcome: "succeeded",
       details: { rolloutId: id, version: req.version, architecture: req.architecture, pilotCabinetId: pilot.id, successRatePercent: req.successRatePercent, failureLimitPercent: req.failureLimitPercent,
-        batches: batches.map(([b, m]) => ({ batch: b, cabinets: m.length })), belowMinimumVersion: sameArchitecture.length - cabinets.length, wrongArchitecture, ...viaCli(stepUpToken) } });
+        target, batches: plan.batches, belowMinimumVersion: sameArchitecture.length - cabinets.length, wrongArchitecture, ...viaCli(stepUpToken) } });
     return id;
   });
 }
@@ -174,8 +234,8 @@ export async function recordUpgradeStatus(pool: Pool, cabinetId: string, s: Upgr
  * version if they come back while the rollout runs).
  */
 export async function evaluate(db: Queryable, rolloutId: string): Promise<void> {
-  const r = (await db.query<{ state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number; batch_started_at: Date; accepted_failures: number }>(
-    "SELECT state, current_batch, success_rate_percent, failure_limit_percent, batch_started_at, accepted_failures FROM rollouts WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [rolloutId])).rows[0];
+  const r = (await db.query<{ state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number; batch_started_at: Date; accepted_failures: number; plan: RolloutPlan | null }>(
+    "SELECT state, current_batch, success_rate_percent, failure_limit_percent, batch_started_at, accepted_failures, [plan] FROM rollouts WITH (UPDLOCK, ROWLOCK) WHERE id = $1", [rolloutId])).rows[0];
   if (!r || r.state !== "running") return;
   const batch = r.current_batch;
   if (Date.now() - r.batch_started_at.getTime() > OFFLINE_SKIP_HOURS * 3_600_000)
@@ -192,7 +252,7 @@ export async function evaluate(db: Queryable, rolloutId: string): Promise<void> 
 
   const newFailures = failed - r.accepted_failures;
   if (newFailures > 0 && newFailures * 100 > r.failure_limit_percent * total) {
-    const reason = `Paused automatically: ${failed} of ${total} cabinet${total === 1 ? "" : "s"} in batch ${batch} (${BATCH_NAMES[batch]}) failed, above the ${r.failure_limit_percent}% limit.`;
+    const reason = `Paused automatically: ${failed} of ${total} cabinet${total === 1 ? "" : "s"} in batch ${batch} (${batchLabel(r.plan, batch)}) failed, above the ${r.failure_limit_percent}% limit.`;
     await db.query("UPDATE rollouts SET state = 'paused', paused_reason = $2 WHERE id = $1", [rolloutId, reason]);
     await audit(db, { actorKind: "system", actorId: "rollout", action: "rollout.auto_pause", targetKind: "rollout", targetId: rolloutId, outcome: "succeeded",
       details: { rolloutId, batch, failed, total, failureLimitPercent: r.failure_limit_percent } });
@@ -245,11 +305,14 @@ export async function checkRollouts(pool: Pool): Promise<void> {
   });
 }
 
+/** One batch's counts, as the list gives them. */
+interface BatchCounts { batch: number; total: number; succeeded: number; failed: number; offered: number; pending: number; skipped: number }
+
 export async function listRollouts(db: Queryable) {
   const rows = (await db.query<{ id: string; version: string; architecture: string; state: string; current_batch: number; success_rate_percent: number; failure_limit_percent: number;
-    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string }>(
+    started_by: string; started_by_name: string; started_at: Date; paused_reason: string | null; finished_at: Date | null; counts: string; plan: RolloutPlan | null }>(
     `SELECT TOP (100) r.id, r.version, r.architecture, r.state, r.current_batch, r.success_rate_percent, r.failure_limit_percent, r.started_by, u.name AS started_by_name, r.started_at,
-            r.paused_reason, r.finished_at,
+            r.paused_reason, r.finished_at, r.[plan],
             COALESCE((SELECT x.batch, COUNT(*) AS total, SUM(CASE WHEN x.state = 'succeeded' THEN 1 ELSE 0 END) AS succeeded, SUM(CASE WHEN x.state = 'failed' THEN 1 ELSE 0 END) AS failed,
                              SUM(CASE WHEN x.state = 'offered' THEN 1 ELSE 0 END) AS offered, SUM(CASE WHEN x.state = 'pending' THEN 1 ELSE 0 END) AS pending,
                              SUM(CASE WHEN x.state = 'skipped' THEN 1 ELSE 0 END) AS skipped
@@ -258,7 +321,9 @@ export async function listRollouts(db: Queryable) {
   return rows.map(r => ({
     id: r.id, version: r.version, architecture: r.architecture, state: r.state, currentBatch: r.current_batch, successRatePercent: r.success_rate_percent, failureLimitPercent: r.failure_limit_percent,
     startedBy: { id: r.started_by, name: r.started_by_name }, startedAt: r.started_at.toISOString(), pausedReason: r.paused_reason, finishedAt: r.finished_at?.toISOString() ?? null,
-    batches: JSON.parse(r.counts) as Record<string, number>[],
+    // Each batch's counts, with its name: a rollout from before migration 0042 has no plan and the four fixed names.
+    batches: (JSON.parse(r.counts) as BatchCounts[]).map(b => ({ ...b, label: batchLabel(r.plan, b.batch) })),
+    target: r.plan?.target ?? { kind: "fleet" },
   }));
 }
 
