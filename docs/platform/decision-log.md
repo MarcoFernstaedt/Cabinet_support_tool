@@ -6,6 +6,37 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D159. The Windows CI run finds its adapter through the default route (2026-11-26)
+
+D158 went to #352, so this entry takes the next number.
+
+**What failed:**
+- **Where:** the agent-windows job's network-writes step looked up the runner's adapter with `Get-NetIPConfiguration` (at
+  `.github/workflows/platform-contracts.yml:343`).
+- **What happened:** on some runners the cmdlet itself throws `Exception setting "NetAdapter": "Cannot convert the
+  "System.Object[]" … to type "…CimInstance"."`, before any command reaches the agent or the server.
+- **How often:** twice so far, on #347 (run 45657931196) and #352 (run 45762496575). Each time another run of the same commit
+  passed. Neither PR touched the workflow or the agent.
+
+**The decision:** the step takes the IPv4 default route with the lowest metric (`Get-NetRoute -DestinationPrefix '0.0.0.0/0'`), and
+that adapter's DNS servers (`Get-DnsClientServerAddress -InterfaceIndex`).
+- **What the step reads:** it reads only `$nic.InterfaceIndex` and `$nic.DNSServer`, so `$nic` is now an object with exactly those two
+  members.
+- **No default route:** a runner without one now fails with a plain message instead of passing a null index on.
+
+**Considered:**
+- Retrying the cmdlet: it fails the same way on the same runner.
+- Wrapping it in a `try`: the step would then run without an adapter.
+
+**Proven:**
+- `server/test/ci-workflow.test.ts` reads the workflow. The cmdlet is no longer called; the default-route lookup and its
+  plain failure are there; and every `$nic` member the step reads is one of the two it now has. On the workflow as it was, the test
+  fails.
+- The step itself runs only on CI's Windows runner. PowerShell 7 is not in the local container, so agent-windows on this PR is the
+  first run of the new lines.
+
+---
+
 ## D158. The console shows what the affected cabinets are (2026-11-26)
 
 **What was missing** after D157 (plan item 2.3): the crash incident and a fleet pattern's report answer with `sharedAttributes`, and

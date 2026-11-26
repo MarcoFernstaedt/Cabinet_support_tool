@@ -340,7 +340,10 @@ jobs:
           if (Get-NetFirewallRule -DisplayName 'MashuraDiag CI 9' -ErrorAction SilentlyContinue) { throw 'The rule was not deleted.' }
 
           Write-Host 'Network writes that change nothing on this runner: DHCP on a DHCP adapter, automatic DNS on an automatic adapter.'
-          $nic = Get-NetIPConfiguration | Where-Object { $_.IPv4DefaultGateway } | Select-Object -First 1
+          # The adapter that holds the default route, and its DNS servers. The IP configuration cmdlet threw on some runners (D159).
+          $route = Get-NetRoute -AddressFamily IPv4 -DestinationPrefix '0.0.0.0/0' | Sort-Object { $_.RouteMetric + $_.InterfaceMetric } | Select-Object -First 1
+          if (-not $route) { throw 'This runner has no IPv4 default route.' }
+          $nic = [pscustomobject]@{ InterfaceIndex = $route.ifIndex; DNSServer = @(Get-DnsClientServerAddress -InterfaceIndex $route.ifIndex) }
           Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setIp "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"dhcp`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
           Expect (Wait-Command (node $cli issue $env:CABINET_ID network.setDns "{`"interfaceIndex`":$($nic.InterfaceIndex),`"mode`":`"automatic`"}" --as ci.tier2 --code (node .github/ci/ci-authenticator.mjs code ci.tier2) --write | Select-Object -Last 1).Trim()) 'succeeded'
 
