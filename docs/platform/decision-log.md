@@ -28,6 +28,11 @@ Every view comes in at 7 to 249 ms median. `performance.md` has the figures and 
 **Fleet patterns are not benched.** Their list reads at most 100 rows of `fleet_patterns`, one row for each pattern, so the fleet's
 size does not reach it.
 
+**To watch:** since D153 the crash incident reads every crash in its window across the fleet, then applies the client and the
+active status in code (the owner's review of #347). So its cost follows the fleet's crash volume, not one client's. At 50 blue
+screens in 10,000 cabinets it is 266 ms. If one client's crash volume grows large, a client filter has to be put back in a form that
+keeps the seek.
+
 **Proven:** the bench, run on the branch with D153 and once with `b52bdea`'s `crashes.ts` for the blue-screen report's before
 figure. A measurement changes no behaviour, so it has no failing test: the bench is the record, and D153's plan test holds the
 statement it relies on.
