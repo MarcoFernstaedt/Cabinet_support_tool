@@ -1,15 +1,17 @@
 // The small pieces the configuration screens share (docs/spec/15-baselines-and-config.md): the categories and their names, how a value is shown,
 // how long ago and between which looks a change happened, and where a baseline expectation comes from. The wording never says one thing caused another.
 import { fullTime } from "../lib/time";
+import { valueText } from "../lib/drift-text";
 
 export const CATEGORIES: [string, string][] = [
   ["network", "Network"], ["services", "Services"], ["drivers", "Drivers"], ["updates", "Windows updates"], ["firewall", "Firewall"], ["time", "Time"],
   ["devices", "Devices"], ["applications", "Software"], ["hosts", "Hosts file"], ["tasks", "Tasks and startup"], ["system", "Hardware and identity"],
 ];
-export const categoryName = (c: string) => CATEGORIES.find(x => x[0] === c)?.[1] ?? c;
+/** A baseline item can also be a process (D155), which is not a configuration category. */
+export const categoryName = (c: string) => c === "processes" ? "Processes" : CATEGORIES.find(x => x[0] === c)?.[1] ?? c;
 
 /** One configuration value as plain text. */
-export const show = (v: unknown): string => v === null || v === undefined ? "none" : Array.isArray(v) ? (v.length ? v.join(", ") : "none") : typeof v === "boolean" ? (v ? "yes" : "no") : String(v);
+export const show = valueText;
 
 export type FieldChanges = Record<string, { before: unknown; after: unknown }>;
 

@@ -111,6 +111,8 @@ Reading is Tier 1; every query string and body is checked against its contract.
 - Cabinet, **Compare**: modes "another cabinet", "its baseline", "its last healthy state". **What changed** also lists the configuration changes. **Standards** has a Configuration baseline line.
 - **Differences** (main menu): the fleet's differences grouped, then one group, narrowed by role and by the level of baseline a difference comes from.
 - Admin, **Baselines**: the list, import, a baseline's versions, and the version review (diff, draft editor, propose, withdraw, Admin decision).
+  - **Process items** (D156): the draft editor adds one, a program that must be running (optionally within a CPU and a memory limit) or must not. It refuses on the page the names and limits the contract refuses.
+  - **Where they show:** every view of a difference says what a process item should be and is in words, with the time of the process list it was judged on ("Not running, in the process list of …").
 - All long lists use the shared pager.
 
 ## Demo

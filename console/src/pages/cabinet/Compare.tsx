@@ -7,6 +7,8 @@ import { compareReadings, MAX_DIFFERENCES, type Difference, type Reading } from 
 import { Badge, Empty } from "../../components/ui";
 import { api, describeError } from "../../lib/api";
 import { categoryName, NOTHING_TO_COMPARE, show } from "../../components/ConfigParts";
+import { fieldName, isNow, shouldBe } from "../../lib/drift-text";
+import { fullTime } from "../../lib/time";
 import type { CabinetDetail } from "./CabinetPage";
 
 const READS: [keyof Reading, string][] = [["info", "system.info"], ["net", "network.config"], ["firewall", "firewall.state"], ["services", "services.list"], ["drivers", "drivers.list"], ["updates", "updates.status"]];
@@ -28,8 +30,8 @@ export function Compare({ cabinet }: { cabinet: CabinetDetail }) {
     try {
       if (mode === "baseline") {
         const r = await api<{ drift: { category: string; itemKey: string; field: string; mode: string; expected: unknown; actual: unknown }[] }>("GET", `/api/cabinets/${cabinet.id}/drift`);
-        setDiffs(r.drift.slice(0, MAX_DIFFERENCES).map(d => ({ area: categoryName(d.category), what: d.field ? `${d.itemKey} · ${d.field}` : d.itemKey,
-          a: d.mode === "present" ? "Missing" : d.mode === "absent" ? "Present" : show(d.actual), b: d.mode === "present" ? "Present" : d.mode === "absent" ? "Not present" : show(d.expected) })));
+        setDiffs(r.drift.slice(0, MAX_DIFFERENCES).map(d => ({ area: categoryName(d.category), what: d.field ? `${d.itemKey} · ${fieldName(d.category, d.field)}` : d.itemKey,
+          a: isNow(d, fullTime), b: shouldBe(d) })));
       } else {
         const r = await api<{ markId: number | null; changes: { category: string; key: string; change: string; fields: Record<string, { before: unknown; after: unknown }> }[]; unavailable: string[]; nothingToCompare?: string | null }>("GET", `/api/cabinets/${cabinet.id}/compare-healthy`);
         // With nothing to compare, the reason why (F8.R5).

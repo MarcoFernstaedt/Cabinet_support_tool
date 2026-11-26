@@ -10,6 +10,7 @@ import { atLeast, useSession } from "../../lib/session";
 import { ago, fullTime } from "../../lib/time";
 import { Badge, Empty } from "../../components/ui";
 import { Pager, usePaged } from "../../components/Pager";
+import { fieldName, isNow, processExpects, shouldBe, type ProcessLimits } from "../../lib/drift-text";
 import { CATEGORIES, categoryName, FieldChange, NOTHING_TO_COMPARE, HEALTH_LABEL, HEALTH_TONE, Origin, show, WhenKnown, type FieldChanges, type Health } from "../../components/ConfigParts";
 import type { CabinetDetail } from "./CabinetPage";
 
@@ -147,10 +148,10 @@ function Drift({ cabinet }: { cabinet: CabinetDetail }) {
       <thead><tr><th scope="col">Item</th><th scope="col">Should be</th><th scope="col">Is</th><th scope="col">Since</th></tr></thead>
       <tbody>{paged.rows.map((d, i) => (
         <tr key={`${d.category}|${d.itemKey}|${d.field}|${paged.page}|${i}`}>
-          <th scope="row"><Badge tone={d.severity === "major" ? "crit" : "warn"}>{d.severity === "major" ? "Major" : "Minor"}</Badge> {categoryName(d.category)}: {d.itemKey}{d.field && <> · {d.field}</>}
+          <th scope="row"><Badge tone={d.severity === "major" ? "crit" : "warn"}>{d.severity === "major" ? "Major" : "Minor"}</Badge> {categoryName(d.category)}: {d.itemKey}{d.field && <> · {fieldName(d.category, d.field)}</>}
             {d.required && <> <Badge tone="info">Required</Badge></>}<div><Origin o={d.origin} /></div></th>
-          <td>{d.mode === "present" ? "Present" : d.mode === "absent" ? "Not present" : d.field ? show(d.expected) : "Present, as the baseline says"}</td>
-          <td>{d.mode === "present" ? "Missing" : d.mode === "absent" ? "Present" : d.field ? show(d.actual) : "Missing"}</td>
+          <td>{shouldBe(d)}</td>
+          <td>{isNow(d, fullTime)}</td>
           <td title={fullTime(d.firstSeen)}>{ago(d.firstSeen)}</td>
         </tr>))}</tbody>
     </table></div>
@@ -248,7 +249,7 @@ function HistoryView({ cabinetId }: { cabinetId: string }) {
   </>);
 }
 
-interface Resolved { items: { category: string; key: string; mode: string; expect: Record<string, unknown> | null; required: boolean; severity: string; note: string | null; origin: { kind: string; name: string; version: number; baselineId: string } }[];
+interface Resolved { items: { category: string; key: string; mode: string; expect: Record<string, unknown> | null; limits?: ProcessLimits | null; required: boolean; severity: string; note: string | null; origin: { kind: string; name: string; version: number; baselineId: string } }[];
   health: Record<string, unknown>; scopes: { kind: string; name: string; version: number; baselineId: string }[] }
 
 function InForce({ cabinetId }: { cabinetId: string }) {
@@ -265,7 +266,7 @@ function InForce({ cabinetId }: { cabinetId: string }) {
       <thead><tr><th scope="col">Item</th><th scope="col">Expects</th><th scope="col">From</th></tr></thead>
       <tbody>{paged.rows.map((i, n) => (
         <tr key={`${i.category}|${i.key}|${n}`}><th scope="row">{categoryName(i.category)}: {i.key} {i.required && <Badge tone="info">Required</Badge>}{i.note && <div className="muted small">{i.note}</div>}</th>
-          <td>{i.mode === "present" ? "Present" : i.mode === "absent" ? "Not present" : Object.entries(i.expect ?? {}).map(([f, v]) => <div key={f}><strong>{f}</strong>: {show(v)}</div>)}</td>
+          <td>{i.category === "processes" ? processExpects(i.mode, i.limits) : i.mode === "present" ? "Present" : i.mode === "absent" ? "Not present" : Object.entries(i.expect ?? {}).map(([f, v]) => <div key={f}><strong>{f}</strong>: {show(v)}</div>)}</td>
           <td><Origin o={i.origin} /></td></tr>))}</tbody>
     </table></div>
     <Pager {...paged} label="items" />
