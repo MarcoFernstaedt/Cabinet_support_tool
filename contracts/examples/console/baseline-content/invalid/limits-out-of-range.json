@@ -1,0 +1,13 @@
+{
+  "items": [
+    {
+      "category": "processes",
+      "key": "process:SyncService.exe",
+      "mode": "present",
+      "limits": {
+        "cpuPercent": 0,
+        "workingSetMb": 0.5
+      }
+    }
+  ]
+}

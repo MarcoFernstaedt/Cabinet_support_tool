@@ -777,7 +777,7 @@ export interface BaselineContent {
    */
   items: {
     /**
-     * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+     * What a baseline item is about: a configuration category, or processes, judged against the cabinet's latest stored processes.list answer (decision-log D142, D155).
      */
     category:
       | "network"
@@ -790,7 +790,8 @@ export interface BaselineContent {
       | "applications"
       | "hosts"
       | "tasks"
-      | "system";
+      | "system"
+      | "processes";
     /**
      * A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.
      */
@@ -804,6 +805,19 @@ export interface BaselineContent {
        * One value of an item: short text, a whole number, true or false, nothing, or a short list of texts.
        */
       [k: string]: (string | number | boolean | null | string[]) | undefined;
+    };
+    /**
+     * A process item only: the most it may use, all its running instances together, as the cabinet's latest processes.list answer reports it.
+     */
+    limits?: {
+      /**
+       * Share of the whole machine.
+       */
+      cpuPercent?: number;
+      /**
+       * Memory in use (working set), in MiB.
+       */
+      workingSetMb?: number;
     };
     /**
      * Health depends on this item meeting its expectation.
@@ -1232,7 +1246,7 @@ export interface FleetCabinetsQuery {
  */
 export interface FleetDifferenceGroupQuery {
   /**
-   * A part of a cabinet's configuration that is collected, compared with baselines and watched for change.
+   * What a baseline item is about: a configuration category, or processes, judged against the cabinet's latest stored processes.list answer (decision-log D142, D155).
    */
   category:
     | "network"
@@ -1245,7 +1259,8 @@ export interface FleetDifferenceGroupQuery {
     | "applications"
     | "hosts"
     | "tasks"
-    | "system";
+    | "system"
+    | "processes";
   /**
    * A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.
    */

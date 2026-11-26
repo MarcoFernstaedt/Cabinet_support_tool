@@ -24,6 +24,12 @@ export async function ingestAndEvaluate(pool: Pool, cabinetId: string, snapshots
   return summary;
 }
 
+/** A new processes.list answer: the process expectations are judged again, then the health (D155). */
+export async function judgeProcesses(pool: Pool, cabinetId: string): Promise<void> {
+  await evaluateBaselineDrift(pool, cabinetId);
+  await evaluateHealth(pool, cabinetId, new Date(), null);
+}
+
 /** The configuration a cabinet reported last, by category (the items as reported; nothing is read from the cabinet). */
 export async function currentConfig(db: Queryable, cabinetId: string, category?: Category) {
   const current = await currentItems(db, cabinetId, category ? [category] : undefined);

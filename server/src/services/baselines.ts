@@ -17,7 +17,14 @@ export type ScopeKind = BaselineScope["kind"];
 export type Scope = { kind: ScopeKind; id: string | null };
 type BaselineItem = BaselineContent["items"][number];
 export interface Origin { kind: ScopeKind; id: string | null; name: string; baselineId: string; versionId: string; version: number }
-export interface ResolvedItem { category: Category; key: string; mode: "match" | "present" | "absent"; expect: Record<string, unknown> | null; required: boolean; severity: "minor" | "major"; note: string | null; origin: Origin }
+/** A configuration category, or processes: judged against the cabinet's latest stored processes.list answer (D142, D155). */
+export type ItemCategory = Category | "processes";
+/** The most a process may use, all its running instances together. */
+export interface ProcessLimits { cpuPercent?: number; workingSetMb?: number }
+export interface ResolvedItem {
+  category: ItemCategory; key: string; mode: "match" | "present" | "absent"; expect: Record<string, unknown> | null; required: boolean; severity: "minor" | "major"; note: string | null;
+  origin: Origin; limits?: ProcessLimits | null;
+}
 export interface ResolvedHealth { maxOfflineMinutes: number; requireRequiredItems: boolean; requireNoCriticalAlerts: boolean }
 export interface Resolved { items: ResolvedItem[]; health: ResolvedHealth; healthOrigin: Partial<Record<keyof ResolvedHealth, Origin>>; scopes: Origin[] }
 
@@ -65,12 +72,17 @@ function checkScopeRole(actor: Actor, scope: Scope): void {
   if (WIDE.includes(scope.kind) && ROLE_RANK[actor.role] < ROLE_RANK.admin) throw new Refused("forbidden", 403, "only an Admin works with the baselines for all cabinets, a role or a model");
 }
 
+/** One item's identity: a program's name matches whatever its case, as Windows treats it. */
+const itemId = (category: string, key: string) => `${category}|${category === "processes" ? key.toLowerCase() : key}`;
+
 /** Every item belongs to its category and none repeats (the contract has already checked the shapes). */
 export function checkContent(content: BaselineContent): void {
   const seen = new Set<string>();
   for (const i of content.items) {
-    if (!(CATEGORIES as readonly string[]).includes(i.category) || !keyBelongs(i.category as Category, i.key)) throw new Refused("bad_item", 400, `the item ${i.key} does not belong to ${i.category}`);
-    const id = `${i.category}|${i.key}`;
+    const fits = i.category === "processes" ? i.key.startsWith("process:") && i.key.length > "process:".length
+      : (CATEGORIES as readonly string[]).includes(i.category) && keyBelongs(i.category as Category, i.key);
+    if (!fits) throw new Refused("bad_item", 400, `the item ${i.key} does not belong to ${i.category}`);
+    const id = itemId(i.category, i.key);
     if (seen.has(id)) throw new Refused("duplicate_item", 400, `the item ${i.key} is listed twice`);
     seen.add(id);
   }
@@ -494,9 +506,10 @@ export async function resolveForCabinet(db: Queryable, cabinetId: string): Promi
     const origin: Origin = { kind: f.scope_kind, id: f.scope_id, name: f.name, baselineId: f.baseline_id, versionId: f.version_id, version: f.version };
     origins.push(origin);
     for (const i of f.content.items) {
-      const id = `${i.category}|${i.key}`;
+      const id = itemId(i.category, i.key);
       if (i.mode === "ignore") { items.delete(id); continue; }
-      items.set(id, { category: i.category as Category, key: i.key, mode: i.mode, expect: i.expect ?? null, required: i.required ?? false, severity: i.severity ?? "minor", note: i.note ?? null, origin });
+      items.set(id, { category: i.category, key: i.key, mode: i.mode, expect: i.expect ?? null, required: i.required ?? false, severity: i.severity ?? "minor", note: i.note ?? null, origin,
+        ...(i.limits ? { limits: i.limits } : {}) });
     }
     for (const k of Object.keys(f.content.health ?? {}) as (keyof ResolvedHealth)[]) {
       const v = f.content.health![k];

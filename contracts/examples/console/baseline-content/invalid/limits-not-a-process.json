@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "category": "services",
+      "key": "service:Spooler",
+      "mode": "present",
+      "limits": {
+        "cpuPercent": 10
+      }
+    }
+  ]
+}

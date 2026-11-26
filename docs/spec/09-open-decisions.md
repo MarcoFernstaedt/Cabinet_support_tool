@@ -988,9 +988,9 @@ Asked whether a role template is keyed by the three cabinet roles (sync, satelli
 and assigns, the owner chose the three roles. Built: a `role` baseline scope between the fleet's and a model's (docs/spec/15-baselines-and-config.md
 "Baselines"), counted at enrollment. Details and reasons in docs/platform/decision-log.md, D33.
 
-Still to build in F7, each its own piece: expectations for processes (with thresholds) and for scheduled tasks (a healthy last run, which
+Still to build in F7, each its own piece: expectations for processes (built 2026-11-26 in the server and contracts, decision-log D155: category `processes`, `present` with optional CPU and memory limits or `absent`, judged against the latest stored `processes.list` answer; the console's editor for them is the next piece) and for scheduled tasks (a healthy last run, which
 needs F9's task fields from the agent; their shape decided 2026-11-23, decision-log D142: items of the role baseline, judged against
-the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
+the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert; a task's existence and state can already be expected through the `tasks` category); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
 watch lists, expected processes and drivers only from the template (F7.R4: watched services built, from the role baseline's required
 services, decision-log D34; expected processes and drivers come with the process and driver expectations).
 

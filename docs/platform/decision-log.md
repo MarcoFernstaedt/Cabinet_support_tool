@@ -6,6 +6,52 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D155. Process expectations: how they are written, judged and shown (2026-11-26)
+
+D154 went to #348, so this entry takes the next number.
+
+**Asked:** D142 settled that process and task expectations are role baseline items, judged against stored answers and shown as
+differences. It left the item's shape open. Taken on the owner's standing instruction: the recommended choice, recorded here and in
+docs/spec/09-open-decisions.md.
+
+**Decided:**
+- **The item:** category `processes`, key `process:<program>`, the image name as `processes.list` reports it. The name is matched
+  whatever its case, as Windows treats it. The same program in two cases is one item, so a draft that lists it twice is refused.
+- **The modes:** `present` (it must run) and `absent` (it must not), and `ignore` to cancel a wider expectation. `match` is refused by
+  the contract: a process has no listed fields to compare.
+- **Thresholds:** an optional `limits` on a `present` item, `cpuPercent` (share of the whole machine) and `workingSetMb`, judged on
+  all running instances added together. The contract refuses limits on any other item. Each limit passed is its own difference,
+  field `cpuPercent` or `workingSetMb`, expected `{ "atMost": n }`.
+- **The answer:** the cabinet's latest stored `processes.list` answer, whatever its age. Each difference carries the time it was taken
+  in its `actual` (`{ running, takenAt }` or `{ value, takenAt }`), so the console can say how old it is. With no answer stored, the
+  item is unknown and never a difference, like a configuration category the cabinet has not reported.
+- **When it is judged:** each time a `processes.list` answer is stored, as well as on a configuration change and a baseline approval.
+  The platform never sends `processes.list` to judge it.
+- **Tasks:** their existence and state can already be expected through the `tasks` category. "Last ended with result 0" waits for the
+  agent to report a task's last result (F9).
+
+**Alternatives:** a configuration category for processes, which the agent would have to report on a schedule (agent work, and a
+process list changes every second); a staleness cut-off on the answer, which would hide a real miss behind a guessed age.
+
+**What it costs:** a stale answer judges a process on old data. The time on every difference is what keeps that honest.
+
+**Proven:** `server/test/process-expectations.test.ts` (5 tests):
+- A missing program is a difference with the answer's time, a running one is none, and names match whatever their case.
+- Limits count every instance together, each limit is its own difference, and a value at the limit is within it.
+- A program that must not run is a difference when it does. With no answer, nothing is a difference.
+- **Hostile input:**
+  - the contract refuses a process item with a foreign key, `match`, limits on an `absent` item or on a service, limits out of
+    range or not numbers, markup and a NUL in the key;
+  - the content check refuses an empty name and the same program twice.
+- **Through the real routes on SQL Server:**
+  - a required process missing from a stored answer is a difference that degrades the health and shows in the Differences view,
+    in its group too;
+  - an answer over the CPU limit is the CPU difference;
+  - an answer within the limit clears it, and no alert is ever raised.
+- Without the re-judge on a stored answer, the route test fails. Without the judge in the drift engine, four of the five fail.
+
+---
+
 ## D154. The fleet reports are measured at 10,000 cabinets, each against its own data, and need no change (2026-11-26)
 
 **What was left** (plan item 2.1, F21.R4): after D153, five views had not been measured with their own data:
