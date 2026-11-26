@@ -1087,6 +1087,24 @@
         "system"
       ]
     },
+    "baselineCategory": {
+      "description": "What a baseline item is about: a configuration category, or processes, judged against the cabinet's latest stored processes.list answer (decision-log D142, D155).",
+      "type": "string",
+      "enum": [
+        "network",
+        "services",
+        "drivers",
+        "updates",
+        "firewall",
+        "time",
+        "devices",
+        "applications",
+        "hosts",
+        "tasks",
+        "system",
+        "processes"
+      ]
+    },
     "configKey": {
       "description": "A stable name for one item in a category: adapter:Ethernet, service:Spooler, rule:Allow Sync, time. Never an index.",
       "type": "string",

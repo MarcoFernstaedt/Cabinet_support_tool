@@ -1,0 +1,9 @@
+{
+  "items": [
+    {
+      "category": "processes",
+      "key": "service:SyncService",
+      "mode": "present"
+    }
+  ]
+}

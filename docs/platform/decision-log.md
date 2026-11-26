@@ -6,6 +6,247 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D158. The console shows what the affected cabinets are (2026-11-26)
+
+**What was missing** after D157 (plan item 2.3): the crash incident and a fleet pattern's report answer with `sharedAttributes`, and
+the console showed none of it.
+
+**Decided:**
+- **The Incidents page:** under "What the crashed cabinets have in common", the changes table is now followed by "What they are". Each
+  model, Windows build, BIOS and agent version is shown with how many crashed cabinets and how many others have it, and the ones that
+  stand out are marked.
+- **The case notes:** the copied notes add one "Stands out" line per value that stands out, beside the changes that do.
+- **A fleet pattern's report:** "What they are" lists the values that stand out, the way it lists the changes, or says that none
+  does.
+- **The wording, free of React:** `standingAttributes` and `attributeLine` in `console/src/lib/crash-incident.ts`.
+  - An answer without the field (a server before D157) or a damaged list lists nothing and never throws.
+  - A damaged count reads as 0, never NaN or Infinity.
+
+**Proven:**
+- `console/test/shared-attributes.test.ts` (3 tests): only the values that stand out are listed; an older or damaged answer lists
+  nothing; the case-notes line, including damaged counts.
+- `server/test/console-incident-response-e2e.test.ts`, extended in a real browser: the eight affected cabinets of the seeded
+  pattern have BIOS 1.4.2, and six calm cabinets at another site have 1.5.0. The pattern's report lists "BIOS version 1.4.2: 100% of
+  affected cabinets (8), 0% of the others (0)".
+- **Red proof:** with the console source as it was on D157's branch, the browser test fails waiting for that line, and the unit
+  test has nothing to load.
+
+---
+
+## D157. A fleet incident compares the attributes its cabinets have (2026-11-26)
+
+D156 went to #350, so this entry takes the next number.
+
+**Asked:** plan item 2.3 (roadmap module 11, the owner's top ask) wants one incident with "the attributes they share". The crash
+incident and a fleet pattern's report already compared what *changed* on the affected cabinets in the 72 hours before (D22), and
+counted the agent version in a pattern. Nothing said what the cabinets *are*: their model, Windows build or BIOS. Taken on the owner's
+standing instruction: the recommended choice, recorded here and in docs/spec/09-open-decisions.md.
+
+**Decided:**
+- **The attributes:**
+  - the model (manufacturer and model, as the cabinet row holds them);
+  - the Windows build, from each cabinet's latest stored `system.info` answer;
+  - the BIOS version;
+  - the agent version.
+- **The rule:** each value is counted among the affected cabinets and among the others. It stands out under the rule changes
+  already use: at least two cabinets affected, half or more of them have it, and 40 points more than the others. Values match
+  whatever their case. A value a cabinet never reported is not counted, so "unknown" never stands out.
+- **Where:** `sharedAttributes` in the crash incident's answer and in a fleet pattern's report, at most 20 rows, those that stand out
+  first. Like the change comparison, it says what they have in common, never what caused it.
+- **The BIOS version on the cabinet:** migration 0041 adds `cabinets.bios_version`, set by `rememberCabinetModel` from the same
+  reports that set the model: the system category's hardware item, or a `system.hardware` answer. A configuration version is stored
+  packed, so SQL cannot read it, and unpacking every cabinet's system category for a 10,000-cabinet incident would not fit the
+  view's budget. Empty until a cabinet next reports.
+
+**Alternatives:**
+- Reading the BIOS from the latest `system.hardware` answer only, which a cabinet sends when someone asks, not every day.
+- Unpacking the configuration in Node for each incident: correct, but slow at fleet size.
+
+**Not in this change:**
+- the console showing the attributes;
+- the installed drivers and updates the cabinets share;
+- the errors that come with an incident.
+
+These are the next pieces of 2.3.
+
+**Proven:** `server/test/shared-attributes.test.ts` (3 tests):
+- **The plan's proof:** ten cabinets of two models and two builds spread over both sides; the four that crash share only BIOS 1.4.2,
+  which one other has. The crash incident names exactly that value as standing out: 4 of 4 against 1 of 6. The model is 50% on both
+  sides and does not stand out. The build is read from the stored answer, and an unreported value is never counted.
+- One affected cabinet makes nothing stand out, values match whatever their case, and an empty fleet compares nothing.
+- The BIOS is remembered from the hardware item and from a `system.hardware` answer. A blank value keeps what was known; a hostile
+  one is kept as text and cut to 200 characters; a cabinet id that is not a GUID is refused.
+- **Red proof:** without the step in the incident, the first test fails; without remembering the BIOS, the third does.
+- The 105 tests of the crash, pattern, cluster, signature, demo, baseline, ownership and migration files pass unchanged.
+- **The 10,000-cabinet bench:** the crash incident takes 218 ms median (209 to 254). Its seeded fleet holds no `system.info` answers,
+  so the build lookups find nothing there.
+
+---
+
+## D156. The console adds process items and shows their differences in words (2026-11-26)
+
+**What was missing** after D155 (plan item 2.2):
+- **No way to add one:** the console's draft editor could only trim, mark and grade items a capture or an import had made. A process
+  item could not be added from the console.
+- **Unreadable differences:** every view of a difference printed a stored object with `String()`. A process difference, whose
+  expected and actual values are objects (`{ atMost }`, `{ running, takenAt }`), read "[object Object]". So did the expectation of a
+  `match` item with no field in the fleet's group view.
+
+**Decided:**
+- **The wording in one place:** `console/src/lib/drift-text.ts` says how a difference reads, used by the cabinet's Baseline tab,
+  Compare and the fleet's Differences.
+  - A process item reads "Running" or "Not running", or as an amount ("31.5% CPU", "At most 25% CPU", "1200 MB of memory").
+  - What it is adds the time of the process list it was judged on: "Not running, in the process list of …".
+  - Any other stored object reads as its fields, never "[object Object]".
+- **The fields and the category by name:** a process item's fields read "CPU" and "Memory", and its category "Processes".
+- **The editor:**
+  - "Add a process" on a draft takes the program, must or must not be running, the optional limits (only when it must run), whether
+    health depends on it, and its severity.
+  - It refuses on the page what the contract refuses: an empty name, one over 180 characters, control characters or angle brackets,
+    the same program twice in any case, a CPU limit outside 0 to 100, and a memory limit that is not a whole number from 1 to
+    1,048,576.
+  - The server checks the saved draft against its contract again.
+
+**Not changed:** how a configuration difference reads. The cabinet's Baseline tab used one wording and the other two views another;
+all three now use the Baseline tab's.
+
+**Proven:**
+- `console/test/drift-text.test.ts` (4 tests):
+  - each kind of process difference, in words and with its time;
+  - configuration differences read as before;
+  - hostile stored values (`null`, text, numbers, empty arrays, a non-text time, a non-number value) never read "[object Object]",
+    "undefined" or "NaN";
+  - the editor's check against each name and limit the contract refuses, including `10; DROP TABLE cabinets` as a memory limit.
+- `server/test/console-baselines-e2e.test.ts`, in a real browser:
+  - the seeded site baseline expects `BioScanAgent.exe`, and the cabinet's stored process list lacks it. The Baseline tab reads
+    "Not running, in the process list of …", and the page holds no "[object Object]";
+  - the draft editor refuses `<SyncService>`, then adds `SyncService.exe` at most 25% CPU, which the item list reads as "Must be
+    running, using at most 25% CPU";
+  - the fleet's Differences lists the process difference.
+- **Red proof:** with the console as it was, the browser test fails waiting for the "Not running" wording, and the unit test has
+  nothing to load.
+
+---
+
+## D155. Process expectations: how they are written, judged and shown (2026-11-26)
+
+D154 went to #348, so this entry takes the next number.
+
+**Asked:** D142 settled that process and task expectations are role baseline items, judged against stored answers and shown as
+differences. It left the item's shape open. Taken on the owner's standing instruction: the recommended choice, recorded here and in
+docs/spec/09-open-decisions.md.
+
+**Decided:**
+- **The item:** category `processes`, key `process:<program>`, the image name as `processes.list` reports it. The name is matched
+  whatever its case, as Windows treats it. The same program in two cases is one item, so a draft that lists it twice is refused.
+- **The modes:** `present` (it must run) and `absent` (it must not), and `ignore` to cancel a wider expectation. `match` is refused by
+  the contract: a process has no listed fields to compare.
+- **Thresholds:** an optional `limits` on a `present` item, `cpuPercent` (share of the whole machine) and `workingSetMb`, judged on
+  all running instances added together. The contract refuses limits on any other item. Each limit passed is its own difference,
+  field `cpuPercent` or `workingSetMb`, expected `{ "atMost": n }`.
+- **The answer:** the cabinet's latest stored `processes.list` answer, whatever its age. Each difference carries the time it was taken
+  in its `actual` (`{ running, takenAt }` or `{ value, takenAt }`), so the console can say how old it is. With no answer stored, the
+  item is unknown and never a difference, like a configuration category the cabinet has not reported.
+- **When it is judged:** each time a `processes.list` answer is stored, as well as on a configuration change and a baseline approval.
+  The platform never sends `processes.list` to judge it.
+- **Tasks:** their existence and state can already be expected through the `tasks` category. "Last ended with result 0" waits for the
+  agent to report a task's last result (F9).
+
+**Alternatives:** a configuration category for processes, which the agent would have to report on a schedule (agent work, and a
+process list changes every second); a staleness cut-off on the answer, which would hide a real miss behind a guessed age.
+
+**What it costs:** a stale answer judges a process on old data. The time on every difference is what keeps that honest.
+
+**Proven:** `server/test/process-expectations.test.ts` (5 tests):
+- A missing program is a difference with the answer's time, a running one is none, and names match whatever their case.
+- Limits count every instance together, each limit is its own difference, and a value at the limit is within it.
+- A program that must not run is a difference when it does. With no answer, nothing is a difference.
+- **Hostile input:**
+  - the contract refuses a process item with a foreign key, `match`, limits on an `absent` item or on a service, limits out of
+    range or not numbers, markup and a NUL in the key;
+  - the content check refuses an empty name and the same program twice.
+- **Through the real routes on SQL Server:**
+  - a required process missing from a stored answer is a difference that degrades the health and shows in the Differences view,
+    in its group too;
+  - an answer over the CPU limit is the CPU difference;
+  - an answer within the limit clears it, and no alert is ever raised.
+- Without the re-judge on a stored answer, the route test fails. Without the judge in the drift engine, four of the five fail.
+
+---
+
+## D154. The fleet reports are measured at 10,000 cabinets, each against its own data, and need no change (2026-11-26)
+
+**What was left** (plan item 2.1, F21.R4): after D153, five views had not been measured with their own data:
+- open incidents and fleet differences, which D153's bench ran empty;
+- one difference's cabinets;
+- a person's activity report;
+- the blue-screen kinds and one kind's report.
+
+**What was done:** `fleet-reports-at-scale.bench.ts` seeds each view's own tables at 10,000 cabinets:
+- 101,000 incidents with 303,000 steps, a year of them, 1,000 open;
+- 150,000 baseline differences, with every category reported and every cabinet judged;
+- 200,000 commands and 200,050 alerts by 50 people;
+- 300,200 events with 50 blue screens.
+
+Every view comes in at 7 to 249 ms median. `performance.md` has the figures and the machine.
+
+**No change to the code.** The one view over budget was a blue-screen kind's report: past the pools' 10 s statement limit on
+`b52bdea`'s `crashes.ts`, and 90 ms with D153's. It shares the incident's change comparison, so D153 already fixes it.
+
+**Fleet patterns are not benched.** Their list reads at most 100 rows of `fleet_patterns`, one row for each pattern, so the fleet's
+size does not reach it.
+
+**To watch:** since D153 the crash incident reads every crash in its window across the fleet, then applies the client and the
+active status in code (the owner's review of #347). So its cost follows the fleet's crash volume, not one client's. At 50 blue
+screens in 10,000 cabinets it is 266 ms. If one client's crash volume grows large, a client filter has to be put back in a form that
+keeps the seek.
+
+**Proven:** the bench, run on the branch with D153 and once with `b52bdea`'s `crashes.ts` for the blue-screen report's before
+figure. A measurement changes no behaviour, so it has no failing test: the bench is the record, and D153's plan test holds the
+statement it relies on.
+
+---
+
+## D153. The fleet crash incident reads its events through events_error_key (2026-11-25)
+
+**What the code did** (at `b52bdea`; F21.R4, plan item 2.1): `fleetCrashIncident` in `server/src/services/crashes.ts` read two
+things from `events`, both by opening each event's JSON source.
+- **The crashes:** a `JSON_VALUE` comparison per crash key, with the cabinets passed as a JSON list.
+- **The changes it compares** (`compareChanges`): a lower-cased `source|eventId` string built per event, with the cabinet ids and
+  each affected cabinet's span read from JSON inside the statement. The plan parsed that JSON list of 10,000 ids again for every
+  event.
+
+At 10,000 cabinets and 300,050 events the view went past the pools' 10 s statement limit. One cold run with a 10-minute limit
+took 68,169 ms: 8,526 ms for the crashes and 58,634 ms for the comparison.
+
+**The decision** (the approach is mine): both statements match on `err_source` and `err_event_id`, the indexed columns migration
+0038 added for D138. Each one starts from its list of keys and seeks `events_error_key` once per key, through a forced loop join
+and the index hint D138 also needed.
+- **The crashes:** the population is applied in code. A cabinet filter in the statement is what turned the seek into a scan
+  before (D61).
+- **The comparison:** the cabinet ids and spans go into two keyed table variables first, and the statement joins them.
+
+No migration: the index and its columns exist already.
+
+**Considered:** a stored, persisted key column was not needed, because the computed columns are indexed already. Filtering the
+comparison's cabinets in code was also considered. It would let the statement's 100,000-row cap fill with other clients'
+changes, so the table variable keeps the cap on the cabinets asked about.
+
+**What it costs:** two query hints, which hold the plan to the index even where a scan might be cheaper. That would be a fleet
+where almost every event is a crash or a compared change, and there the seeks still read only the matching rows.
+
+**Proven:**
+- `fleet-views-at-scale.bench.js` gives 266 ms median (222 to 336) for the crash incident, measured on the machine in
+  `performance.md`. Ten more views are now measured in it.
+- `crash-incident-index.test.ts`:
+  - the answer is unchanged: a crash is matched whatever the case of its source, only in its client, and changes are still
+    compared;
+  - the cached plan of each statement seeks `events_error_key` and scans neither it nor `events`. That check fails on `b52bdea`'s
+    `crashes.ts`.
+- The existing crash, pattern, cluster and notification tests pass unchanged.
+
+---
+
 ## D152. SMART and drive risk are removed; free space is kept (2026-11-25)
 
 **Asked:** the owner keeps free space only: "all we can get from the hard drive is the amount of space left". SMART cannot be read on

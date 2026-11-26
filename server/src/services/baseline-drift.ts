@@ -5,6 +5,7 @@ import { lock, transaction, type Pool, type Queryable } from "../db/db.js";
 import { valueText, type Item } from "./config-canonical.js";
 import { currentItems, markBaselineViolations, type Category } from "./config-ingest.js";
 import { resolveForCabinet, type Origin, type ResolvedItem } from "./baselines.js";
+import { latestReading } from "./readings.js";
 import { closeSignatureAlert, retitleAlert, upsertAlert } from "./alerts.js";
 import { ISSUE } from "./rules.js";
 
@@ -13,12 +14,40 @@ export interface DriftRow {
   origin: Origin; severity: "minor" | "major"; required: boolean;
 }
 
-/** Pure: the drift between resolved expectations and the reported items by category. */
-export function computeDrift(items: readonly ResolvedItem[], current: ReadonlyMap<string, readonly Item[]>): DriftRow[] {
+/** What a stored processes.list answer says, by lower-cased program name: every running instance added together. */
+export interface ProcessAnswer { takenAt: string; running: ReadonlyMap<string, { cpuPercent: number; workingSetMb: number }> }
+
+export function processAnswer(takenAt: string, output: { processes: readonly { name: string; cpuPercent: number; workingSetBytes: number }[] }): ProcessAnswer {
+  const sum = new Map<string, { cpu: number; bytes: number }>();
+  for (const p of output.processes) {
+    const k = p.name.toLowerCase(), s = sum.get(k) ?? { cpu: 0, bytes: 0 };
+    sum.set(k, { cpu: s.cpu + p.cpuPercent, bytes: s.bytes + p.workingSetBytes });
+  }
+  return { takenAt, running: new Map([...sum].map(([k, s]) => [k, { cpuPercent: Math.round(s.cpu * 10) / 10, workingSetMb: Math.round(s.bytes / 1_048_576) }])) };
+}
+
+/** A process item against the answer (D155): each difference carries the time of the answer it was judged on. */
+function processDrift(e: ResolvedItem, answer: ProcessAnswer): DriftRow[] {
+  const base = { category: e.category, itemKey: e.key, origin: e.origin, severity: e.severity, required: e.required };
+  const have = answer.running.get(e.key.slice("process:".length).toLowerCase());
+  const at = answer.takenAt;
+  if (e.mode === "absent") return have ? [{ ...base, field: "", mode: "absent", expected: false, actual: { running: true, takenAt: at } }] : [];
+  if (!have) return [{ ...base, field: "", mode: "present", expected: true, actual: { running: false, takenAt: at } }];
+  const out: DriftRow[] = [];
+  for (const field of ["cpuPercent", "workingSetMb"] as const) {
+    const limit = e.limits?.[field];
+    if (limit !== undefined && have[field] > limit) out.push({ ...base, field, mode: "match", expected: { atMost: limit }, actual: { value: have[field], takenAt: at } });
+  }
+  return out;
+}
+
+/** Pure: the drift between resolved expectations and the reported items by category, and the processes against their answer. */
+export function computeDrift(items: readonly ResolvedItem[], current: ReadonlyMap<string, readonly Item[]>, processes: ProcessAnswer | null = null): DriftRow[] {
   const out: DriftRow[] = [];
   const byKey = new Map<string, Map<string, Item>>();
   for (const [category, list] of current) byKey.set(category, new Map(list.map(i => [i.key, i])));
   for (const e of items) {
+    if (e.category === "processes") { if (processes) out.push(...processDrift(e, processes)); continue; } // no stored answer: unknown
     const reported = byKey.get(e.category);
     if (!reported) continue; // never reported: unknown
     const have = reported.get(e.key);
@@ -47,7 +76,9 @@ export async function evaluateBaselineDrift(pool: Pool, cabinetId: string): Prom
     await lock(c, `drift:${cabinetId}`);
     const resolved = await resolveForCabinet(c, cabinetId);
     const current = await currentItems(c, cabinetId);
-    const rows = computeDrift(resolved.items, new Map([...current].map(([k, v]) => [k, v.items])));
+    const reading = resolved.items.some(i => i.category === "processes") ? await latestReading(c, cabinetId, "processes.list") : null;
+    const answer = reading ? processAnswer(reading.at, reading.output as Parameters<typeof processAnswer>[1]) : null;
+    const rows = computeDrift(resolved.items, new Map([...current].map(([k, v]) => [k, v.items])), answer);
     const payload = rows.map(r => ({ category: r.category, itemKey: r.itemKey, field: r.field, mode: r.mode, expected: r.expected === undefined ? null : JSON.stringify(r.expected),
       actual: r.actual === undefined ? null : JSON.stringify(r.actual), origin: JSON.stringify(r.origin), severity: r.severity, required: r.required ? 1 : 0 }));
     const columns = "category nvarchar(16) '$.category', item_key nvarchar(200) '$.itemKey', field nvarchar(32) '$.field'";

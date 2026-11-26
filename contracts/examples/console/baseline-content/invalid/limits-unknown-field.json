@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "category": "processes",
+      "key": "process:SyncService.exe",
+      "mode": "present",
+      "limits": {
+        "handles": 100
+      }
+    }
+  ]
+}

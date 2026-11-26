@@ -990,9 +990,9 @@ Asked whether a role template is keyed by the three cabinet roles (sync, satelli
 and assigns, the owner chose the three roles. Built: a `role` baseline scope between the fleet's and a model's (docs/spec/15-baselines-and-config.md
 "Baselines"), counted at enrollment. Details and reasons in docs/platform/decision-log.md, D33.
 
-Still to build in F7, each its own piece: expectations for processes (with thresholds) and for scheduled tasks (a healthy last run, which
+Still to build in F7, each its own piece: expectations for processes (built 2026-11-26 in the server and contracts, decision-log D155: category `processes`, `present` with optional CPU and memory limits or `absent`, judged against the latest stored `processes.list` answer; the console adds and shows them, D156) and for scheduled tasks (a healthy last run, which
 needs F9's task fields from the agent; their shape decided 2026-11-23, decision-log D142: items of the role baseline, judged against
-the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
+the cabinet's latest stored `processes.list` and `startup.list` answers, shown in the Differences view, never an alert; a task's existence and state can already be expected through the `tasks` category); the fleet comparison "which cabinets of this client differ from their role" (F7.R3, built: the Differences view narrows by role and by the level a difference comes from); and reading
 watch lists, expected processes and drivers only from the template (F7.R4: watched services built, from the role baseline's required
 services, decision-log D34; expected processes and drivers come with the process and driver expectations).
 
@@ -1043,3 +1043,15 @@ removing and renaming a row stay with the table's owner (`admin.ts` for clients 
 writes still move behind them. The alternatives were moving every write into `admin.ts` and `cabinets.ts`, which would make them hold every
 feature's rules, or accepting the writers as exceptions, which would stop anything checking which module sets which column
 (decision-log D118).
+
+## Which attributes a fleet incident compares (roadmap module 11, plan item 2.3, 2026-11-26, decided)
+
+Taken on the owner's standing instruction: the recommended choice, recorded in docs/platform/decision-log.md, D157.
+
+- **Compared:** the model (manufacturer and model), the Windows build (from each cabinet's latest stored `system.info` answer), the
+  BIOS version and the agent version.
+- **Where:** the fleet crash incident and a fleet pattern's report. Each value is counted among the affected cabinets and among the
+  others, and stands out under the rule the change comparison already uses (D22).
+- **Stored:** the BIOS version is kept on the cabinet beside its model (migration 0041), from the reports that already set the model.
+- **Not yet:** the installed drivers and updates the cabinets share, which are read from packed configuration versions, are the next
+  piece.

@@ -3,6 +3,7 @@
 // cabinets that crashed with the ones that did not. Everything here reads what the agents already sent (their change,
 // error and service events, and heartbeats), so it still works when the cabinets that crashed can no longer boot.
 // Findings are correlations and are labelled so; nothing here claims a root cause. No regular expressions.
+import { sharedAttributes } from "./shared-attributes.js";
 import type { Pool, Queryable } from "../db/db.js";
 import { closeSignatureAlert, upsertAlert } from "./alerts.js";
 import { OFFLINE_AFTER_MS } from "./cabinets.js";
@@ -170,6 +171,9 @@ const COMPARED = new Set<Category>([...CHANGE_CATEGORIES, "storage", "hardware",
 /** The (source|event ID) keys the incident comparison counts, and those whose message names the change. */
 const COMPARED_KEYS = Object.entries(MAP).filter(([, m]) => m && COMPARED.has(m.category)).map(([k]) => k);
 const MESSAGE_KEYS = Object.entries(MAP).filter(([, m]) => m && CHANGE_CATEGORIES.has(m.category)).map(([k]) => k);
+/** The same keys as [source, event ID] pairs, matched on events_error_key's columns (D153). */
+const pair = (k: string): [string, number] => { const at = k.lastIndexOf("|"); return [k.slice(0, at), Number(k.slice(at + 1))]; };
+const COMPARED_PAIRS = COMPARED_KEYS.map(pair);
 
 interface Row { kind: string; source: { log: string; source: string; eventId: number } | null; message: string; fields: Record<string, string> | null }
 
@@ -342,18 +346,19 @@ export interface IncidentFilter { from: Date; to: Date; clientId?: string | unde
 export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
   const clientFilter = f.clientId ? "AND s.client_id = $3" : "";
   const base = [f.from, f.to, ...(f.clientId ? [f.clientId] : [])];
-  const n = base.length;
   // Every active cabinet in scope, and which of them crashed, shut down unexpectedly, or looped in the window.
   const population = (await db.query<{ id: string; name: string; site: string; client: string; agent_version: string | null; last_at: Date | null; demo: number }>(
     `SELECT k.id, k.name, s.name AS site, c.name AS client, k.agent_version, k.last_heartbeat_at AS last_at, CASE WHEN k.demo_scenario IS NOT NULL THEN 1 ELSE 0 END AS demo
        FROM cabinets k JOIN sites s ON s.id = k.site_id JOIN clients c ON c.id = s.client_id
       WHERE k.status = 'active' ${clientFilter}`, base)).rows;
   const ids = population.map(p => p.id);
-  // The population is passed as a JSON array of ids; the dates are $1 and $2.
+  // One seek per crash key; the population is applied here, not in the SQL (D153).
+  const inScope = new Set(ids.map(id => id.toLowerCase()));
   const crashRows = (await db.query<EventRowRaw & { cabinet_id: string }>(
     `SELECT e.cabinet_id, e.occurred_at, e.kind, e.source, ${messageOf("e")} AS message, JSON_QUERY(e.detail, '$.fields') AS fields_json
-       FROM events e WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($${n + 1})) AND e.occurred_at BETWEEN $1 AND $2 AND ${crashPredicate("e", n + 2)}`,
-    [...base, ids, ...crashArgs])).rows.map(withFields);
+       FROM OPENJSON($3) WITH (src nvarchar(512) '$[0]', id int '$[1]') k
+       INNER LOOP JOIN events e WITH (INDEX(events_error_key)) ON e.err_event_id = k.id AND e.err_source = k.src AND e.source IS NOT NULL AND e.occurred_at BETWEEN $1 AND $2`,
+    [f.from, f.to, CRASH_KEYS])).rows.filter(r => inScope.has(r.cabinet_id.toLowerCase())).map(withFields);
   const loops = (await db.query<{ cabinet_id: string; first_seen: Date }>(
     `SELECT cabinet_id, MIN(first_seen) AS first_seen FROM alerts WHERE signature = 'reboot_loop' AND cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND first_seen BETWEEN $1 AND $2 GROUP BY cabinet_id`,
     [f.from, f.to, ids])).rows;
@@ -377,6 +382,8 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
 
   const affectedCount = affected.size, unaffectedCount = population.length - affectedCount;
   const comparisons = await compareChanges(db, { ids, affected: new Map([...affected.values()].map(a => [a.id, a.firstAt])), from: f.from, to: f.to });
+  // What the affected cabinets are, beside what changed on them (D157).
+  const sharedAttributesFound = await sharedAttributes(db, { ids, affected: new Set([...affected.keys()].map(k => k.toLowerCase())) });
 
   const byId = new Map(population.map(p => [p.id, p]));
   const rows = [...affected.values()].sort((a, b) => a.firstAt.getTime() - b.firstAt.getTime()).map(a => {
@@ -402,7 +409,7 @@ export async function fleetCrashIncident(db: Queryable, f: IncidentFilter) {
     stopCodes: [...stopCodes.values()].sort((a, b) => b.cabinets - a.cabinets),
     onset: [...onset.entries()].sort().map(([hour, cabinets]) => ({ hour, cabinets })),
     byClient: groups(p => p.client), bySite: groups(p => `${p.client} / ${p.site}`), byAgentVersion: groups(p => p.agent_version ?? "unknown"),
-    comparisons, cabinetsAffected: rows,
+    comparisons, sharedAttributes: sharedAttributesFound, cabinetsAffected: rows,
   };
 }
 
@@ -420,14 +427,20 @@ export async function compareChanges(db: Queryable, o: { ids: readonly string[];
   // An error message is dropped (its key is fixed), so a flood of disk errors is one row per cabinet, not thousands.
   const spans = [...o.affected.entries()].map(([id, firstAt]) => ({ id, firstAt }));
   const changeRows = (await db.query<{ cabinet_id: string; kind: string; has_source: number; src: string | null; event_id: number | null; message: string }>(
-    `SELECT DISTINCT TOP (100000) e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN 0 ELSE 1 END AS has_source,
+    // The ids and spans go into keyed tables first: read from the JSON inside the statement, they were parsed again for every event (D153).
+    `DECLARE @ids TABLE (id uniqueidentifier PRIMARY KEY);
+     INSERT INTO @ids SELECT DISTINCT CAST(value AS uniqueidentifier) FROM OPENJSON($3);
+     DECLARE @f TABLE (id uniqueidentifier PRIMARY KEY, first_at datetime2(3));
+     INSERT INTO @f SELECT id, first_at FROM OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt');
+     SELECT DISTINCT TOP (100000) e.cabinet_id, e.kind, CASE WHEN e.source IS NULL THEN 0 ELSE 1 END AS has_source,
             JSON_VALUE(e.source, '$.source') AS src, TRY_CAST(JSON_VALUE(e.source, '$.eventId') AS int) AS event_id,
             CASE WHEN e.kind = 'change' AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($5)) THEN ${messageOf("e")} ELSE '' END AS message
-       FROM events e LEFT JOIN OPENJSON($4) WITH (id uniqueidentifier '$.id', first_at datetime2(3) '$.firstAt') f ON f.id = e.cabinet_id
-      WHERE e.cabinet_id IN (SELECT CAST(value AS uniqueidentifier) FROM OPENJSON($3)) AND e.occurred_at BETWEEN $1 AND $2
-        AND (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
-        AND e.kind IN ('change', 'error') AND LOWER(JSON_VALUE(e.source, '$.source')) + '|' + JSON_VALUE(e.source, '$.eventId') IN (SELECT value FROM OPENJSON($6))`,
-    [lookFrom, o.to, o.ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_KEYS])).rows;
+       FROM OPENJSON($6) WITH (src nvarchar(512) '$[0]', id int '$[1]') k
+       INNER LOOP JOIN events e WITH (INDEX(events_error_key)) ON e.err_event_id = k.id AND e.err_source = k.src AND e.source IS NOT NULL AND e.occurred_at BETWEEN $1 AND $2
+       JOIN @ids i ON i.id = e.cabinet_id LEFT JOIN @f f ON f.id = e.cabinet_id
+      WHERE (f.id IS NULL OR (e.occurred_at <= f.first_at AND e.occurred_at >= DATEADD(hour, -${BEFORE_HOURS}, f.first_at)))
+        AND e.kind IN ('change', 'error')`,
+    [lookFrom, o.to, o.ids, spans.map(a => ({ id: a.id, firstAt: a.firstAt.toISOString() })), MESSAGE_KEYS, COMPARED_PAIRS])).rows;
   const changes = changeRows.map(r => ({ cabinet_id: r.cabinet_id, kind: r.kind, message: r.message,
     source: r.has_source === 1 ? { log: "", source: r.src ?? "", eventId: r.event_id ?? 0 } : null as Row["source"] }));
   const keyed = new Map<string, { category: Category; key: string; affected: Set<string>; unaffected: Set<string> }>();

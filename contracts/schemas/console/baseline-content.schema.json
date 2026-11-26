@@ -22,7 +22,7 @@
         ],
         "properties": {
           "category": {
-            "$ref": "../common.schema.json#/$defs/configCategory"
+            "$ref": "../common.schema.json#/$defs/baselineCategory"
           },
           "key": {
             "$ref": "../common.schema.json#/$defs/configKey"
@@ -45,6 +45,26 @@
             },
             "additionalProperties": {
               "$ref": "../common.schema.json#/$defs/configValue"
+            }
+          },
+          "limits": {
+            "description": "A process item only: the most it may use, all its running instances together, as the cabinet's latest processes.list answer reports it.",
+            "type": "object",
+            "additionalProperties": false,
+            "minProperties": 1,
+            "properties": {
+              "cpuPercent": {
+                "description": "Share of the whole machine.",
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 100
+              },
+              "workingSetMb": {
+                "description": "Memory in use (working set), in MiB.",
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1048576
+              }
             }
           },
           "required": {
@@ -98,6 +118,55 @@
                 "required": [
                   "expect"
                 ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "category": {
+                  "const": "processes"
+                }
+              },
+              "type": "object"
+            },
+            "then": {
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "enum": [
+                    "present",
+                    "absent",
+                    "ignore"
+                  ]
+                },
+                "key": {
+                  "type": "string",
+                  "pattern": "^process:"
+                }
+              }
+            },
+            "else": {
+              "not": {
+                "required": [
+                  "limits"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "limits"
+              ],
+              "type": "object"
+            },
+            "then": {
+              "properties": {
+                "mode": {
+                  "type": "string",
+                  "const": "present"
+                }
               }
             }
           }

@@ -87,12 +87,15 @@ async function viaPlatform(c: Queryable, cabinetId: string, category: Category, 
  * is trimmed to 200 characters; one the cabinet did not give (missing, empty, or not text) leaves the stored one as it was, and with
  * neither nothing is written. The cabinet is checked before the database is touched.
  */
-export async function rememberCabinetModel(c: Queryable, cabinetId: string, reported: { manufacturer?: unknown; model?: unknown }): Promise<void> {
+export async function rememberCabinetModel(c: Queryable, cabinetId: string,
+  reported: { manufacturer?: unknown; model?: unknown; biosVersion?: unknown; bios?: { version?: unknown } | null }): Promise<void> {
   if (typeof cabinetId !== "string" || !CABINET_ID.test(cabinetId)) throw new Error("the cabinet must be a uuid");
   const text = (v: unknown) => (typeof v === "string" && v.trim().length > 0 ? v.trim().slice(0, 200) : null);
-  const manufacturer = text(reported?.manufacturer), model = text(reported?.model);
-  if (manufacturer === null && model === null) return;
-  await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model) WHERE id = $1", [cabinetId, manufacturer, model]);
+  // The BIOS version comes as biosVersion in the hardware item and as bios.version in a system.hardware answer (D157).
+  const manufacturer = text(reported?.manufacturer), model = text(reported?.model), bios = text(reported?.biosVersion ?? reported?.bios?.version);
+  if (manufacturer === null && model === null && bios === null) return;
+  await c.query("UPDATE cabinets SET manufacturer = COALESCE($2, manufacturer), model = COALESCE($3, model), bios_version = COALESCE($4, bios_version) WHERE id = $1",
+    [cabinetId, manufacturer, model, bios]);
 }
 
 /** The make and model a configuration snapshot's hardware item gives. */
