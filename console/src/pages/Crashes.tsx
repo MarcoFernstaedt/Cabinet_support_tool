@@ -1,6 +1,7 @@
 // Crash investigation (docs/spec/13-roadmap.md phase 2): on a cabinet, its blue screens, unexpected restarts and what changed
 // in the 72 hours before the first; on the Incidents page, a fleet crash incident with the cabinets that crashed compared
 // with the ones that did not. What is shown is evidence and correlation; the page says so and never names a root cause.
+import { attributeLine, standingAttributes, type SharedAttribute } from "../lib/crash-incident";
 import { causesLine, type ShutdownCauses } from "../lib/shutdown-causes";
 import { durationText, endText, type BootRecord } from "../lib/boot-history";
 import { sizeText, stopCodeText, type Minidump } from "../lib/crash-dumps";
@@ -195,6 +196,7 @@ interface Incident {
   stopCodes: { stopCode: StopCode; cabinets: number }[]; onset: { hour: string; cabinets: number }[];
   byClient: { name: string; total: number; affected: number }[]; bySite: { name: string; total: number; affected: number }[];
   comparisons: { category: string; change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }[];
+  sharedAttributes?: SharedAttribute[];
   cabinetsAffected: { id: string; name: string; site: string; client: string; demo: boolean; firstAt: string; crashes: number; unexpectedShutdowns: number; boots: number;
     stopCodes: StopCode[]; rebootLoop: boolean; online: boolean; lastHeardAt: string | null }[];
 }
@@ -206,6 +208,7 @@ function summaryText(i: Incident): string {
     `Findings: ${i.stillDown} still down, ${i.inRebootLoop} restarting repeatedly.`,
     ...i.stopCodes.slice(0, 3).map(s => `- Stop code ${s.stopCode.text}${s.stopCode.name ? ` ${s.stopCode.name}` : ""} on ${s.cabinets} cabinets.`),
     ...i.comparisons.filter(c => c.standsOut).map(c => `- Stands out: ${c.change}: ${c.affected} of ${i.affected} affected (${c.affectedShare}%) vs ${c.unaffected} of ${i.unaffected} unaffected (${c.unaffectedShare}%).`),
+    ...standingAttributes(i.sharedAttributes).map(a => `- Stands out: ${attributeLine(a, i.affected, i.unaffected)}.`),
     `Pending: confirm the cause; this is a correlation, not proof.`,
     `Next steps: check the cabinets still down first; compare one crash dump with the change that stands out.`,
   ];
@@ -220,6 +223,7 @@ interface FleetPatternReport {
   cabinets: { id: string; name: string; client: string; siteId: string; site: string; occurrences: number; firstSeen: string; lastSeen: string; state: string; agentVersion: string | null }[];
   byAgentVersion: { version: string; affected: number; total: number }[];
   commonFactors: { change: string; affected: number; affectedShare: number; unaffected: number; unaffectedShare: number; standsOut: boolean }[];
+  sharedAttributes?: SharedAttribute[];
   recovered: number; stillAffected: number;
   timeline: { hour: string; began: number; recovered: number }[];
 }
@@ -319,6 +323,9 @@ function FleetPatternReportView({ id }: { id: string }) {
       <h4>What they have in common</h4>
       {standing.length === 0 ? <p>Nothing stands out yet among the changes recorded before each cabinet's problem began.</p> : (
         <ul>{standing.map(c => <li key={c.change}><strong>{c.change}</strong>: {c.affectedShare}% of affected cabinets ({c.affected}), {c.unaffectedShare}% of the others ({c.unaffected})</li>)}</ul>)}
+      <h4>What they are</h4>
+      {standingAttributes(data.sharedAttributes).length === 0 ? <p>No model, Windows build, BIOS or agent version stands out among the affected cabinets.</p> : (
+        <ul>{standingAttributes(data.sharedAttributes).map(a => <li key={`${a.attribute}|${a.value}`}><strong>{a.name} {a.value}</strong>: {a.affectedShare}% of affected cabinets ({a.affected}), {a.unaffectedShare}% of the others ({a.unaffected})</li>)}</ul>)}
       <h4>Clients</h4>
       <ul>{data.byClient.map(c => <li key={c.client}>{c.client}: {c.sites} site{c.sites === 1 ? "" : "s"}, {c.cabinets} cabinet{c.cabinets === 1 ? "" : "s"}</li>)}</ul>
       {data.byAgentVersion.length > 1 && (<><h4>Agent versions</h4>
@@ -439,6 +446,20 @@ export function IncidentsPage() {
                   <td><Bar share={c.affectedShare} tone="crit" /> {c.affected} of {data.affected} ({c.affectedShare}%)</td>
                   <td><Bar share={c.unaffectedShare} tone="off" /> {c.unaffected} of {data.unaffected} ({c.unaffectedShare}%)</td>
                   <td>{c.standsOut && <Badge tone="warn">Stands out</Badge>}</td>
+                </tr>))}
+              </tbody>
+            </table>)}
+          <h3>What they are</h3>
+          {(data.sharedAttributes ?? []).length === 0 ? <p className="muted">No model, Windows build, BIOS or agent version was reported for these cabinets.</p> : (
+            <table className="table compact">
+              <caption className="sr-only">Model, Windows build, BIOS and agent version, crashed against other cabinets</caption>
+              <thead><tr><th scope="col">Attribute</th><th scope="col">Crashed cabinets</th><th scope="col">Other cabinets</th><th scope="col"><span className="sr-only">Stands out</span></th></tr></thead>
+              <tbody>{(data.sharedAttributes ?? []).map(a => (
+                <tr key={`${a.attribute}|${a.value}`}>
+                  <th scope="row">{a.name}: {a.value}</th>
+                  <td><Bar share={a.affectedShare} tone="crit" /> {a.affected} of {data.affected} ({a.affectedShare}%)</td>
+                  <td><Bar share={a.unaffectedShare} tone="off" /> {a.unaffected} of {data.unaffected} ({a.unaffectedShare}%)</td>
+                  <td>{a.standsOut && <Badge tone="warn">Stands out</Badge>}</td>
                 </tr>))}
               </tbody>
             </table>)}
