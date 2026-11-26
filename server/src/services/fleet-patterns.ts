@@ -8,6 +8,7 @@
 // repeats never make a second one. It resolves itself once no cabinet has the problem unresolved. The report says which clients,
 // sites and cabinets have it, since when, and what they have in common that the others do not (a driver, an update, software) from the
 // changes each cabinet recorded before its problem began. Nothing here runs anything on a cabinet.
+import { sharedAttributes, type SharedAttribute } from "./shared-attributes.js";
 import { audit, isUniqueViolation, notify, type Pool, type Queryable } from "../db/db.js";
 import { CRASH_KEY_PREFIX, cabinetsOfKind } from "./crash-clusters.js";
 import { compareChanges, type ChangeComparison } from "./crashes.js";
@@ -218,6 +219,8 @@ export interface FleetPatternReport {
   byAgentVersion: { version: string; affected: number; total: number }[];
   /** What the affected cabinets have in common that the others do not: changes in the 72 hours before each one's problem began. */
   commonFactors: ChangeComparison[];
+  /** What the affected cabinets are that the others are not: model, Windows build, BIOS and agent version (D157). */
+  sharedAttributes: SharedAttribute[];
   /** Incident response (roadmap module 42): how many have recovered (every alert of theirs in this pattern resolved) and how many have not. */
   recovered: number;
   stillAffected: number;
@@ -248,6 +251,7 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
   const firstAt = new Map(affected.map(a => [a.cabinet_id.toLowerCase(), a.first_seen]));
   const ids = [...new Set([...population.map(p => p.id.toLowerCase()), ...firstAt.keys()])];
   const commonFactors = (await compareChanges(db, { ids, affected: firstAt, from, to })).filter(c => c.category !== "error" || c.standsOut);
+  const shared = await sharedAttributes(db, { ids, affected: new Set(firstAt.keys()) });
   const clients = new Map<string, { sites: Set<string>; cabinets: number }>();
   const sites = new Map<string, { client: string; siteId: string; site: string; cabinets: number; occurrences: number; stillAffected: { id: string; name: string }[] }>();
   for (const a of affected) {
@@ -281,6 +285,7 @@ export async function fleetPatternReport(db: Queryable, id: string): Promise<Fle
       firstSeen: a.first_seen.toISOString(), lastSeen: a.last_seen.toISOString(), state: a.state, agentVersion: a.agent_version })),
     byAgentVersion: [...versions.entries()].map(([version, v]) => ({ version, ...v })).filter(v => v.affected > 0).sort((a, b) => b.affected - a.affected),
     commonFactors,
+    sharedAttributes: shared,
   };
 }
 

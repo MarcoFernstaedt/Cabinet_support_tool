@@ -1041,3 +1041,15 @@ removing and renaming a row stay with the table's owner (`admin.ts` for clients 
 writes still move behind them. The alternatives were moving every write into `admin.ts` and `cabinets.ts`, which would make them hold every
 feature's rules, or accepting the writers as exceptions, which would stop anything checking which module sets which column
 (decision-log D118).
+
+## Which attributes a fleet incident compares (roadmap module 11, plan item 2.3, 2026-11-26, decided)
+
+Taken on the owner's standing instruction: the recommended choice, recorded in docs/platform/decision-log.md, D157.
+
+- **Compared:** the model (manufacturer and model), the Windows build (from each cabinet's latest stored `system.info` answer), the
+  BIOS version and the agent version.
+- **Where:** the fleet crash incident and a fleet pattern's report. Each value is counted among the affected cabinets and among the
+  others, and stands out under the rule the change comparison already uses (D22).
+- **Stored:** the BIOS version is kept on the cabinet beside its model (migration 0041), from the reports that already set the model.
+- **Not yet:** the installed drivers and updates the cabinets share, which are read from packed configuration versions, are the next
+  piece.
