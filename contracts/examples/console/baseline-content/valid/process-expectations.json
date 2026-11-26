@@ -1,0 +1,27 @@
+{
+  "items": [
+    {
+      "category": "processes",
+      "key": "process:SyncService.exe",
+      "mode": "present",
+      "required": true,
+      "severity": "major",
+      "limits": {
+        "cpuPercent": 25,
+        "workingSetMb": 1024
+      },
+      "note": "The sync engine runs and stays within its usual load."
+    },
+    {
+      "category": "processes",
+      "key": "process:BioScanAgent.exe",
+      "mode": "present"
+    },
+    {
+      "category": "processes",
+      "key": "process:TeamViewer.exe",
+      "mode": "absent",
+      "severity": "minor"
+    }
+  ]
+}

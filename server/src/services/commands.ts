@@ -7,7 +7,7 @@ import { checkWriteAllowed, pauseOnWriteLimit } from "./writes.js";
 import { audit, auditMany, HOT_PATH_TIMEOUT_MS, safeJson, transaction, type Pool, type Queryable } from "../db/db.js";
 import { Refused } from "./errors.js";
 import { checkRetentionCutoff, inBatches, RETENTION_BATCH, type BatchOptions } from "../db/batches.js";
-import { ingestAndEvaluate } from "./config-service.js";
+import { ingestAndEvaluate, judgeProcesses } from "./config-service.js";
 import { rememberCabinetModel } from "./config-ingest.js";
 import { checkServiceRecovery, type ServiceWithRecovery } from "./service-recovery.js";
 import { CONTROLLED_OPERATIONS } from "./controlled-targets.js";
@@ -272,6 +272,9 @@ export async function storeResult(pool: Pool, cabinetId: string, result: Result)
       if (out.categories.length > 0)
         afterCommit = () => ingestAndEvaluate(pool, cabinetId, out.categories.map(k => ({ observedAt: out.takenAt, ...k })) as never, "refresh").catch(() => undefined);
     }
+    // A processes answer is what process expectations are judged on (D155), after it is safely recorded.
+    if (result.status === "succeeded" && command.operation === "processes.list")
+      afterCommit = () => judgeProcesses(pool, cabinetId).catch(() => undefined);
     // The address a cabinet reports in its network settings is kept on the cabinet, so lists of cabinets can show it.
     if (result.status === "succeeded" && command.operation === "network.config") {
       const adapters = (result.output as { adapters?: { connected: boolean; ipv4: { addresses: { address: string }[] } }[] }).adapters ?? [];

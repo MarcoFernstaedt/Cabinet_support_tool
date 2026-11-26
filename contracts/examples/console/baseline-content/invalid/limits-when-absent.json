@@ -1,0 +1,12 @@
+{
+  "items": [
+    {
+      "category": "processes",
+      "key": "process:SyncService.exe",
+      "mode": "absent",
+      "limits": {
+        "cpuPercent": 10
+      }
+    }
+  ]
+}
