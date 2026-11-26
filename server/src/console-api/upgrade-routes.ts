@@ -13,7 +13,7 @@ import { consoleBodies } from "../contracts.js";
 import { Refused } from "../services/errors.js";
 import { isArchitecture, type Architecture } from "../services/package-architecture.js";
 import { addRelease, isVersion, listReleases, receiveReleasePackage } from "../services/releases.js";
-import { changeRollout, listRollouts, rolloutTargets, setInOffice, startRollout, upgradeCandidates } from "../services/rollouts.js";
+import { changeRollout, listRollouts, rolloutTargets, setInOffice, startRollout, upgradeCandidates, type RolloutTarget } from "../services/rollouts.js";
 import { id } from "./fleet-routes.js";
 import type { ConsoleApiOptions, Guards } from "./server.js";
 
@@ -66,7 +66,7 @@ export async function upgradeRoutes(app: FastifyInstance, o: ConsoleApiOptions &
     const u = await asAdmin(request);
     const b = consoleBodies.rolloutStart.parse(request.body);
     const rolloutId = await startRollout(o.pool, u.userId, { version: b.version, architecture: b.architecture, pilotCabinetId: b.pilotCabinetId.toLowerCase(),
-      successRatePercent: b.successRatePercent, failureLimitPercent: b.failureLimitPercent }, boundTo(b.stepUpToken, b));
+      successRatePercent: b.successRatePercent, failureLimitPercent: b.failureLimitPercent, target: b.target as RolloutTarget | undefined, batches: b.batches }, boundTo(b.stepUpToken, b));
     return reply.code(201).send({ rolloutId });
   });
 
