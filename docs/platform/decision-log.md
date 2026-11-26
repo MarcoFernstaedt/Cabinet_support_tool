@@ -6,6 +6,34 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ---
 
+## D154. The fleet reports are measured at 10,000 cabinets, each against its own data, and need no change (2026-11-26)
+
+**What was left** (plan item 2.1, F21.R4): after D153, five views had not been measured with their own data:
+- open incidents and fleet differences, which D153's bench ran empty;
+- one difference's cabinets;
+- a person's activity report;
+- the blue-screen kinds and one kind's report.
+
+**What was done:** `fleet-reports-at-scale.bench.ts` seeds each view's own tables at 10,000 cabinets:
+- 101,000 incidents with 303,000 steps, a year of them, 1,000 open;
+- 150,000 baseline differences, with every category reported and every cabinet judged;
+- 200,000 commands and 200,050 alerts by 50 people;
+- 300,200 events with 50 blue screens.
+
+Every view comes in at 7 to 249 ms median. `performance.md` has the figures and the machine.
+
+**No change to the code.** The one view over budget was a blue-screen kind's report: past the pools' 10 s statement limit on
+`b52bdea`'s `crashes.ts`, and 90 ms with D153's. It shares the incident's change comparison, so D153 already fixes it.
+
+**Fleet patterns are not benched.** Their list reads at most 100 rows of `fleet_patterns`, one row for each pattern, so the fleet's
+size does not reach it.
+
+**Proven:** the bench, run on the branch with D153 and once with `b52bdea`'s `crashes.ts` for the blue-screen report's before
+figure. A measurement changes no behaviour, so it has no failing test: the bench is the record, and D153's plan test holds the
+statement it relies on.
+
+---
+
 ## D153. The fleet crash incident reads its events through events_error_key (2026-11-25)
 
 **What the code did** (at `b52bdea`; F21.R4, plan item 2.1): `fleetCrashIncident` in `server/src/services/crashes.ts` read two
