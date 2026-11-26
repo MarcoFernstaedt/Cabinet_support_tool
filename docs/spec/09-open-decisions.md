@@ -1055,3 +1055,18 @@ Taken on the owner's standing instruction: the recommended choice, recorded in d
 - **Stored:** the BIOS version is kept on the cabinet beside its model (migration 0041), from the reports that already set the model.
 - **Not yet:** the installed drivers and updates the cabinets share, which are read from packed configuration versions, are the next
   piece.
+
+## How rollouts are targeted, batched and permitted (the owner, 2026-11-26, decided)
+
+Asked by the owner, not left open: the software library deploys packages, driver files among them, to chosen cabinets by client
+and site in batched rollouts, even to a single cabinet. Agent upgrades work the same way, so both get proper canary rollouts. And it
+is "an ability that can be given permission to execute": a Tier 1 person can run one if an Admin grants it.
+
+Recorded in docs/platform/decision-log.md, D160, and planned as items 2.11 to 2.14 of docs/platform/plan-to-completion.md.
+- **One engine** for agent releases and library packages.
+- **The target and batches:** the target is one cabinet, chosen cabinets, a site or a whole client. Batch 1 is a canary the person
+  names; later batches are a size or a share.
+- **Unchanged:** the success gate, the automatic pause on failures, the step-up on every action, and the cabinet's own checks of what
+  it installs.
+- **Who:** Admins, and anyone an Admin grants "can run rollouts".
+
