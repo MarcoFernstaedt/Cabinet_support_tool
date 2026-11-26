@@ -8,7 +8,7 @@ where) or **worked out** from limits in the code; nothing here is an estimate pr
 
 ## D159. The Windows CI run finds its adapter through the default route (2026-11-26)
 
-D158 is #352's, still open, so this entry takes the next number.
+D158 went to #352, so this entry takes the next number.
 
 **What failed:**
 - **Where:** the agent-windows job's network-writes step looked up the runner's adapter with `Get-NetIPConfiguration` (at
@@ -34,6 +34,33 @@ that adapter's DNS servers (`Get-DnsClientServerAddress -InterfaceIndex`).
   fails.
 - The step itself runs only on CI's Windows runner. PowerShell 7 is not in the local container, so agent-windows on this PR is the
   first run of the new lines.
+
+---
+
+## D158. The console shows what the affected cabinets are (2026-11-26)
+
+**What was missing** after D157 (plan item 2.3): the crash incident and a fleet pattern's report answer with `sharedAttributes`, and
+the console showed none of it.
+
+**Decided:**
+- **The Incidents page:** under "What the crashed cabinets have in common", the changes table is now followed by "What they are". Each
+  model, Windows build, BIOS and agent version is shown with how many crashed cabinets and how many others have it, and the ones that
+  stand out are marked.
+- **The case notes:** the copied notes add one "Stands out" line per value that stands out, beside the changes that do.
+- **A fleet pattern's report:** "What they are" lists the values that stand out, the way it lists the changes, or says that none
+  does.
+- **The wording, free of React:** `standingAttributes` and `attributeLine` in `console/src/lib/crash-incident.ts`.
+  - An answer without the field (a server before D157) or a damaged list lists nothing and never throws.
+  - A damaged count reads as 0, never NaN or Infinity.
+
+**Proven:**
+- `console/test/shared-attributes.test.ts` (3 tests): only the values that stand out are listed; an older or damaged answer lists
+  nothing; the case-notes line, including damaged counts.
+- `server/test/console-incident-response-e2e.test.ts`, extended in a real browser: the eight affected cabinets of the seeded
+  pattern have BIOS 1.4.2, and six calm cabinets at another site have 1.5.0. The pattern's report lists "BIOS version 1.4.2: 100% of
+  affected cabinets (8), 0% of the others (0)".
+- **Red proof:** with the console source as it was on D157's branch, the browser test fails waiting for that line, and the unit
+  test has nothing to load.
 
 ---
 
